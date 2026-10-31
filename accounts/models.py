@@ -167,55 +167,40 @@ class User(AbstractUser):
         self.role = role
 
 
-#     ID
-#     first, last name
-#     email
-#     password -> Hash
-#     phone number ?
-#     role
-#     created at
-#     updated at
-#     max Time session ?
-#     set Password()
-#     check Password()
-#     has Role()
-#     Switch Role()
-#     update Contact Data()
-#     change Password()
-#     check Email()
-#     delete profil()
-#     log out idle time()
+class StudentProfile(models.Model):
+    MAJORS = [(sub, sub) for sub in sorted(FACULTIES.keys())]
 
-# StudentProfil
-#     User ID
-#     StudentProfil ID
-#     major
-#     courses
-#     semester
-#     is Tutor
-#     average rating
-#     add Course()
-#     remove Course()
-#     update Profil()
-#     add favorite Tutor()
-#     get Enrolled Courses()
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='student_profile')
+    major = models.CharField(max_length=4, choices=MAJORS, blank=True, default='')
+    semester = models.PositiveSmallIntegerField(default=1)
+    average_rating = models.DecimalField(max_digits=3, decimal_places=2, null=True, blank=True, default=None)
+    courses = models.ManyToManyField(Course, blank=True, related_name='students_enrolled') 
 
-# TutorProfil
-#     User ID
-#     Tutor Profil ID
-#     courses passed
-#     average Rating
-#     (bio)
-#     calculate Rating()
+    def __str__(self):
+        return f"StudentProfile: {self.user.email}"
 
-# Courses
-#     ID
-#     course code
-#     course name
-#     faculty
-#     (description)
-#     create Course()
-#     update Course()
-#     (get Courses from file())
-#     (get Courses from API())
-#     (check Course Code spelling())
+    def add_course(self, course):
+        self.courses.add(course)
+
+    def remove_course(self, course):
+        self.courses.remove(course)
+
+    def get_enrolled_courses(self):
+        return self.courses.all()
+
+    def update_profile(self, major=None, semester=None):
+        if major is not None:
+            if major != '' and major not in dict(self.MAJORS):
+                raise ValueError("Invalid major.")
+            self.major = major
+        if semester is not None:
+            if semester <= 0:
+                raise ValueError("Semester should be an positive integer")
+            self.semester = semester
+        self.save() 
+
+    @property
+    def display_student_rating(self):
+        if self.average_rating is None:
+            return "No rating yet"
+        return f"{self.average_rating:.2f}"

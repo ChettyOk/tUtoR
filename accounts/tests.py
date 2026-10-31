@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 
 # user import
 from django.test import SimpleTestCase, TestCase
-from accounts.models import User, UserManager
+from accounts.models import User, UserManager, StudentProfile
 from .models import User
 
 # courses tests
@@ -229,6 +229,34 @@ class UserDatabaseTests(TestCase):
         self.assertFalse(user.is_staff)
         self.assertFalse(user.is_superuser)
 
+class test_Student_Profile(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(email="example_student@uregina.ca", password="67676969")
+        self.profile = StudentProfile.objects.create(user=self.user, major="CS", semester=1)
+        self.course1 = Course.create_course("CS 476", "Software Development Project")
+        self.course2 = Course.create_course("ENER 120", "Energy")
+
+    def test_add_and_get_enrolled_courses(self):
+        self.profile.add_course(self.course1)
+        self.profile.add_course(self.course2)
+        enrolled = self.profile.get_enrolled_courses()
+        self.assertEqual(enrolled.count(), 2)
+        self.assertIn(self.course1, enrolled)
+
+    def test_remove_course(self):
+        self.profile.add_course(self.course1)
+        self.profile.remove_course(self.course1)
+        self.assertEqual(self.profile.get_enrolled_courses().count(), 0)
+
+    def test_update_profile(self):
+        self.profile.update_profile(major="ENER", semester=4)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.major, "ENER")
+        self.assertEqual(self.profile.semester, 4)
+        with self.assertRaises(ValueError):
+            self.profile.update_profile(major="ENER", semester=0)
+        with self.assertRaises(ValueError):
+            self.profile.update_profile(major="ENER", semester=-1)
 class RegisterViewTests(TestCase):
     def test_register_creates_user(self):
         response = self.client.post(reverse("register"), {
