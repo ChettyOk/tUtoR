@@ -18,12 +18,11 @@ from django.contrib import admin
 from django.contrib.auth import views as auth_views
 from django.urls import path, reverse_lazy
 from django.urls import path
+from django.urls import include, path, reverse_lazy
 
 from accounts.views import (
     login,
     logout,
-    register,
-    request_forgotten_password,
 )
 from . import views
 
@@ -33,8 +32,8 @@ urlpatterns = [
     path('', views.landing, name='landing'),
     path('login/', views.login, name='login'),
     path('logout/', logout, name='logout'),
-    path('register/', register, name='register'),
-    path('password-reset/', request_forgotten_password, name='request_forgotten_password'),
+    path('register/', views.register, name='register'),
+    path('password-reset/', views.forgot_password, name='request_forgotten_password'),
     path(
     'password-reset/confirm/<uidb64>/<token>/',
     auth_views.PasswordResetConfirmView.as_view(

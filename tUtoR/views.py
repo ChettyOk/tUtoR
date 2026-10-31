@@ -1,10 +1,61 @@
+import json
+
 from django.shortcuts import render
 
 def register(request):
-    """Register page.For Signing Up new users"""
+    """Show the sign-up page. POST still creates the account."""
+    if request.method == "POST":
+        from accounts.views import register as create_account
+
+        return create_account(request)
+
     return render(request, "register.html", {
         "site_name": "tUtoR",
+        "campus": "University of Regina",
     })
+
+
+def forgot_password(request):
+    """Show the reset request page. POST uses the existing reset function."""
+    context = {
+        "site_name": "tUtoR",
+        "campus": "University of Regina",
+        "email": "",
+        "email_error": "",
+    }
+    if request.method != "POST":
+        return render(request, "registration/password_reset_form.html", context)
+
+    from accounts.views import request_forgotten_password
+
+    response = request_forgotten_password(request)
+    context["email"] = request.POST.get("email", "").strip()
+    if response.status_code == 200:
+        return render(request, "registration/password_reset_done.html", context)
+
+    context["email_error"] = _reset_email_error(response)
+    return render(
+        request,
+        "registration/password_reset_form.html",
+        context,
+        status=response.status_code,
+    )
+
+
+def _reset_email_error(response):
+    try:
+        payload = json.loads(response.content)
+    except json.JSONDecodeError:
+        return "Enter the email address for your account."
+
+    errors = payload.get("errors", {}).get("email") or []
+    if not errors:
+        return "Enter the email address for your account."
+
+    first = errors[0]
+    if isinstance(first, dict):
+        return first.get("message") or "Enter a valid email address."
+    return str(first)
 
 
 def login(request):
