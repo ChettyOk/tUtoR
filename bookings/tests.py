@@ -1,8 +1,10 @@
 from django.urls import reverse
 from django.test import TestCase
-from accounts.models import Course
+from accounts.models import Course, User
 from django.test import Client
 from django.urls import reverse
+from bookings.pricing import (calc_price_suggestion, DEFAULT_PRICE_UNDERGRAD, DEFAULT_PRICE_GRAD, MAX_PRICE, MIN_PRICE, custom_pricing)
+from decimal import Decimal
 import time
 
 
@@ -84,7 +86,6 @@ class Latency_tests(TestCase):
         self.assertLess(response_time, 1.0)
 
     def test_filter_latency(self):
-        
         start_time = time.perf_counter()
 
         response = self.client.get(reverse('search'), {'faculty': 'Science'})
@@ -94,4 +95,46 @@ class Latency_tests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertLess(response_time, 1.0)
 
+
+
+class Test_pricing(TestCase):
+    def setUp(self):
+        self.undergrad_tutor = User.objects.create_user(email="ugrad@uregina.ca",password="67676AjdA!"
+        )
+        self.grad_tutor = User.objects.create_user(email="grad@uregina.ca",password="69ss69lH!"
+        )
+        self.grad_tutor.is_graduate = True
+
+        # Available_Slots.objects.create(tutor=self.undergrad_tutor, session_price=Decimal('20.00'))
+        # Available_Slots.objects.create(tutor=self.undergrad_tutor, session_price=Decimal('30.00'))
+
+    def test_default_undergrad(self):
+        price = calc_price_suggestion(self.undergrad_tutor)
+        self.assertEqual(price, DEFAULT_PRICE_UNDERGRAD)
+
+    def test_default_grad(self):
+        price = calc_price_suggestion(self.grad_tutor)
+        self.assertEqual(price, DEFAULT_PRICE_GRAD)
+
+    # def test_mean_calc(self):
+    #     price = calc_price_suggestion(self.undergrad_tutor)
+    #     self.assertEqual(price, Decimal('25.00'))
+
+    def test_min_price(self):
+        with self.assertRaises(ValueError) as ctx:
+            custom_pricing('1.00')
+        self.assertIn("Minimum price is $15.70/hour", str(ctx.exception))
+
+    def test_max_price(self):
+        with self.assertRaises(ValueError) as ctx:
+            custom_pricing('151.00')
+        self.assertIn("Maximum price is $150.00/hour", str(ctx.exception))
+
+    def test_custom_pricing_valid(self):
+        self.assertEqual(custom_pricing('25.50'), Decimal('25.50'))
+        self.assertEqual(custom_pricing(25.5), Decimal('25.50'))
+        with self.assertRaises(ValueError) as ctx:
+            custom_pricing('xxx')
+        self.assertIn("Price must be a valid number", str(ctx.exception))
+     
         
