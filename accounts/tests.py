@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 from django.test import SimpleTestCase, TestCase
 from accounts.models import User, UserManager, StudentProfile
 from .models import User
+from .forms import AccountProfileForm
 
 # tutor profile tests
 from accounts.models import TutorProfile
@@ -262,6 +263,72 @@ class test_Student_Profile(TestCase):
             self.profile.update_profile(major="ENER", semester=0)
         with self.assertRaises(ValueError):
             self.profile.update_profile(major="ENER", semester=-1)
+
+# profile controller tests
+class AccountProfileFormTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='profile@example.com',
+            password='ProfileTestPassword123!',
+            first_name='Marie',
+            last_name='Example',
+            phone='123456',
+        )
+
+    def test_form_contains_only_editable_account_fields(self):
+        form = AccountProfileForm(instance=self.user)
+
+        self.assertEqual(
+            list(form.fields),
+            ['first_name', 'last_name', 'phone'],
+        )
+
+    def test_valid_form_updates_existing_user(self):
+        form = AccountProfileForm(
+            data={
+                'first_name': 'Alex',
+                'last_name': 'Updated',
+                'phone': '+1 306 555 0123',
+            },
+            instance=self.user,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        saved_user = form.save()
+        self.user.refresh_from_db()
+
+        self.assertEqual(saved_user.pk, self.user.pk)
+        self.assertEqual(self.user.first_name, 'Alex')
+        self.assertEqual(self.user.last_name, 'Updated')
+        self.assertEqual(self.user.phone, '+1 306 555 0123')
+        self.assertEqual(self.user.email, 'profile@example.com')
+
+    def test_phone_can_be_empty(self):
+        form = AccountProfileForm(
+            data={
+                'first_name': 'Marie',
+                'last_name': 'Example',
+                'phone': '',
+            },
+            instance=self.user,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_phone_exceeding_model_length_is_invalid(self):
+        form = AccountProfileForm(
+            data={
+                'first_name': 'Marie',
+                'last_name': 'Example',
+                'phone': '1' * 31,
+            },
+            instance=self.user,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('phone', form.errors)
+
+# registration tests
 class RegisterViewTests(TestCase):
     def test_register_creates_user(self):
         response = self.client.post(reverse("register"), {
