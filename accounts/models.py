@@ -10,7 +10,11 @@ from .constants import FACULTIES
 from django.contrib.auth.models import AbstractUser
 from django.contrib.auth.base_user import BaseUserManager
 from django.core.exceptions import ValidationError
-from django.core.validators import validate_email
+from django.core.validators import (
+    MaxValueValidator,
+    MinValueValidator,
+    validate_email,
+)
 from django.db.models.functions import Lower
 
 class Course(models.Model):
@@ -216,6 +220,17 @@ class TutorProfile(models.Model):
         Course,
         blank=True,
         related_name='tutor_profiles',
+    )
+    average_rating = models.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        default=None,
+        validators=[
+            MinValueValidator(1),
+            MaxValueValidator(5),
+        ],
     )
 
     def __str__(self):

@@ -13,6 +13,8 @@ from .models import User
 
 # tutor profile tests
 from accounts.models import TutorProfile
+from decimal import Decimal
+from django.core.exceptions import ValidationError
 
 # courses tests
 class test_course(TestCase):
@@ -515,3 +517,44 @@ class TutorProfileModelTests(TestCase):
 
         self.assertFalse(profile.courses_passed.exists())
         self.assertTrue(Course.objects.filter(pk=course.pk).exists())
+    def test_average_rating_is_none_by_default(self):
+        profile = TutorProfile.objects.create(user=self.user)
+
+        profile.refresh_from_db()
+
+        self.assertIsNone(profile.average_rating)
+
+    def test_average_rating_accepts_valid_values(self):
+        profile = TutorProfile.objects.create(user=self.user)
+
+        for rating in (
+            Decimal('1.00'),
+            Decimal('4.25'),
+            Decimal('5.00'),
+        ):
+            with self.subTest(rating=rating):
+                profile.average_rating = rating
+
+                profile.full_clean()
+                profile.save()
+                profile.refresh_from_db()
+
+                self.assertEqual(profile.average_rating, rating)
+
+    def test_average_rating_rejects_values_outside_range(self):
+        profile = TutorProfile.objects.create(user=self.user)
+
+        for rating in (
+            Decimal('0.99'),
+            Decimal('5.01'),
+        ):
+            with self.subTest(rating=rating):
+                profile.average_rating = rating
+
+                with self.assertRaises(ValidationError) as context:
+                    profile.full_clean()
+
+                self.assertIn(
+                    'average_rating',
+                    context.exception.message_dict,
+                )
