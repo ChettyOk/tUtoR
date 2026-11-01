@@ -212,6 +212,11 @@ class TutorProfile(models.Model):
         related_name='tutor_profile',
     )
     bio = models.TextField(blank=True, default='')
+    courses_passed = models.ManyToManyField(
+        Course,
+        blank=True,
+        related_name='tutor_profiles',
+    )
 
     def __str__(self):
         return f"TutorProfile: {self.user.email}"

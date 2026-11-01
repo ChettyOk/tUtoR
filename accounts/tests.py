@@ -453,3 +453,65 @@ class TutorProfileModelTests(TestCase):
 
         self.assertEqual(profile.bio, '')
         self.assertEqual(self.user.tutor_profile, profile)
+    def test_profile_can_have_multiple_passed_courses(self):
+        profile = TutorProfile.objects.create(user=self.user)
+        course_one = Course.create_course(
+            'CS 101',
+            'Introduction to Computer Science',
+        )
+        course_two = Course.create_course(
+            'CS 202',
+            'Data Structures',
+        )
+
+        profile.courses_passed.add(course_one, course_two)
+
+        self.assertCountEqual(
+            profile.courses_passed.all(),
+            [course_one, course_two],
+        )
+
+    def test_course_can_belong_to_multiple_tutor_profiles(self):
+        profile = TutorProfile.objects.create(user=self.user)
+        other_user = User.objects.create_user(
+            email='other-tutor@example.com',
+            password='TutorTestPassword123!',
+        )
+        other_profile = TutorProfile.objects.create(user=other_user)
+        course = Course.create_course(
+            'CS 101',
+            'Introduction to Computer Science',
+        )
+
+        profile.courses_passed.add(course)
+        other_profile.courses_passed.add(course)
+
+        self.assertCountEqual(
+            course.tutor_profiles.all(),
+            [profile, other_profile],
+        )
+
+    def test_adding_same_course_does_not_duplicate_relation(self):
+        profile = TutorProfile.objects.create(user=self.user)
+        course = Course.create_course(
+            'CS 101',
+            'Introduction to Computer Science',
+        )
+
+        profile.courses_passed.add(course)
+        profile.courses_passed.add(course)
+
+        self.assertEqual(profile.courses_passed.count(), 1)
+
+    def test_removing_passed_course_keeps_course_record(self):
+        profile = TutorProfile.objects.create(user=self.user)
+        course = Course.create_course(
+            'CS 101',
+            'Introduction to Computer Science',
+        )
+        profile.courses_passed.add(course)
+
+        profile.courses_passed.remove(course)
+
+        self.assertFalse(profile.courses_passed.exists())
+        self.assertTrue(Course.objects.filter(pk=course.pk).exists())
