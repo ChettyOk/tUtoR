@@ -558,3 +558,82 @@ class TutorProfileModelTests(TestCase):
                     'average_rating',
                     context.exception.message_dict,
                 )
+
+    def test_user_cannot_have_multiple_tutor_profiles(self):
+        profile = TutorProfile.objects.create(user=self.user)
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                TutorProfile.objects.create(user=self.user)
+
+        self.assertEqual(
+            TutorProfile.objects.filter(user=self.user).count(),
+            1,
+        )
+        self.assertTrue(
+            TutorProfile.objects.filter(pk=profile.pk).exists(),
+        )
+
+    def test_deleting_user_deletes_profile_but_keeps_course(self):
+        profile = TutorProfile.objects.create(user=self.user)
+        course = Course.create_course(
+            'CS 101',
+            'Introduction to Computer Science',
+        )
+        profile.courses_passed.add(course)
+        profile_id = profile.pk
+
+        self.user.delete()
+
+        self.assertFalse(
+            TutorProfile.objects.filter(pk=profile_id).exists(),
+        )
+        self.assertTrue(
+            Course.objects.filter(pk=course.pk).exists(),
+        )
+        self.assertFalse(course.tutor_profiles.exists())
+
+    def test_deleting_profile_keeps_user_and_course(self):
+        profile = TutorProfile.objects.create(user=self.user)
+        course = Course.create_course(
+            'CS 101',
+            'Introduction to Computer Science',
+        )
+        profile.courses_passed.add(course)
+        profile_id = profile.pk
+
+        profile.delete()
+
+        self.assertFalse(
+            TutorProfile.objects.filter(pk=profile_id).exists(),
+        )
+        self.assertTrue(
+            User.objects.filter(pk=self.user.pk).exists(),
+        )
+        self.assertTrue(
+            Course.objects.filter(pk=course.pk).exists(),
+        )
+        self.assertFalse(course.tutor_profiles.exists())
+
+    def test_switching_role_keeps_tutor_profile_and_courses(self):
+        self.user.switch_role(User.Role.TUTOR)
+        self.user.save()
+
+        profile = TutorProfile.objects.create(user=self.user)
+        course = Course.create_course(
+            'CS 101',
+            'Introduction to Computer Science',
+        )
+        profile.courses_passed.add(course)
+
+        self.user.switch_role(User.Role.STUDENT)
+        self.user.save()
+        self.user.refresh_from_db()
+
+        self.assertEqual(self.user.role, User.Role.STUDENT)
+        self.assertEqual(self.user.tutor_profile.pk, profile.pk)
+        self.assertTrue(
+            self.user.tutor_profile.courses_passed.filter(
+                pk=course.pk,
+            ).exists(),
+        )
