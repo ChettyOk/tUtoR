@@ -167,9 +167,9 @@ class User(AbstractUser):
         self.role = role
 
 
+
 class StudentProfile(models.Model):
     MAJORS = [(sub, sub) for sub in sorted(FACULTIES.keys())]
-
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='student_profile')
     major = models.CharField(max_length=4, choices=MAJORS, blank=True, default='')
     semester = models.PositiveSmallIntegerField(default=1)
@@ -204,3 +204,14 @@ class StudentProfile(models.Model):
         if self.average_rating is None:
             return "No rating yet"
         return f"{self.average_rating:.2f}"
+
+class TutorProfile(models.Model):
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name='tutor_profile',
+    )
+    bio = models.TextField(blank=True, default='')
+
+    def __str__(self):
+        return f"TutorProfile: {self.user.email}"

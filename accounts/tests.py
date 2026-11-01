@@ -11,6 +11,9 @@ from django.test import SimpleTestCase, TestCase
 from accounts.models import User, UserManager, StudentProfile
 from .models import User
 
+# tutor profile tests
+from accounts.models import TutorProfile
+
 # courses tests
 class test_course(TestCase):
 
@@ -419,3 +422,34 @@ class PasswordResetFlowTests(TestCase):
             "This password reset link is invalid or has expired.",
         )
 
+
+#tutor profile tests
+class TutorProfileModelTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='tutor@example.com',
+            password='TutorTestPassword123!',
+        )
+
+    def test_create_tutor_profile_with_bio(self):
+        profile = TutorProfile.objects.create(
+            user=self.user,
+            bio='I offer tutoring for computer science courses.',
+        )
+
+        profile.refresh_from_db()
+
+        self.assertEqual(profile.user, self.user)
+        self.assertEqual(
+            profile.bio,
+            'I offer tutoring for computer science courses.',
+        )
+        self.assertEqual(self.user.tutor_profile, profile)
+
+    def test_bio_is_empty_by_default(self):
+        profile = TutorProfile.objects.create(user=self.user)
+
+        profile.refresh_from_db()
+
+        self.assertEqual(profile.bio, '')
+        self.assertEqual(self.user.tutor_profile, profile)
