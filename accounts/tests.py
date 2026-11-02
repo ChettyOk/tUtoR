@@ -791,14 +791,96 @@ class ProfileControllerTests(TestCase):
             self.user.pk,
         )
 
-    def test_profile_endpoint_rejects_post_for_now(self):
+    def test_profile_endpoint_rejects_put(self):
+        self.client.force_login(self.user)
+
+        response = self.client.put(self.url)
+
+        self.assertEqual(response.status_code, 405)
+
+    def test_valid_post_updates_own_account(self):
         self.client.force_login(self.user)
 
         response = self.client.post(
             self.url,
-            {'first_name': 'Changed'},
+            {
+                'first_name': 'Alex',
+                'last_name': 'Updated',
+                'phone': '+1 306 555 0123',
+            },
         )
 
-        self.assertEqual(response.status_code, 405)
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, 'Alex')
+        self.assertEqual(self.user.last_name, 'Updated')
+        self.assertEqual(self.user.phone, '+1 306 555 0123')
+
+    def test_invalid_post_does_not_save_account_changes(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {
+                'first_name': 'Changed',
+                'last_name': 'Updated',
+                'phone': '1' * 31,
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('phone', response.json()['errors'])
+
         self.user.refresh_from_db()
         self.assertEqual(self.user.first_name, 'Marie')
+        self.assertEqual(self.user.last_name, 'Example')
+        self.assertEqual(self.user.phone, '123456')
+
+    def test_anonymous_user_cannot_update_account(self):
+        response = self.client.post(
+            self.url,
+            {
+                'first_name': 'Changed',
+                'last_name': 'Updated',
+                'phone': '',
+            },
+        )
+
+        self.assertEqual(response.status_code, 401)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, 'Marie')
+
+    def test_post_ignores_other_user_and_protected_fields(self):
+        other_user = User.objects.create_user(
+            email='other@example.com',
+            password='OtherTestPassword123!',
+            first_name='Other',
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {
+                'first_name': 'Alex',
+                'last_name': 'Updated',
+                'phone': '',
+                'user_id': other_user.pk,
+                'email': 'changed@example.com',
+                'role': User.Role.TUTOR,
+                'is_staff': 'true',
+                'is_superuser': 'true',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        self.user.refresh_from_db()
+        other_user.refresh_from_db()
+
+        self.assertEqual(self.user.first_name, 'Alex')
+        self.assertEqual(self.user.email, 'profile@example.com')
+        self.assertEqual(self.user.role, User.Role.STUDENT)
+        self.assertFalse(self.user.is_staff)
+        self.assertFalse(self.user.is_superuser)
+        self.assertEqual(other_user.first_name, 'Other')

@@ -2,11 +2,16 @@ from django.shortcuts import render
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.http import JsonResponse
-from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.http import (
+    require_GET,
+    require_POST,
+    require_http_methods,
+)
 from django.contrib.auth import authenticate, login as auth_login, logout as auth_logout
 from django.contrib.auth.forms import PasswordResetForm
 
 from .models import User
+from .forms import AccountProfileForm
 
 # Create your views here.
 # functions that interact with the user
@@ -94,15 +99,33 @@ def request_forgotten_password(request):
     )
 
 # Profile Controller
-@require_GET
+@require_http_methods(['GET', 'POST'])
 def get_my_profile(request):
     if not request.user.is_authenticated:
         return JsonResponse(
-            {'error': 'Please log in to view your profile.'},
+            {'error': 'Please log in to view or update your profile.'},
             status=401,
         )
 
     user = request.user
+
+    if request.method == 'POST':
+        form = AccountProfileForm(
+            data=request.POST,
+            instance=user,
+        )
+
+        if not form.is_valid():
+            return JsonResponse(
+                {'errors': form.errors.get_json_data()},
+                status=400,
+            )
+
+        form.save()
+
+        return JsonResponse({
+            'message': 'Account profile updated.',
+        })
 
     return JsonResponse({
         'account': {
