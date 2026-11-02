@@ -7,6 +7,15 @@ from bookings.pricing import (calc_price_suggestion, DEFAULT_PRICE_UNDERGRAD, DE
 from decimal import Decimal
 import time
 
+from datetime import datetime, timedelta
+from decimal import Decimal
+from django.contrib.auth import get_user_model
+from bookings.models import Booking
+
+from unittest.mock import MagicMock
+from bookings.services import create_booking_request, get_user_bookings, DoubleBookingError
+import threading
+from django.db import connection
 
 class test_filter_courses_system(TestCase):
     
@@ -136,5 +145,158 @@ class Test_pricing(TestCase):
         with self.assertRaises(ValueError) as ctx:
             custom_pricing('xxx')
         self.assertIn("Price must be a valid number", str(ctx.exception))
-     
         
+User = get_user_model()      
+class test_booking_model(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(email="student@uregina.ca", password="6767677jd!")
+        self.tutor = User.objects.create_user(email="tutor@uregina.ca", password="6767677jd!")
+        self.course = Course.create_course("CS 476", "Software Engineering")
+
+    def create_booking(self, status=Booking.Status.PENDING):
+        return Booking.objects.create(student=self.student, tutor=self.tutor, course=self.course, student_note="WoHOOOOW", session_price=Decimal('30.00'), status=status)
+
+    def test_booking_creation(self):
+        booking = self.create_booking()
+        self.assertEqual(booking.status, Booking.Status.PENDING)
+        self.assertEqual(booking.session_price, Decimal('30.00'))
+        self.assertIsNotNone(booking.request_time)
+        self.assertIn("student@uregina.ca", str(booking))
+        self.assertIn("tutor@uregina.ca", str(booking))
+        self.assertEqual(booking.course, self.course)
+
+    def test_confirm(self):
+        booking = self.create_booking()
+        booking.confirm()
+        self.assertEqual(booking.status, Booking.Status.CONFIRMED)
+        with self.assertRaises(ValueError):
+            booking.confirm()
+
+    def test_cancel_student(self):
+        booking = self.create_booking()
+        booking.cancel(cancelled_by='student', reason='Fortnite')
+        self.assertEqual(booking.status, Booking.Status.CANCELLED_STUDENT)
+        self.assertEqual(booking.cancellation_reason, 'Fortnite')
+        self.assertIsNotNone(booking.cancel_time)
+
+    def test_cancel_tutor(self):
+        booking = self.create_booking()
+        booking.cancel(cancelled_by='tutor', reason='kein bock')
+        self.assertEqual(booking.status, Booking.Status.CANCELLED_TUTOR)
+        self.assertEqual(booking.cancellation_reason, 'kein bock')
+
+    def test_cancel_error(self):
+        booking = self.create_booking()
+        booking.cancel(cancelled_by='student')
+        with self.assertRaises(ValueError):
+            booking.cancel(cancelled_by='tutor')
+        booking2 = self.create_booking()
+        with self.assertRaises(ValueError):
+            booking2.cancel(cancelled_by='grandma')
+
+    def test_completed(self):
+        booking = self.create_booking()
+        with self.assertRaises(ValueError):
+            booking.completed()
+        booking.confirm()
+        booking.completed()
+        self.assertEqual(booking.status, Booking.Status.COMPLETED)
+        self.assertIsNotNone(booking.complete_time)
+
+    def test_calc_price_per_session(self):
+        start_time = datetime(2026, 11, 1, 14, 0, 0)
+        end_time = datetime(2026, 11, 1, 15, 30, 0) # = 1,5h
+        price = Booking.calc_price_per_session(Decimal('20.00'), start_time, end_time)
+        self.assertEqual(price, Decimal('30.00'))
+        with self.assertRaises(ValueError):
+            Booking.calc_price_per_session(Decimal('20.00'), end_time, start_time)
+
+    def test_unblock_booking(self):
+        booking = self.create_booking()
+        booking.unblock_booking()  
+
+class test_create_booking(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(email="student@uregina.ca", password="67676767!jffhH")
+        self.student2 = User.objects.create_user(email="student2@uregina.ca", password="676767jjJJ!")
+        self.tutor = User.objects.create_user(email="tutor@uregina.ca", password="67676767!jffhH")
+        self.course1 = Course.create_course("ENER 202", "Energy")
+        self.course2 = Course.create_course("CS 476", "SW-Project")
+        self.course3 = Course.create_course("CS 477", "SW-Project2")
+        # can be replaced with actual available_slot funciton once available
+        class Dummy_Slot: 
+            objects = MagicMock()
+        self.mock_slot = Dummy_Slot()
+        self.mock_slot.id = 1
+        self.mock_slot.status = 'available'
+        self.mock_slot.price_per_hour = Decimal('20.00')
+        self.mock_slot.start_time = datetime(2026, 11, 1, 14, 0, 0)
+        self.mock_slot.end_time = datetime(2026, 11, 1, 15, 30, 0) #1,5h
+        self.mock_slot.save = MagicMock()
+        Dummy_Slot.objects.select_for_update.return_value.get.return_value = self.mock_slot 
+
+    def test_create_booking(self):
+        booking = create_booking_request(
+            student=self.student,
+            tutor=self.tutor,
+            slot=self.mock_slot,
+            course=self.course1,
+            student_note="Hilfeeeeeeeeeeeeeeeee wipfi kann nicht erklären")
+        self.assertEqual(booking.status, Booking.Status.CONFIRMED)
+        self.assertEqual(booking.session_price, Decimal('30.00'))
+        self.assertEqual(self.mock_slot.status, 'booked')
+        self.mock_slot.save.assert_called_once()
+
+    def test_double_booking_protection(self):
+        self.mock_slot.status = 'booked'
+        with self.assertRaises(DoubleBookingError):
+            create_booking_request(
+                student=self.student,
+                tutor=self.tutor,
+                slot=self.mock_slot,
+                course=self.course1,
+                student_note="Hilfeeeeeeeeeeeeeeeee wipfi kann nicht erklären")
+    
+    def test_get_user_bookings(self):
+        Booking.objects.create(student=self.student, tutor=self.tutor, course=self.course1, session_price=Decimal('20.00'))
+        Booking.objects.create(student=self.student, tutor=self.tutor, course=self.course2, session_price=Decimal('25.00'))
+        Booking.objects.create(student=self.tutor, tutor=self.student, course=self.course3, session_price=Decimal('30.00'))
+
+        user_bookings = get_user_bookings(self.student)
+        self.assertEqual(user_bookings['student_bookings'].count(), 2)
+        self.assertEqual(user_bookings['tutor_bookings'].count(), 1)
+        self.assertEqual(user_bookings['all_bookings'].count(), 3)
+        self.assertEqual(user_bookings['tutor_bookings'].first().course, self.course3)
+
+    # uncomment once available_slots becomes available
+    # def test_simultaneous_booking(self):
+    #     slot = Available_Slots.objects.create(
+    #         tutor=self.tutor,
+    #         status='available',
+    #         price_per_hour=Decimal('20.00'),
+    #         start_time=datetime(2026, 11, 1, 14, 0, 0),
+    #         end_time=datetime(2026, 11, 1, 15, 0, 0))
+    
+    #     results = []
+    #     errors = []
+    
+    #     barrier = threading.Barrier(2)
+    #     def book_slot(user):
+    #         connection.close()
+    #         barrier.wait()
+    #         try:
+    #             b = create_booking_request(student=user, tutor=self.tutor, slot=slot)
+    #             results.append(b)
+    #         except DoubleBookingError as e:
+    #             errors.append(e)
+    
+    #     t1 = threading.Thread(target=book_slot, args=(self.student,))
+    #     t2 = threading.Thread(target=book_slot, args=(self.student2,))
+    
+    #     t1.start()
+    #     t2.start()
+    #     t1.join()
+    #     t2.join()
+
+    #     self.assertEqual(len(results), 1)
+    #     self.assertEqual(len(errors), 1)
