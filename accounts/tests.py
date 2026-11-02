@@ -7,10 +7,13 @@ from django.test import override_settings
 from urllib.parse import urlsplit
 
 # user import
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, RequestFactory
 from accounts.models import User, UserManager, StudentProfile
 from .models import User
 from .forms import AccountProfileForm, StudentProfileForm, TutorProfileForm
+import json
+from .views import _update_tutor_profile
+
 
 # tutor profile tests
 from accounts.models import TutorProfile
@@ -1416,3 +1419,146 @@ class TutorProfileFormTests(TestCase):
 
         self.assertEqual(self.profile.user_id, self.user.pk)
         self.assertIsNone(self.profile.average_rating)
+
+class TutorProfileUpdateTests(TestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+        self.user = User.objects.create_user(
+            email='tutor-update@example.com',
+            password='TutorUpdatePassword123!',
+        )
+        self.course = Course.create_course(
+            'CS 476',
+            'Software Development Project',
+        )
+
+    def submit(self, data):
+        request = self.factory.post('/', data=data)
+        request.user = self.user
+        return _update_tutor_profile(request)
+
+    def test_valid_request_creates_profile(self):
+        response = self.submit({
+            'bio': 'I offer computer science tutoring.',
+            'courses_passed': [str(self.course.pk)],
+        })
+
+        self.assertEqual(response.status_code, 200)
+
+        profile = TutorProfile.objects.get(user=self.user)
+        self.assertEqual(
+            profile.bio,
+            'I offer computer science tutoring.',
+        )
+        self.assertEqual(
+            list(profile.courses_passed.all()),
+            [self.course],
+        )
+
+    def test_valid_request_updates_existing_profile(self):
+        profile = TutorProfile.objects.create(
+            user=self.user,
+            bio='Original bio.',
+        )
+
+        response = self.submit({
+            'bio': 'Updated bio.',
+            'courses_passed': [str(self.course.pk)],
+        })
+
+        self.assertEqual(response.status_code, 200)
+        profile.refresh_from_db()
+
+        self.assertEqual(profile.bio, 'Updated bio.')
+        self.assertEqual(
+            TutorProfile.objects.filter(user=self.user).count(),
+            1,
+        )
+        self.assertTrue(
+            profile.courses_passed.filter(
+                pk=self.course.pk,
+            ).exists(),
+        )
+
+    def test_invalid_request_does_not_create_profile(self):
+        response = self.submit({
+            'bio': 'Invalid request.',
+            'courses_passed': ['not-a-course-id'],
+        })
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(
+            TutorProfile.objects.filter(user=self.user).exists(),
+        )
+
+        body = json.loads(response.content)
+        self.assertIn('courses_passed', body['errors'])
+
+    def test_invalid_request_preserves_existing_profile(self):
+        profile = TutorProfile.objects.create(
+            user=self.user,
+            bio='Original bio.',
+        )
+        profile.courses_passed.add(self.course)
+
+        response = self.submit({
+            'bio': 'Must not be saved.',
+            'courses_passed': ['not-a-course-id'],
+        })
+
+        self.assertEqual(response.status_code, 400)
+        profile.refresh_from_db()
+
+        self.assertEqual(profile.bio, 'Original bio.')
+        self.assertEqual(
+            list(profile.courses_passed.all()),
+            [self.course],
+        )
+
+    def test_empty_fields_clear_existing_profile_data(self):
+        profile = TutorProfile.objects.create(
+            user=self.user,
+            bio='Original bio.',
+        )
+        profile.courses_passed.add(self.course)
+
+        response = self.submit({
+            'bio': '',
+            'courses_passed': [],
+        })
+
+        self.assertEqual(response.status_code, 200)
+        profile.refresh_from_db()
+
+        self.assertEqual(profile.bio, '')
+        self.assertFalse(profile.courses_passed.exists())
+        self.assertTrue(
+            Course.objects.filter(pk=self.course.pk).exists(),
+        )
+
+    def test_submitted_owner_and_rating_are_ignored(self):
+        other_user = User.objects.create_user(
+            email='other-tutor-update@example.com',
+            password='OtherTutorPassword123!',
+        )
+        original_role = self.user.role
+
+        response = self.submit({
+            'bio': 'My tutor bio.',
+            'courses_passed': [],
+            'user': str(other_user.pk),
+            'average_rating': '5.00',
+            'role': User.Role.TUTOR,
+        })
+
+        self.assertEqual(response.status_code, 200)
+
+        profile = TutorProfile.objects.get(user=self.user)
+        self.assertEqual(profile.user_id, self.user.pk)
+        self.assertIsNone(profile.average_rating)
+        self.assertFalse(
+            TutorProfile.objects.filter(user=other_user).exists(),
+        )
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.role, original_role)

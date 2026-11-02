@@ -11,8 +11,8 @@ from django.contrib.auth import authenticate, login as auth_login, logout as aut
 from django.contrib.auth.forms import PasswordResetForm
 from django.db import transaction
 
-from .models import User, StudentProfile
-from .forms import AccountProfileForm, StudentProfileForm
+from .models import User, StudentProfile, TutorProfile
+from .forms import AccountProfileForm, StudentProfileForm, TutorProfileForm
 
 # Create your views here.
 # functions that interact with the user
@@ -115,6 +115,9 @@ def get_my_profile(request):
 
         if profile_type == 'student':
             return _update_student_profile(user, request.POST)
+
+        if profile_type == 'tutor':
+            return _update_tutor_profile(request)
 
         if profile_type != 'account':
             return JsonResponse(
@@ -225,6 +228,39 @@ def switch_role(request):
         'message': 'Active role updated.',
         'role': user.role,
     })
+
+def _update_tutor_profile(request):
+    if not request.user.is_authenticated:
+        return JsonResponse(
+            {'error': 'Authentication required.'},
+            status=401,
+        )
+
+    profile = TutorProfile.objects.filter(
+        user=request.user,
+    ).first()
+
+    if profile is None:
+        profile = TutorProfile(user=request.user)
+
+    form = TutorProfileForm(
+        data=request.POST,
+        instance=profile,
+    )
+
+    if not form.is_valid():
+        return JsonResponse(
+            {'errors': form.errors.get_json_data()},
+            status=400,
+        )
+
+    with transaction.atomic():
+        form.save()
+
+    return JsonResponse(
+        {'message': 'Tutor profile updated.'},
+        status=200,
+    )
 #     get My Profile()
 #     update Student Profil()
 #     update Tutor Profil()
