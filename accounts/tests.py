@@ -993,3 +993,146 @@ class StudentProfileFormTests(TestCase):
         self.assertTrue(
             Course.objects.filter(pk=self.course.pk).exists(),
         )
+
+class StudentProfileControllerTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='student-controller@example.com',
+            password='StudentTestPassword123!',
+            first_name='Marie',
+            phone='123456',
+        )
+        self.course = Course.create_course(
+            'CS 476',
+            'Software Development Project',
+        )
+        self.url = reverse('profile')
+
+    def test_valid_post_creates_student_profile(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {
+                'profile_type': 'student',
+                'major': 'CS',
+                'semester': '2',
+                'courses': [str(self.course.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        profile = StudentProfile.objects.get(user=self.user)
+        self.assertEqual(profile.major, 'CS')
+        self.assertEqual(profile.semester, 2)
+        self.assertTrue(
+            profile.courses.filter(pk=self.course.pk).exists(),
+        )
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, 'Marie')
+        self.assertEqual(self.user.phone, '123456')
+
+    def test_valid_post_updates_existing_profile(self):
+        profile = StudentProfile.objects.create(
+            user=self.user,
+            major='CS',
+            semester=1,
+        )
+        profile.courses.add(self.course)
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {
+                'profile_type': 'student',
+                'major': 'ENER',
+                'semester': '3',
+                'courses': [],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        profile.refresh_from_db()
+        self.assertEqual(profile.major, 'ENER')
+        self.assertEqual(profile.semester, 3)
+        self.assertFalse(profile.courses.exists())
+        self.assertEqual(
+            StudentProfile.objects.filter(user=self.user).count(),
+            1,
+        )
+
+    def test_invalid_post_does_not_create_profile(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {
+                'profile_type': 'student',
+                'major': 'CS',
+                'semester': '0',
+                'courses': [],
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('semester', response.json()['errors'])
+        self.assertFalse(
+            StudentProfile.objects.filter(user=self.user).exists(),
+        )
+
+    def test_invalid_post_preserves_existing_profile(self):
+        profile = StudentProfile.objects.create(
+            user=self.user,
+            major='CS',
+            semester=1,
+        )
+        profile.courses.add(self.course)
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {
+                'profile_type': 'student',
+                'major': 'ENER',
+                'semester': '0',
+                'courses': [],
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        profile.refresh_from_db()
+        self.assertEqual(profile.major, 'CS')
+        self.assertEqual(profile.semester, 1)
+        self.assertTrue(
+            profile.courses.filter(pk=self.course.pk).exists(),
+        )
+
+    def test_anonymous_user_cannot_create_student_profile(self):
+        response = self.client.post(
+            self.url,
+            {
+                'profile_type': 'student',
+                'major': 'CS',
+                'semester': '1',
+                'courses': [],
+            },
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertFalse(StudentProfile.objects.exists())
+
+    def test_unknown_profile_type_does_not_change_account(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {
+                'profile_type': 'unknown',
+                'first_name': 'Changed',
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, 'Marie')

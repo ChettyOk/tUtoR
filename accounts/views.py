@@ -9,9 +9,10 @@ from django.views.decorators.http import (
 )
 from django.contrib.auth import authenticate, login as auth_login, logout as auth_logout
 from django.contrib.auth.forms import PasswordResetForm
+from django.db import transaction
 
-from .models import User
-from .forms import AccountProfileForm
+from .models import User, StudentProfile
+from .forms import AccountProfileForm, StudentProfileForm
 
 # Create your views here.
 # functions that interact with the user
@@ -110,6 +111,19 @@ def get_my_profile(request):
     user = request.user
 
     if request.method == 'POST':
+        profile_type = request.POST.get('profile_type', 'account')
+
+        if profile_type == 'student':
+            return _update_student_profile(user, request.POST)
+
+        if profile_type != 'account':
+            return JsonResponse(
+                {'errors': {
+                    'profile_type': ['Choose a valid profile type.'],
+                }},
+                status=400,
+            )
+
         form = AccountProfileForm(
             data=request.POST,
             instance=user,
@@ -136,6 +150,30 @@ def get_my_profile(request):
             'phone': user.phone,
             'role': user.role,
         },
+    })
+
+def _update_student_profile(user, data):
+    profile = StudentProfile.objects.filter(user=user).first()
+
+    if profile is None:
+        profile = StudentProfile(user=user)
+
+    form = StudentProfileForm(
+        data=data,
+        instance=profile,
+    )
+
+    if not form.is_valid():
+        return JsonResponse(
+            {'errors': form.errors.get_json_data()},
+            status=400,
+        )
+
+    with transaction.atomic():
+        form.save()
+
+    return JsonResponse({
+        'message': 'Student profile updated.',
     })
 #     get My Profile()
 #     update Student Profil()
