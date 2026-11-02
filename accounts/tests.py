@@ -637,3 +637,33 @@ class TutorProfileModelTests(TestCase):
                 pk=course.pk,
             ).exists(),
         )
+
+    def test_display_tutor_rating_without_rating(self):
+        profile = TutorProfile.objects.create(user=self.user)
+
+        self.assertEqual(
+            profile.display_tutor_rating,
+            "No rating yet",
+        )
+
+    def test_display_tutor_rating_with_rating(self):
+        profile = TutorProfile.objects.create(
+            user=self.user,
+            average_rating=Decimal("4.25"),
+        )
+
+        self.assertEqual(
+            profile.display_tutor_rating,
+            "4.25",
+        )
+
+    def test_display_tutor_rating_uses_two_decimal_places(self):
+        profile = TutorProfile.objects.create(
+            user=self.user,
+            average_rating=Decimal("4.5"),
+        )
+
+        self.assertEqual(
+            profile.display_tutor_rating,
+            "4.50",
+        )

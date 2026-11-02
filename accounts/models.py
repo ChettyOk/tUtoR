@@ -235,3 +235,9 @@ class TutorProfile(models.Model):
 
     def __str__(self):
         return f"TutorProfile: {self.user.email}"
+
+    @property
+    def display_tutor_rating(self):
+        if self.average_rating is None:
+            return "No rating yet"
+        return f"{self.average_rating:.2f}"
