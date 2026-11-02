@@ -775,6 +775,7 @@ class ProfileControllerTests(TestCase):
                     'role': User.Role.STUDENT,
                 },
                 'student_profile': None,
+                'tutor_profile': None,
             },
         )
 
@@ -1562,3 +1563,145 @@ class TutorProfileUpdateTests(TestCase):
 
         self.user.refresh_from_db()
         self.assertEqual(self.user.role, original_role)
+
+class TutorProfileGetTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='tutor-get@example.com',
+            password='TutorGetPassword123!',
+            role=User.Role.STUDENT,
+        )
+        self.course1 = Course.create_course(
+            'CS 476',
+            'Software Development Project',
+        )
+        self.course2 = Course.create_course(
+            'MATH 110',
+            'Calculus I',
+        )
+        self.url = reverse('profile')
+
+    def test_get_returns_own_tutor_profile_data(self):
+        profile = TutorProfile.objects.create(
+            user=self.user,
+            bio='I offer tutoring for computer science.',
+        )
+        profile.courses_passed.add(
+            self.course2,
+            self.course1,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()['tutor_profile'],
+            {
+                'bio': 'I offer tutoring for computer science.',
+                'courses_passed': sorted([
+                    self.course1.pk,
+                    self.course2.pk,
+                ]),
+                'average_rating': None,
+            },
+        )
+
+    def test_get_without_tutor_profile_does_not_create_one(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()['tutor_profile'])
+        self.assertFalse(
+            TutorProfile.objects.filter(user=self.user).exists(),
+        )
+
+    def test_get_does_not_return_another_users_tutor_profile(self):
+        other_user = User.objects.create_user(
+            email='other-tutor-get@example.com',
+            password='OtherTutorGetPassword123!',
+        )
+        other_profile = TutorProfile.objects.create(
+            user=other_user,
+            bio='Another tutor bio.',
+        )
+        other_profile.courses_passed.add(self.course1)
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            self.url,
+            {'user_id': other_user.pk},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()['account']['id'],
+            self.user.pk,
+        )
+        self.assertIsNone(response.json()['tutor_profile'])
+        self.assertFalse(
+            TutorProfile.objects.filter(user=self.user).exists(),
+        )
+
+    def test_get_returns_rating_as_decimal_string(self):
+        TutorProfile.objects.create(
+            user=self.user,
+            bio='Rated tutor.',
+            average_rating=Decimal('4.25'),
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()['tutor_profile']['average_rating'],
+            '4.25',
+        )
+
+    def test_get_returns_both_profiles_regardless_of_active_role(self):
+        student_profile = StudentProfile.objects.create(
+            user=self.user,
+            major='CS',
+            semester=2,
+        )
+        student_profile.courses.add(self.course1)
+
+        tutor_profile = TutorProfile.objects.create(
+            user=self.user,
+            bio='Student and tutor.',
+        )
+        tutor_profile.courses_passed.add(self.course2)
+
+        self.client.force_login(self.user)
+
+        for role in (User.Role.STUDENT, User.Role.TUTOR):
+            with self.subTest(role=role):
+                self.user.role = role
+                self.user.save(update_fields=['role'])
+
+                response = self.client.get(self.url)
+
+                self.assertEqual(response.status_code, 200)
+                body = response.json()
+
+                self.assertEqual(body['account']['role'], role)
+                self.assertEqual(
+                    body['student_profile'],
+                    {
+                        'major': 'CS',
+                        'semester': 2,
+                        'courses': [self.course1.pk],
+                        'average_rating': None,
+                    },
+                )
+                self.assertEqual(
+                    body['tutor_profile'],
+                    {
+                        'bio': 'Student and tutor.',
+                        'courses_passed': [self.course2.pk],
+                        'average_rating': None,
+                    },
+                )

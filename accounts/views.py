@@ -10,6 +10,7 @@ from django.views.decorators.http import (
 from django.contrib.auth import authenticate, login as auth_login, logout as auth_logout
 from django.contrib.auth.forms import PasswordResetForm
 from django.db import transaction
+from decimal import Decimal
 
 from .models import User, StudentProfile, TutorProfile
 from .forms import AccountProfileForm, StudentProfileForm, TutorProfileForm
@@ -163,6 +164,24 @@ def get_my_profile(request):
             ),
         }
 
+    tutor_profile = TutorProfile.objects.filter(user=user).first()
+    tutor_data = None
+
+    if tutor_profile is not None:
+        tutor_data = {
+            'bio': tutor_profile.bio,
+            'courses_passed': list(
+                tutor_profile.courses_passed
+                .order_by('pk')
+                .values_list('pk', flat=True)
+            ),
+            'average_rating': (
+                str(tutor_profile.average_rating)
+                if tutor_profile.average_rating is not None
+                else None
+            ),
+        }
+
     return JsonResponse({
         'account': {
             'id': user.pk,
@@ -173,6 +192,7 @@ def get_my_profile(request):
             'role': user.role,
         },
         'student_profile': student_data,
+        'tutor_profile': tutor_data,
     })
 
 
