@@ -1,4 +1,3 @@
-from django.test import TestCase
 from .models import Course
 from django.urls import reverse
 from django.db import IntegrityError, transaction
@@ -9,7 +8,6 @@ from urllib.parse import urlsplit
 # user import
 from django.test import SimpleTestCase, TestCase, RequestFactory
 from accounts.models import User, UserManager, StudentProfile
-from .models import User
 from .forms import AccountProfileForm, StudentProfileForm, TutorProfileForm
 import json
 from .views import _update_tutor_profile
@@ -1705,3 +1703,270 @@ class TutorProfileGetTests(TestCase):
                         'average_rating': None,
                     },
                 )
+
+class CrossProfileRegressionTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='cross-profile@example.com',
+            password='CrossProfilePassword123!',
+            first_name='Marie',
+            last_name='Example',
+            phone='123456',
+            role=User.Role.STUDENT,
+        )
+
+        self.student_course = Course.create_course(
+            'CS 476',
+            'Software Development Project',
+        )
+        self.tutor_course = Course.create_course(
+            'MATH 110',
+            'Calculus I',
+        )
+        self.new_course = Course.create_course(
+            'ENER 120',
+            'Energy',
+        )
+
+        self.student_profile = StudentProfile.objects.create(
+            user=self.user,
+            major='CS',
+            semester=2,
+            average_rating=Decimal('4.00'),
+        )
+        self.student_profile.courses.add(self.student_course)
+
+        self.tutor_profile = TutorProfile.objects.create(
+            user=self.user,
+            bio='Original tutor bio.',
+            average_rating=Decimal('4.25'),
+        )
+        self.tutor_profile.courses_passed.add(self.tutor_course)
+
+        self.profile_url = reverse('profile')
+        self.role_url = reverse('switch_role')
+
+    def assert_account_unchanged(self):
+        self.user.refresh_from_db()
+
+        self.assertEqual(self.user.first_name, 'Marie')
+        self.assertEqual(self.user.last_name, 'Example')
+        self.assertEqual(self.user.phone, '123456')
+        self.assertEqual(
+            self.user.email,
+            'cross-profile@example.com',
+        )
+        self.assertEqual(self.user.role, User.Role.STUDENT)
+        self.assertFalse(self.user.is_staff)
+        self.assertFalse(self.user.is_superuser)
+
+    def assert_student_profile_unchanged(self):
+        self.student_profile.refresh_from_db()
+
+        self.assertEqual(
+            self.student_profile.user_id,
+            self.user.pk,
+        )
+        self.assertEqual(self.student_profile.major, 'CS')
+        self.assertEqual(self.student_profile.semester, 2)
+        self.assertEqual(
+            self.student_profile.average_rating,
+            Decimal('4.00'),
+        )
+        self.assertEqual(
+            set(
+                self.student_profile.courses.values_list(
+                    'pk',
+                    flat=True,
+                )
+            ),
+            {self.student_course.pk},
+        )
+
+    def assert_tutor_profile_unchanged(self):
+        self.tutor_profile.refresh_from_db()
+
+        self.assertEqual(
+            self.tutor_profile.user_id,
+            self.user.pk,
+        )
+        self.assertEqual(
+            self.tutor_profile.bio,
+            'Original tutor bio.',
+        )
+        self.assertEqual(
+            self.tutor_profile.average_rating,
+            Decimal('4.25'),
+        )
+        self.assertEqual(
+            set(
+                self.tutor_profile.courses_passed.values_list(
+                    'pk',
+                    flat=True,
+                )
+            ),
+            {self.tutor_course.pk},
+        )
+
+    def test_role_switch_preserves_both_profiles_and_courses(self):
+        self.client.force_login(self.user)
+
+        for role in (User.Role.TUTOR, User.Role.STUDENT):
+            with self.subTest(role=role):
+                response = self.client.post(
+                    self.role_url,
+                    {'role': role},
+                )
+
+                self.assertEqual(response.status_code, 200)
+                self.user.refresh_from_db()
+                self.assertEqual(self.user.role, role)
+
+                self.assert_student_profile_unchanged()
+                self.assert_tutor_profile_unchanged()
+
+                self.assertEqual(
+                    StudentProfile.objects.filter(
+                        user=self.user,
+                    ).count(),
+                    1,
+                )
+                self.assertEqual(
+                    TutorProfile.objects.filter(
+                        user=self.user,
+                    ).count(),
+                    1,
+                )
+
+    def test_tutor_post_updates_only_tutor_fields(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.profile_url,
+            {
+                'profile_type': 'tutor',
+                'bio': 'Updated tutor bio.',
+                'courses_passed': [str(self.new_course.pk)],
+                'first_name': 'Must not change',
+                'phone': '999999',
+                'major': 'ENER',
+                'semester': '9',
+                'courses': [str(self.new_course.pk)],
+                'average_rating': '1.00',
+                'role': User.Role.TUTOR,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.tutor_profile.refresh_from_db()
+
+        self.assertEqual(
+            self.tutor_profile.bio,
+            'Updated tutor bio.',
+        )
+        self.assertEqual(
+            set(
+                self.tutor_profile.courses_passed.values_list(
+                    'pk',
+                    flat=True,
+                )
+            ),
+            {self.new_course.pk},
+        )
+        self.assertEqual(
+            self.tutor_profile.average_rating,
+            Decimal('4.25'),
+        )
+        self.assertEqual(
+            self.tutor_profile.user_id,
+            self.user.pk,
+        )
+        self.assertEqual(
+            TutorProfile.objects.filter(user=self.user).count(),
+            1,
+        )
+
+        self.assert_account_unchanged()
+        self.assert_student_profile_unchanged()
+
+    def test_student_post_preserves_account_and_tutor_profile(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.profile_url,
+            {
+                'profile_type': 'student',
+                'major': 'ENER',
+                'semester': '3',
+                'courses': [str(self.new_course.pk)],
+                'bio': 'Must not change tutor bio.',
+                'courses_passed': [str(self.new_course.pk)],
+                'average_rating': '1.00',
+                'first_name': 'Must not change',
+                'role': User.Role.TUTOR,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.student_profile.refresh_from_db()
+
+        self.assertEqual(self.student_profile.major, 'ENER')
+        self.assertEqual(self.student_profile.semester, 3)
+        self.assertEqual(
+            set(
+                self.student_profile.courses.values_list(
+                    'pk',
+                    flat=True,
+                )
+            ),
+            {self.new_course.pk},
+        )
+        self.assertEqual(
+            self.student_profile.average_rating,
+            Decimal('4.00'),
+        )
+
+        self.assert_account_unchanged()
+        self.assert_tutor_profile_unchanged()
+
+    def test_invalid_tutor_post_preserves_all_profile_data(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.profile_url,
+            {
+                'profile_type': 'tutor',
+                'bio': 'Must not be saved.',
+                'courses_passed': ['not-a-course-id'],
+                'first_name': 'Must not change',
+                'major': 'ENER',
+                'semester': '9',
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(
+            'courses_passed',
+            response.json()['errors'],
+        )
+
+        self.assert_account_unchanged()
+        self.assert_student_profile_unchanged()
+        self.assert_tutor_profile_unchanged()
+
+    def test_anonymous_tutor_post_does_not_create_profile(self):
+        response = self.client.post(
+            self.profile_url,
+            {
+                'profile_type': 'tutor',
+                'bio': 'Anonymous tutor bio.',
+                'courses_passed': [str(self.new_course.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(TutorProfile.objects.count(), 1)
+
+        self.assert_account_unchanged()
+        self.assert_student_profile_unchanged()
+        self.assert_tutor_profile_unchanged()
