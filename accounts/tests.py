@@ -1194,3 +1194,117 @@ class StudentProfileControllerTests(TestCase):
             self.user.pk,
         )
         self.assertIsNone(response.json()['student_profile'])
+
+
+class RoleSwitchControllerTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='role-switch@example.com',
+            password='RoleSwitchPassword123!',
+            role=User.Role.STUDENT,
+        )
+        self.url = reverse('switch_role')
+
+    def test_authenticated_user_can_switch_between_roles(self):
+        self.client.force_login(self.user)
+
+        for role in (User.Role.TUTOR, User.Role.STUDENT):
+            with self.subTest(role=role):
+                response = self.client.post(
+                    self.url,
+                    {'role': role},
+                )
+
+                self.assertEqual(response.status_code, 200)
+                self.user.refresh_from_db()
+                self.assertEqual(self.user.role, role)
+                self.assertEqual(response.json()['role'], role)
+
+    def test_invalid_or_missing_role_is_rejected(self):
+        self.client.force_login(self.user)
+
+        for data in ({}, {'role': ''}, {'role': 'admin'}):
+            with self.subTest(data=data):
+                response = self.client.post(self.url, data)
+
+                self.assertEqual(response.status_code, 400)
+                self.assertIn('role', response.json()['errors'])
+
+                self.user.refresh_from_db()
+                self.assertEqual(
+                    self.user.role,
+                    User.Role.STUDENT,
+                )
+
+    def test_anonymous_user_cannot_switch_role(self):
+        response = self.client.post(
+            self.url,
+            {'role': User.Role.TUTOR},
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.role, User.Role.STUDENT)
+
+    def test_get_does_not_switch_role(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            self.url,
+            {'role': User.Role.TUTOR},
+        )
+
+        self.assertEqual(response.status_code, 405)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.role, User.Role.STUDENT)
+
+    def test_role_switch_preserves_student_profile_and_courses(self):
+        profile = StudentProfile.objects.create(
+            user=self.user,
+            major='CS',
+            semester=2,
+        )
+        course = Course.create_course(
+            'CS 476',
+            'Software Development Project',
+        )
+        profile.courses.add(course)
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {'role': User.Role.TUTOR},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        profile.refresh_from_db()
+        self.assertEqual(profile.user_id, self.user.pk)
+        self.assertEqual(profile.major, 'CS')
+        self.assertEqual(profile.semester, 2)
+        self.assertTrue(
+            profile.courses.filter(pk=course.pk).exists(),
+        )
+
+    def test_user_id_does_not_select_another_account(self):
+        other_user = User.objects.create_user(
+            email='other-role@example.com',
+            password='OtherRolePassword123!',
+            role=User.Role.STUDENT,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {
+                'role': User.Role.TUTOR,
+                'user_id': other_user.pk,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        self.user.refresh_from_db()
+        other_user.refresh_from_db()
+
+        self.assertEqual(self.user.role, User.Role.TUTOR)
+        self.assertEqual(other_user.role, User.Role.STUDENT)

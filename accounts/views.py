@@ -172,6 +172,8 @@ def get_my_profile(request):
         'student_profile': student_data,
     })
 
+
+
 def _update_student_profile(user, data):
     profile = StudentProfile.objects.filter(user=user).first()
 
@@ -194,6 +196,34 @@ def _update_student_profile(user, data):
 
     return JsonResponse({
         'message': 'Student profile updated.',
+    })
+
+@require_POST
+def switch_role(request):
+    if not request.user.is_authenticated:
+        return JsonResponse(
+            {'error': 'Please log in to switch your role.'},
+            status=401,
+        )
+
+    user = request.user
+    role = request.POST.get('role', '')
+
+    try:
+        user.switch_role(role)
+    except ValueError as error:
+        return JsonResponse(
+            {'errors': {
+                'role': [str(error)],
+            }},
+            status=400,
+        )
+
+    user.save(update_fields=['role', 'updated_at'])
+
+    return JsonResponse({
+        'message': 'Active role updated.',
+        'role': user.role,
     })
 #     get My Profile()
 #     update Student Profil()
