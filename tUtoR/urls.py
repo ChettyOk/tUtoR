@@ -26,6 +26,8 @@ from accounts.views import (
 )
 from . import views
 
+from accounts import views as account_views
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include('bookings.urls')),
@@ -35,20 +37,21 @@ urlpatterns = [
     path('register/', views.register, name='register'),
     path('password-reset/', views.forgot_password, name='request_forgotten_password'),
     path(
-    'password-reset/confirm/<uidb64>/<token>/',
-    auth_views.PasswordResetConfirmView.as_view(
-        template_name='registration/password_reset_confirm.html',
-        success_url=reverse_lazy('password_reset_complete'),
+        'password-reset/confirm/<uidb64>/<token>/',
+        auth_views.PasswordResetConfirmView.as_view(
+            template_name='registration/password_reset_confirm.html',
+            success_url=reverse_lazy('password_reset_complete'),
+        ),
+        name='password_reset_confirm',
     ),
-    name='password_reset_confirm',
-),
-path(
-    'password-reset/complete/',
-    auth_views.PasswordResetCompleteView.as_view(
-        template_name='registration/password_reset_complete.html',
+    path(
+        'password-reset/complete/',
+        auth_views.PasswordResetCompleteView.as_view(
+            template_name='registration/password_reset_complete.html',
+        ),
+        name='password_reset_complete',
     ),
-    name='password_reset_complete',
-),
+    path('accounts/profile/', account_views.get_my_profile, name='profile'),
     
 ]
 

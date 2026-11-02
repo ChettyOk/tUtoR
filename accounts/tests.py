@@ -734,3 +734,71 @@ class TutorProfileModelTests(TestCase):
             profile.display_tutor_rating,
             "4.50",
         )
+
+class ProfileControllerTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='profile@example.com',
+            password='ProfileTestPassword123!',
+            first_name='Marie',
+            last_name='Example',
+            phone='123456',
+            role=User.Role.STUDENT,
+        )
+        self.url = reverse('profile')
+
+    def test_anonymous_user_cannot_get_profile(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 401)
+        self.assertIn('error', response.json())
+
+    def test_authenticated_user_gets_own_account_data(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                'account': {
+                    'id': self.user.pk,
+                    'first_name': 'Marie',
+                    'last_name': 'Example',
+                    'email': 'profile@example.com',
+                    'phone': '123456',
+                    'role': User.Role.STUDENT,
+                },
+            },
+        )
+
+    def test_user_id_parameter_does_not_select_another_account(self):
+        other_user = User.objects.create_user(
+            email='other@example.com',
+            password='OtherTestPassword123!',
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            self.url,
+            {'user_id': other_user.pk},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()['account']['id'],
+            self.user.pk,
+        )
+
+    def test_profile_endpoint_rejects_post_for_now(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {'first_name': 'Changed'},
+        )
+
+        self.assertEqual(response.status_code, 405)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, 'Marie')

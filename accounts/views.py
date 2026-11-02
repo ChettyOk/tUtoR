@@ -2,7 +2,7 @@ from django.shortcuts import render
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.http import JsonResponse
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 from django.contrib.auth import authenticate, login as auth_login, logout as auth_logout
 from django.contrib.auth.forms import PasswordResetForm
 
@@ -94,6 +94,26 @@ def request_forgotten_password(request):
     )
 
 # Profile Controller
+@require_GET
+def get_my_profile(request):
+    if not request.user.is_authenticated:
+        return JsonResponse(
+            {'error': 'Please log in to view your profile.'},
+            status=401,
+        )
+
+    user = request.user
+
+    return JsonResponse({
+        'account': {
+            'id': user.pk,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'email': user.email,
+            'phone': user.phone,
+            'role': user.role,
+        },
+    })
 #     get My Profile()
 #     update Student Profil()
 #     update Tutor Profil()
