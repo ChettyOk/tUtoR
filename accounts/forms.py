@@ -1,6 +1,6 @@
 from django import forms
 
-from .models import User, StudentProfile
+from .models import User, StudentProfile, TutorProfile
 
 
 class AccountProfileForm(forms.ModelForm):
@@ -22,3 +22,8 @@ class StudentProfileForm(forms.ModelForm):
             )
 
         return semester
+
+class TutorProfileForm(forms.ModelForm):
+    class Meta:
+        model = TutorProfile
+        fields = ['bio', 'courses_passed']

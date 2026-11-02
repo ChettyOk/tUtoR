@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 from django.test import SimpleTestCase, TestCase
 from accounts.models import User, UserManager, StudentProfile
 from .models import User
-from .forms import AccountProfileForm, StudentProfileForm
+from .forms import AccountProfileForm, StudentProfileForm, TutorProfileForm
 
 # tutor profile tests
 from accounts.models import TutorProfile
@@ -264,69 +264,6 @@ class test_Student_Profile(TestCase):
         with self.assertRaises(ValueError):
             self.profile.update_profile(major="ENER", semester=-1)
 
-# profile controller tests
-class AccountProfileFormTests(TestCase):
-    def setUp(self):
-        self.user = User.objects.create_user(
-            email='profile@example.com',
-            password='ProfileTestPassword123!',
-            first_name='Marie',
-            last_name='Example',
-            phone='123456',
-        )
-
-    def test_form_contains_only_editable_account_fields(self):
-        form = AccountProfileForm(instance=self.user)
-
-        self.assertEqual(
-            list(form.fields),
-            ['first_name', 'last_name', 'phone'],
-        )
-
-    def test_valid_form_updates_existing_user(self):
-        form = AccountProfileForm(
-            data={
-                'first_name': 'Alex',
-                'last_name': 'Updated',
-                'phone': '+1 306 555 0123',
-            },
-            instance=self.user,
-        )
-
-        self.assertTrue(form.is_valid(), form.errors)
-        saved_user = form.save()
-        self.user.refresh_from_db()
-
-        self.assertEqual(saved_user.pk, self.user.pk)
-        self.assertEqual(self.user.first_name, 'Alex')
-        self.assertEqual(self.user.last_name, 'Updated')
-        self.assertEqual(self.user.phone, '+1 306 555 0123')
-        self.assertEqual(self.user.email, 'profile@example.com')
-
-    def test_phone_can_be_empty(self):
-        form = AccountProfileForm(
-            data={
-                'first_name': 'Marie',
-                'last_name': 'Example',
-                'phone': '',
-            },
-            instance=self.user,
-        )
-
-        self.assertTrue(form.is_valid(), form.errors)
-
-    def test_phone_exceeding_model_length_is_invalid(self):
-        form = AccountProfileForm(
-            data={
-                'first_name': 'Marie',
-                'last_name': 'Example',
-                'phone': '1' * 31,
-            },
-            instance=self.user,
-        )
-
-        self.assertFalse(form.is_valid())
-        self.assertIn('phone', form.errors)
 
 # registration tests
 class RegisterViewTests(TestCase):
@@ -490,7 +427,6 @@ class PasswordResetFlowTests(TestCase):
             response,
             "This password reset link is invalid or has expired.",
         )
-
 
 #tutor profile tests
 class TutorProfileModelTests(TestCase):
@@ -734,6 +670,71 @@ class TutorProfileModelTests(TestCase):
             profile.display_tutor_rating,
             "4.50",
         )
+
+# profile controller tests
+class AccountProfileFormTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='profile@example.com',
+            password='ProfileTestPassword123!',
+            first_name='Marie',
+            last_name='Example',
+            phone='123456',
+        )
+
+    def test_form_contains_only_editable_account_fields(self):
+        form = AccountProfileForm(instance=self.user)
+
+        self.assertEqual(
+            list(form.fields),
+            ['first_name', 'last_name', 'phone'],
+        )
+
+    def test_valid_form_updates_existing_user(self):
+        form = AccountProfileForm(
+            data={
+                'first_name': 'Alex',
+                'last_name': 'Updated',
+                'phone': '+1 306 555 0123',
+            },
+            instance=self.user,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        saved_user = form.save()
+        self.user.refresh_from_db()
+
+        self.assertEqual(saved_user.pk, self.user.pk)
+        self.assertEqual(self.user.first_name, 'Alex')
+        self.assertEqual(self.user.last_name, 'Updated')
+        self.assertEqual(self.user.phone, '+1 306 555 0123')
+        self.assertEqual(self.user.email, 'profile@example.com')
+
+    def test_phone_can_be_empty(self):
+        form = AccountProfileForm(
+            data={
+                'first_name': 'Marie',
+                'last_name': 'Example',
+                'phone': '',
+            },
+            instance=self.user,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_phone_exceeding_model_length_is_invalid(self):
+        form = AccountProfileForm(
+            data={
+                'first_name': 'Marie',
+                'last_name': 'Example',
+                'phone': '1' * 31,
+            },
+            instance=self.user,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('phone', form.errors)
+
 
 class ProfileControllerTests(TestCase):
     def setUp(self):
@@ -1308,3 +1309,110 @@ class RoleSwitchControllerTests(TestCase):
 
         self.assertEqual(self.user.role, User.Role.TUTOR)
         self.assertEqual(other_user.role, User.Role.STUDENT)
+
+class TutorProfileFormTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='tutor-form@example.com',
+            password='TutorFormPassword123!',
+        )
+        self.profile = TutorProfile.objects.create(
+            user=self.user,
+            bio='Original bio.',
+        )
+        self.course = Course.create_course(
+            'CS 476',
+            'Software Development Project',
+        )
+
+    def test_form_contains_only_editable_tutor_fields(self):
+        form = TutorProfileForm(instance=self.profile)
+
+        self.assertEqual(
+            list(form.fields),
+            ['bio', 'courses_passed'],
+        )
+
+    def test_valid_form_updates_bio_and_passed_courses(self):
+        form = TutorProfileForm(
+            data={
+                'bio': 'I offer tutoring for computer science courses.',
+                'courses_passed': [str(self.course.pk)],
+            },
+            instance=self.profile,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        saved_profile = form.save()
+        self.profile.refresh_from_db()
+
+        self.assertEqual(saved_profile.pk, self.profile.pk)
+        self.assertEqual(
+            self.profile.bio,
+            'I offer tutoring for computer science courses.',
+        )
+        self.assertTrue(
+            self.profile.courses_passed.filter(
+                pk=self.course.pk,
+            ).exists(),
+        )
+
+    def test_unknown_course_is_rejected(self):
+        form = TutorProfileForm(
+            data={
+                'bio': 'Updated bio.',
+                'courses_passed': [str(self.course.pk + 1)],
+            },
+            instance=self.profile,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('courses_passed', form.errors)
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.bio, 'Original bio.')
+        self.assertFalse(self.profile.courses_passed.exists())
+
+    def test_empty_fields_clear_bio_and_course_relations(self):
+        self.profile.courses_passed.add(self.course)
+
+        form = TutorProfileForm(
+            data={
+                'bio': '',
+                'courses_passed': [],
+            },
+            instance=self.profile,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.profile.refresh_from_db()
+
+        self.assertEqual(self.profile.bio, '')
+        self.assertFalse(self.profile.courses_passed.exists())
+        self.assertTrue(
+            Course.objects.filter(pk=self.course.pk).exists(),
+        )
+
+    def test_form_does_not_change_owner_or_rating(self):
+        other_user = User.objects.create_user(
+            email='other-tutor-form@example.com',
+            password='OtherTutorPassword123!',
+        )
+
+        form = TutorProfileForm(
+            data={
+                'bio': 'Updated bio.',
+                'courses_passed': [],
+                'user': str(other_user.pk),
+                'average_rating': '5.00',
+            },
+            instance=self.profile,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.profile.refresh_from_db()
+
+        self.assertEqual(self.profile.user_id, self.user.pk)
+        self.assertIsNone(self.profile.average_rating)
