@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 from django.test import SimpleTestCase, TestCase
 from accounts.models import User, UserManager, StudentProfile
 from .models import User
-from .forms import AccountProfileForm
+from .forms import AccountProfileForm, StudentProfileForm
 
 # tutor profile tests
 from accounts.models import TutorProfile
@@ -884,3 +884,112 @@ class ProfileControllerTests(TestCase):
         self.assertFalse(self.user.is_staff)
         self.assertFalse(self.user.is_superuser)
         self.assertEqual(other_user.first_name, 'Other')
+
+class StudentProfileFormTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='student-profile@example.com',
+            password='StudentTestPassword123!',
+        )
+        self.profile = StudentProfile.objects.create(
+            user=self.user,
+            major='CS',
+            semester=1,
+        )
+        self.course = Course.create_course(
+            'CS 476',
+            'Software Development Project',
+        )
+
+    def test_form_contains_only_editable_student_fields(self):
+        form = StudentProfileForm(instance=self.profile)
+
+        self.assertEqual(
+            list(form.fields),
+            ['major', 'semester', 'courses'],
+        )
+
+    def test_valid_form_updates_profile_and_courses(self):
+        form = StudentProfileForm(
+            data={
+                'major': 'ENER',
+                'semester': '3',
+                'courses': [str(self.course.pk)],
+            },
+            instance=self.profile,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        saved_profile = form.save()
+        self.profile.refresh_from_db()
+
+        self.assertEqual(saved_profile.pk, self.profile.pk)
+        self.assertEqual(self.profile.major, 'ENER')
+        self.assertEqual(self.profile.semester, 3)
+        self.assertQuerySetEqual(
+            self.profile.courses.all(),
+            [self.course],
+        )
+
+    def test_invalid_major_is_rejected(self):
+        form = StudentProfileForm(
+            data={
+                'major': 'NOT_A_MAJOR',
+                'semester': '1',
+                'courses': [],
+            },
+            instance=self.profile,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('major', form.errors)
+
+    def test_invalid_semester_is_rejected(self):
+        for semester in ('0', '-1', 'abc'):
+            with self.subTest(semester=semester):
+                form = StudentProfileForm(
+                    data={
+                        'major': 'CS',
+                        'semester': semester,
+                        'courses': [],
+                    },
+                    instance=self.profile,
+                )
+
+                self.assertFalse(form.is_valid())
+                self.assertIn('semester', form.errors)
+
+    def test_unknown_course_is_rejected(self):
+        unknown_course_id = self.course.pk + 1
+
+        form = StudentProfileForm(
+            data={
+                'major': 'CS',
+                'semester': '1',
+                'courses': [str(unknown_course_id)],
+            },
+            instance=self.profile,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('courses', form.errors)
+
+    def test_empty_course_selection_removes_previous_courses(self):
+        self.profile.courses.add(self.course)
+
+        form = StudentProfileForm(
+            data={
+                'major': 'CS',
+                'semester': '1',
+                'courses': [],
+            },
+            instance=self.profile,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+
+        self.assertFalse(self.profile.courses.exists())
+        self.assertTrue(
+            Course.objects.filter(pk=self.course.pk).exists(),
+        )
