@@ -141,6 +141,25 @@ def get_my_profile(request):
             'message': 'Account profile updated.',
         })
 
+    student_profile = StudentProfile.objects.filter(user=user).first()
+    student_data = None
+
+    if student_profile is not None:
+        student_data = {
+            'major': student_profile.major,
+            'semester': student_profile.semester,
+            'courses': list(
+                student_profile.courses
+                .order_by('pk')
+                .values_list('pk', flat=True)
+            ),
+            'average_rating': (
+                str(student_profile.average_rating)
+                if student_profile.average_rating is not None
+                else None
+            ),
+        }
+
     return JsonResponse({
         'account': {
             'id': user.pk,
@@ -150,6 +169,7 @@ def get_my_profile(request):
             'phone': user.phone,
             'role': user.role,
         },
+        'student_profile': student_data,
     })
 
 def _update_student_profile(user, data):

@@ -770,6 +770,7 @@ class ProfileControllerTests(TestCase):
                     'phone': '123456',
                     'role': User.Role.STUDENT,
                 },
+                'student_profile': None,
             },
         )
 
@@ -1136,3 +1137,60 @@ class StudentProfileControllerTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.user.refresh_from_db()
         self.assertEqual(self.user.first_name, 'Marie')
+
+    def test_get_returns_student_profile_data(self):
+        profile = StudentProfile.objects.create(
+            user=self.user,
+            major='CS',
+            semester=2,
+        )
+        profile.courses.add(self.course)
+        self.client.force_login(self.user)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()['student_profile'],
+            {
+                'major': 'CS',
+                'semester': 2,
+                'courses': [self.course.pk],
+                'average_rating': None,
+            },
+        )
+
+    def test_get_without_student_profile_does_not_create_one(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()['student_profile'])
+        self.assertFalse(
+            StudentProfile.objects.filter(user=self.user).exists(),
+        )
+
+    def test_get_does_not_return_another_users_student_profile(self):
+        other_user = User.objects.create_user(
+            email='other-student@example.com',
+            password='OtherStudentPassword123!',
+        )
+        StudentProfile.objects.create(
+            user=other_user,
+            major='ENER',
+            semester=4,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            self.url,
+            {'user_id': other_user.pk},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()['account']['id'],
+            self.user.pk,
+        )
+        self.assertIsNone(response.json()['student_profile'])
