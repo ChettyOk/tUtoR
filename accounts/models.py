@@ -10,7 +10,11 @@ from .constants import FACULTIES
 from django.contrib.auth.models import AbstractUser
 from django.contrib.auth.base_user import BaseUserManager
 from django.core.exceptions import ValidationError
-from django.core.validators import validate_email
+from django.core.validators import (
+    MaxValueValidator,
+    MinValueValidator,
+    validate_email,
+)
 from django.db.models.functions import Lower
 
 class Course(models.Model):
@@ -167,9 +171,9 @@ class User(AbstractUser):
         self.role = role
 
 
+
 class StudentProfile(models.Model):
     MAJORS = [(sub, sub) for sub in sorted(FACULTIES.keys())]
-
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='student_profile')
     major = models.CharField(max_length=4, choices=MAJORS, blank=True, default='')
     semester = models.PositiveSmallIntegerField(default=1)
@@ -201,6 +205,39 @@ class StudentProfile(models.Model):
 
     @property
     def display_student_rating(self):
+        if self.average_rating is None:
+            return "No rating yet"
+        return f"{self.average_rating:.2f}"
+
+class TutorProfile(models.Model):
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name='tutor_profile',
+    )
+    bio = models.TextField(blank=True, default='')
+    courses_passed = models.ManyToManyField(
+        Course,
+        blank=True,
+        related_name='tutor_profiles',
+    )
+    average_rating = models.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        default=None,
+        validators=[
+            MinValueValidator(1),
+            MaxValueValidator(5),
+        ],
+    )
+
+    def __str__(self):
+        return f"TutorProfile: {self.user.email}"
+
+    @property
+    def display_tutor_rating(self):
         if self.average_rating is None:
             return "No rating yet"
         return f"{self.average_rating:.2f}"

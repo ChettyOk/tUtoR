@@ -11,6 +11,11 @@ from django.test import SimpleTestCase, TestCase
 from accounts.models import User, UserManager, StudentProfile
 from .models import User
 
+# tutor profile tests
+from accounts.models import TutorProfile
+from decimal import Decimal
+from django.core.exceptions import ValidationError
+
 # courses tests
 class test_course(TestCase):
 
@@ -419,3 +424,246 @@ class PasswordResetFlowTests(TestCase):
             "This password reset link is invalid or has expired.",
         )
 
+
+#tutor profile tests
+class TutorProfileModelTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='tutor@example.com',
+            password='TutorTestPassword123!',
+        )
+
+    def test_create_tutor_profile_with_bio(self):
+        profile = TutorProfile.objects.create(
+            user=self.user,
+            bio='I offer tutoring for computer science courses.',
+        )
+
+        profile.refresh_from_db()
+
+        self.assertEqual(profile.user, self.user)
+        self.assertEqual(
+            profile.bio,
+            'I offer tutoring for computer science courses.',
+        )
+        self.assertEqual(self.user.tutor_profile, profile)
+
+    def test_bio_is_empty_by_default(self):
+        profile = TutorProfile.objects.create(user=self.user)
+
+        profile.refresh_from_db()
+
+        self.assertEqual(profile.bio, '')
+        self.assertEqual(self.user.tutor_profile, profile)
+    def test_profile_can_have_multiple_passed_courses(self):
+        profile = TutorProfile.objects.create(user=self.user)
+        course_one = Course.create_course(
+            'CS 101',
+            'Introduction to Computer Science',
+        )
+        course_two = Course.create_course(
+            'CS 202',
+            'Data Structures',
+        )
+
+        profile.courses_passed.add(course_one, course_two)
+
+        self.assertCountEqual(
+            profile.courses_passed.all(),
+            [course_one, course_two],
+        )
+
+    def test_course_can_belong_to_multiple_tutor_profiles(self):
+        profile = TutorProfile.objects.create(user=self.user)
+        other_user = User.objects.create_user(
+            email='other-tutor@example.com',
+            password='TutorTestPassword123!',
+        )
+        other_profile = TutorProfile.objects.create(user=other_user)
+        course = Course.create_course(
+            'CS 101',
+            'Introduction to Computer Science',
+        )
+
+        profile.courses_passed.add(course)
+        other_profile.courses_passed.add(course)
+
+        self.assertCountEqual(
+            course.tutor_profiles.all(),
+            [profile, other_profile],
+        )
+
+    def test_adding_same_course_does_not_duplicate_relation(self):
+        profile = TutorProfile.objects.create(user=self.user)
+        course = Course.create_course(
+            'CS 101',
+            'Introduction to Computer Science',
+        )
+
+        profile.courses_passed.add(course)
+        profile.courses_passed.add(course)
+
+        self.assertEqual(profile.courses_passed.count(), 1)
+
+    def test_removing_passed_course_keeps_course_record(self):
+        profile = TutorProfile.objects.create(user=self.user)
+        course = Course.create_course(
+            'CS 101',
+            'Introduction to Computer Science',
+        )
+        profile.courses_passed.add(course)
+
+        profile.courses_passed.remove(course)
+
+        self.assertFalse(profile.courses_passed.exists())
+        self.assertTrue(Course.objects.filter(pk=course.pk).exists())
+    def test_average_rating_is_none_by_default(self):
+        profile = TutorProfile.objects.create(user=self.user)
+
+        profile.refresh_from_db()
+
+        self.assertIsNone(profile.average_rating)
+
+    def test_average_rating_accepts_valid_values(self):
+        profile = TutorProfile.objects.create(user=self.user)
+
+        for rating in (
+            Decimal('1.00'),
+            Decimal('4.25'),
+            Decimal('5.00'),
+        ):
+            with self.subTest(rating=rating):
+                profile.average_rating = rating
+
+                profile.full_clean()
+                profile.save()
+                profile.refresh_from_db()
+
+                self.assertEqual(profile.average_rating, rating)
+
+    def test_average_rating_rejects_values_outside_range(self):
+        profile = TutorProfile.objects.create(user=self.user)
+
+        for rating in (
+            Decimal('0.99'),
+            Decimal('5.01'),
+        ):
+            with self.subTest(rating=rating):
+                profile.average_rating = rating
+
+                with self.assertRaises(ValidationError) as context:
+                    profile.full_clean()
+
+                self.assertIn(
+                    'average_rating',
+                    context.exception.message_dict,
+                )
+
+    def test_user_cannot_have_multiple_tutor_profiles(self):
+        profile = TutorProfile.objects.create(user=self.user)
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                TutorProfile.objects.create(user=self.user)
+
+        self.assertEqual(
+            TutorProfile.objects.filter(user=self.user).count(),
+            1,
+        )
+        self.assertTrue(
+            TutorProfile.objects.filter(pk=profile.pk).exists(),
+        )
+
+    def test_deleting_user_deletes_profile_but_keeps_course(self):
+        profile = TutorProfile.objects.create(user=self.user)
+        course = Course.create_course(
+            'CS 101',
+            'Introduction to Computer Science',
+        )
+        profile.courses_passed.add(course)
+        profile_id = profile.pk
+
+        self.user.delete()
+
+        self.assertFalse(
+            TutorProfile.objects.filter(pk=profile_id).exists(),
+        )
+        self.assertTrue(
+            Course.objects.filter(pk=course.pk).exists(),
+        )
+        self.assertFalse(course.tutor_profiles.exists())
+
+    def test_deleting_profile_keeps_user_and_course(self):
+        profile = TutorProfile.objects.create(user=self.user)
+        course = Course.create_course(
+            'CS 101',
+            'Introduction to Computer Science',
+        )
+        profile.courses_passed.add(course)
+        profile_id = profile.pk
+
+        profile.delete()
+
+        self.assertFalse(
+            TutorProfile.objects.filter(pk=profile_id).exists(),
+        )
+        self.assertTrue(
+            User.objects.filter(pk=self.user.pk).exists(),
+        )
+        self.assertTrue(
+            Course.objects.filter(pk=course.pk).exists(),
+        )
+        self.assertFalse(course.tutor_profiles.exists())
+
+    def test_switching_role_keeps_tutor_profile_and_courses(self):
+        self.user.switch_role(User.Role.TUTOR)
+        self.user.save()
+
+        profile = TutorProfile.objects.create(user=self.user)
+        course = Course.create_course(
+            'CS 101',
+            'Introduction to Computer Science',
+        )
+        profile.courses_passed.add(course)
+
+        self.user.switch_role(User.Role.STUDENT)
+        self.user.save()
+        self.user.refresh_from_db()
+
+        self.assertEqual(self.user.role, User.Role.STUDENT)
+        self.assertEqual(self.user.tutor_profile.pk, profile.pk)
+        self.assertTrue(
+            self.user.tutor_profile.courses_passed.filter(
+                pk=course.pk,
+            ).exists(),
+        )
+
+    def test_display_tutor_rating_without_rating(self):
+        profile = TutorProfile.objects.create(user=self.user)
+
+        self.assertEqual(
+            profile.display_tutor_rating,
+            "No rating yet",
+        )
+
+    def test_display_tutor_rating_with_rating(self):
+        profile = TutorProfile.objects.create(
+            user=self.user,
+            average_rating=Decimal("4.25"),
+        )
+
+        self.assertEqual(
+            profile.display_tutor_rating,
+            "4.25",
+        )
+
+    def test_display_tutor_rating_uses_two_decimal_places(self):
+        profile = TutorProfile.objects.create(
+            user=self.user,
+            average_rating=Decimal("4.5"),
+        )
+
+        self.assertEqual(
+            profile.display_tutor_rating,
+            "4.50",
+        )
