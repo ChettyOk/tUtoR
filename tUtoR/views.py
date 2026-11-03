@@ -1,6 +1,8 @@
 import json
 
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.forms import PasswordChangeForm
+from django.contrib.auth import update_session_auth_hash
 from django.shortcuts import render
 
 from accounts.views import get_my_profile
@@ -146,6 +148,31 @@ def account_profile(request):
         context,
         status=response.status_code,
     )
+
+
+@login_required
+def account_password(request):
+    """Change-password page for signed-in users."""
+    form = PasswordChangeForm(user=request.user)
+    context = _account_context(
+        request,
+        active_section="password",
+        form=form,
+    )
+
+    if request.method != "POST":
+        return render(request, "profile/change_password.html", context)
+
+    form = PasswordChangeForm(user=request.user, data=request.POST)
+    context["form"] = form
+    if form.is_valid():
+        user = form.save()
+        update_session_auth_hash(request, user)
+        context["success_message"] = "Your password was changed."
+        context["form"] = PasswordChangeForm(user=request.user)
+        return render(request, "profile/change_password.html", context)
+
+    return render(request, "profile/change_password.html", context, status=400)
 
 
 def landing(request):
