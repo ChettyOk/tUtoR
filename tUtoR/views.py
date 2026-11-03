@@ -3,6 +3,9 @@ import json
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 
+from accounts.views import get_my_profile
+
+
 def register(request):
     """Show the sign-up page. POST still creates the account."""
     if request.method == "POST":
@@ -67,15 +70,82 @@ def login(request):
 
 
 
-@login_required
-def account_profile(request):
-    """Account shell page. Section pages will be added later."""
-    return render(request, "profile/account_home.html", {
+def _account_context(request, **extra):
+    user = request.user
+    context = {
         "site_name": "tUtoR",
         "campus": "University of Regina",
-        "success_message": "",
+        "account": {
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "email": user.email,
+            "phone": user.phone,
+            "role": user.role,
+        },
+        "field_errors": {},
         "form_error": "",
+        "success_message": "",
+        "active_section": "personal",
+    }
+    context.update(extra)
+    return context
+
+
+def _field_errors_from_response(response):
+    try:
+        payload = json.loads(response.content)
+    except json.JSONDecodeError:
+        return {}, "Something went wrong. Please try again."
+
+    if "error" in payload:
+        return {}, payload["error"]
+
+    raw_errors = payload.get("errors") or {}
+    field_errors = {}
+    for field, entries in raw_errors.items():
+        if not entries:
+            continue
+        first = entries[0]
+        if isinstance(first, dict):
+            field_errors[field] = first.get("message") or "This field is invalid."
+        else:
+            field_errors[field] = str(first)
+    return field_errors, ""
+
+
+@login_required
+def account_profile(request):
+    """Personal info page backed by get_my_profile."""
+    context = _account_context(request, active_section="personal")
+
+    if request.method != "POST":
+        return render(request, "profile/personal_info.html", context)
+
+    response = get_my_profile(request)
+    context["account"].update({
+        "first_name": request.POST.get("first_name", "").strip(),
+        "last_name": request.POST.get("last_name", "").strip(),
+        "phone": request.POST.get("phone", "").strip(),
     })
+
+    if response.status_code == 200:
+        request.user.refresh_from_db()
+        context = _account_context(
+            request,
+            active_section="personal",
+            success_message="Your personal info was saved.",
+        )
+        return render(request, "profile/personal_info.html", context)
+
+    field_errors, form_error = _field_errors_from_response(response)
+    context["field_errors"] = field_errors
+    context["form_error"] = form_error
+    return render(
+        request,
+        "profile/personal_info.html",
+        context,
+        status=response.status_code,
+    )
 
 
 def landing(request):
