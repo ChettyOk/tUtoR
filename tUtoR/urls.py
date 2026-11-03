@@ -53,6 +53,7 @@ urlpatterns = [
     ),
     path('account/', views.account_profile, name='account_profile'),
     path('account/password/', views.account_password, name='account_password'),
+    path('account/role/', views.account_role, name='account_role'),
     path('accounts/profile/', account_views.get_my_profile, name='profile'),
     path(
         'accounts/role/switch/',
