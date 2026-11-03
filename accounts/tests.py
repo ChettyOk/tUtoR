@@ -1970,3 +1970,30 @@ class CrossProfileRegressionTests(TestCase):
         self.assert_account_unchanged()
         self.assert_student_profile_unchanged()
         self.assert_tutor_profile_unchanged()
+
+class test_favorite_tutors(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(
+            email='student@uregina.ca',
+            password='676767jkhHH!',
+            first_name='Max',
+            last_name='Peter',
+        )
+        self.tutor = User.objects.create_user(
+            email='tutor@uregina.ca',
+            password='6767fjhhHH!',
+            first_name='Hallo',
+            last_name='Welt',
+        )
+        self.tutor_profile = TutorProfile.objects.create(
+            user=self.tutor,
+            bio='Bitte buch mich ich bin so gut',
+            average_rating=Decimal('1.80'),
+        )
+
+    def test_addrm_fav_tutor(self):
+        profile = StudentProfile.objects.create(user=self.student)
+        profile.add_favorite_tutor(self.tutor)
+        self.assertIn(self.tutor, profile.get_favorite_tutors())
+        profile.remove_favorite_tutor(self.tutor)
+        self.assertNotIn(self.tutor, profile.get_favorite_tutors())
