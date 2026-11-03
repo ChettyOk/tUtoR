@@ -179,7 +179,7 @@ class StudentProfile(models.Model):
     semester = models.PositiveSmallIntegerField(default=1)
     average_rating = models.DecimalField(max_digits=3, decimal_places=2, null=True, blank=True, default=None)
     courses = models.ManyToManyField(Course, blank=True, related_name='students_enrolled') 
-    favourite_tutors = models.ManyToManyField(User, blank=True, related_name='favorited_by_students')
+    favorite_tutors = models.ManyToManyField(User, blank=True, related_name='favorited_by_students')
 
     def __str__(self):
         return f"StudentProfile: {self.user.email}"
