@@ -1,0 +1,87 @@
+{% extends "profile/base_profile.html" %} {% load static %} {% block title %}Personal info ·
+{{ site_name|default:"tUtoR" }}{% endblock %} {% block aside_title %}Keep your
+contact details current.{% endblock %} {% block profile_nav %}
+<a
+  class="profile-nav-link{% if active_section == 'personal' %} is-active{% endif %}"
+  href="{% url 'account_profile' %}"
+  >Personal info</a
+>
+{% endblock %} {% block profile_content %}
+<h1>Personal info</h1>
+<p class="auth-sub">
+  These details stay with your account whether you are booking as a student or
+  tutoring.
+</p>
+
+<form method="post" action="{% url 'account_profile' %}" class="needs-validation" novalidate>
+  {% csrf_token %}
+  <div class="row g-3">
+    <div class="col-sm-6">
+      <label for="id_first_name" class="form-label">First name</label>
+      <input
+        type="text"
+        id="id_first_name"
+        name="first_name"
+        class="form-control{% if field_errors.first_name %} is-invalid{% endif %}"
+        value="{{ account.first_name }}"
+        autocomplete="given-name"
+        maxlength="150"
+      />
+      <div class="invalid-feedback">
+        {{ field_errors.first_name|default:"Enter your first name." }}
+      </div>
+    </div>
+    <div class="col-sm-6">
+      <label for="id_last_name" class="form-label">Last name</label>
+      <input
+        type="text"
+        id="id_last_name"
+        name="last_name"
+        class="form-control{% if field_errors.last_name %} is-invalid{% endif %}"
+        value="{{ account.last_name }}"
+        autocomplete="family-name"
+        maxlength="150"
+      />
+      <div class="invalid-feedback">
+        {{ field_errors.last_name|default:"Enter your last name." }}
+      </div>
+    </div>
+    <div class="col-12">
+      <label for="id_email" class="form-label">Email</label>
+      <input
+        type="email"
+        id="id_email"
+        class="form-control"
+        value="{{ account.email }}"
+        autocomplete="email"
+        disabled
+      />
+      <div class="form-text">Email is used to sign in and cannot be changed here.</div>
+    </div>
+    <div class="col-12">
+      <label for="id_phone" class="form-label">Phone</label>
+      <input
+        type="tel"
+        id="id_phone"
+        name="phone"
+        class="form-control{% if field_errors.phone %} is-invalid{% endif %}"
+        value="{{ account.phone }}"
+        autocomplete="tel"
+        maxlength="30"
+      />
+      <div class="invalid-feedback">
+        {{ field_errors.phone|default:"Enter a phone number." }}
+      </div>
+    </div>
+  </div>
+  <button
+    type="submit"
+    class="btn btn-green rounded-pill w-100 mt-4"
+    data-loading="Saving…"
+  >
+    Save personal info
+  </button>
+</form>
+{% endblock %} {% block extra_js %}
+<script src="{% static 'js/auth.js' %}"></script>
+{% endblock %}
