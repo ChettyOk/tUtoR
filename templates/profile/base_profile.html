@@ -32,7 +32,18 @@
   <div class="auth-main">
     <div class="auth-card profile-card">
       <nav class="profile-nav" aria-label="Account sections">
-        {% block profile_nav %}{% endblock %}
+        {% block profile_nav %}
+        <a
+          class="profile-nav-link{% if active_section == 'personal' %} is-active{% endif %}"
+          href="{% url 'account_profile' %}"
+          >Personal info</a
+        >
+        <a
+          class="profile-nav-link{% if active_section == 'password' %} is-active{% endif %}"
+          href="{% url 'account_password' %}"
+          >Change password</a
+        >
+        {% endblock %}
       </nav>
 
       {% if success_message %}
