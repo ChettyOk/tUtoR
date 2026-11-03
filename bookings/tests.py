@@ -1,3 +1,4 @@
+from bookings.models import CancellationDeadlinePassedError
 from django.urls import reverse
 from django.test import TestCase
 from accounts.models import Course, User
@@ -11,11 +12,16 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from django.contrib.auth import get_user_model
 from bookings.models import Booking
+from django.utils import timezone
+
 
 from unittest.mock import MagicMock
 from bookings.services import create_booking_request, get_user_bookings, DoubleBookingError
 import threading
 from django.db import connection
+
+class Dummy_Slot: 
+    objects = MagicMock()
 
 class test_filter_courses_system(TestCase):
     
@@ -179,6 +185,14 @@ class test_booking_model(TestCase):
         self.assertEqual(booking.cancellation_reason, 'Fortnite')
         self.assertIsNotNone(booking.cancel_time)
 
+    def test_cancel_after_deadline(self): 
+        booking = self.create_booking()
+        slot = Dummy_Slot()
+        slot.start_time = timezone.now() + timedelta(hours=3)
+        booking.time_slot = slot
+        with self.assertRaises(CancellationDeadlinePassedError):
+            booking.cancel(cancelled_by='student', reason='Fortnite')
+
     def test_cancel_tutor(self):
         booking = self.create_booking()
         booking.cancel(cancelled_by='tutor', reason='kein bock')
@@ -224,8 +238,6 @@ class test_create_booking(TestCase):
         self.course2 = Course.create_course("CS 476", "SW-Project")
         self.course3 = Course.create_course("CS 477", "SW-Project2")
         # can be replaced with actual available_slot funciton once available
-        class Dummy_Slot: 
-            objects = MagicMock()
         self.mock_slot = Dummy_Slot()
         self.mock_slot.id = 1
         self.mock_slot.status = 'available'
