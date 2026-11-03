@@ -1,0 +1,46 @@
+{% extends "base.html" %} {% load static %} {% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/auth.css' %}" />
+<link rel="stylesheet" href="{% static 'css/profile.css' %}" />
+{% endblock %} {% block nav_links %}
+<li class="nav-item">
+  <a class="nav-link" href="{% url 'account_profile' %}">Account</a>
+</li>
+<li class="nav-item">
+  <a class="nav-link" href="{% url 'landing' %}">Home</a>
+</li>
+{% endblock %} {% block content %}
+<section class="auth-shell profile-shell">
+  <aside class="auth-aside">
+    <div class="auth-aside-inner">
+      <img
+        class="auth-logo"
+        src="{% static 'img/tutor-logo-light.svg' %}"
+        alt=""
+        width="210"
+        height="66"
+      />
+      <p class="auth-kicker">{{ campus|default:"University of Regina" }}</p>
+      <p class="auth-aside-title">{% block aside_title %}Your account{% endblock %}</p>
+      <div class="auth-aside-extra">
+        {% block aside_extra %}
+        <p>Update the details you share when you book or offer a session.</p>
+        {% endblock %}
+      </div>
+    </div>
+  </aside>
+
+  <div class="auth-main">
+    <div class="auth-card profile-card">
+      <nav class="profile-nav" aria-label="Account sections">
+        {% block profile_nav %}{% endblock %}
+      </nav>
+
+      {% if success_message %}
+      <div class="alert alert-success" role="status">{{ success_message }}</div>
+      {% endif %} {% if form_error %}
+      <div class="alert alert-danger" role="alert">{{ form_error }}</div>
+      {% endif %} {% block profile_content %}{% endblock %}
+    </div>
+  </div>
+</section>
+{% endblock %}

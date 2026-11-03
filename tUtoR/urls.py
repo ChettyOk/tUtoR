@@ -51,6 +51,7 @@ urlpatterns = [
         ),
         name='password_reset_complete',
     ),
+    path('account/', views.account_profile, name='account_profile'),
     path('accounts/profile/', account_views.get_my_profile, name='profile'),
     path(
         'accounts/role/switch/',

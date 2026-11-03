@@ -1,5 +1,6 @@
 import json
 
+from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 
 def register(request):
@@ -62,6 +63,18 @@ def login(request):
     """Placeholder for the student and tutor sign-in page."""
     return render(request, "login.html", {
         "site_name": "tUtoR",
+    })
+
+
+
+@login_required
+def account_profile(request):
+    """Account shell page. Section pages will be added later."""
+    return render(request, "profile/account_home.html", {
+        "site_name": "tUtoR",
+        "campus": "University of Regina",
+        "success_message": "",
+        "form_error": "",
     })
 
 
