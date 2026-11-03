@@ -312,3 +312,38 @@ class test_create_booking(TestCase):
 
     #     self.assertEqual(len(results), 1)
     #     self.assertEqual(len(errors), 1)
+
+class test_booking_views(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.student = User.objects.create_user(email="student@uregina.ca", password="676767jdUUh!")
+        self.tutor = User.objects.create_user(email="tutor@uregina.ca", password="6767ihihsIHGH!")
+        self.course = Course.create_course("CS 476", "SW dev")
+        self.booking = Booking.objects.create(
+            student=self.student,
+            tutor=self.tutor,
+            course=self.course,
+            session_price=Decimal('25.00'),
+            status=Booking.Status.CONFIRMED,
+        )
+
+    def test_get_bookings_no_login(self):
+        response = self.client.get(reverse('my_bookings'))
+        self.assertEqual(response.status_code, 401)
+
+    def test_get_bookings(self):
+        self.client.force_login(self.student)
+        response = self.client.get(reverse('my_bookings'))
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data['student_bookings']), 1)
+        self.assertEqual(data['student_bookings'][0]['id'], self.booking.id)
+
+    def test_cancel_booking_student(self):
+        self.client.force_login(self.student)
+        url = reverse('cancel_booking', kwargs={'booking_id': self.booking.id})
+        response = self.client.post(url, {'reason': 'Kein bock mehr auf leben'})
+        self.assertEqual(response.status_code, 200)
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.status, Booking.Status.CANCELLED_STUDENT)
+        self.assertEqual(self.booking.cancellation_reason, 'Kein bock mehr auf leben')
