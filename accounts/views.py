@@ -2,11 +2,18 @@ from django.shortcuts import render
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.http import JsonResponse
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import (
+    require_GET,
+    require_POST,
+    require_http_methods,
+)
 from django.contrib.auth import authenticate, login as auth_login, logout as auth_logout
 from django.contrib.auth.forms import PasswordResetForm
+from django.db import transaction
+from decimal import Decimal
 
-from .models import User
+from .models import User, StudentProfile, TutorProfile
+from .forms import AccountProfileForm, StudentProfileForm, TutorProfileForm
 
 # Create your views here.
 # functions that interact with the user
@@ -94,6 +101,186 @@ def request_forgotten_password(request):
     )
 
 # Profile Controller
+@require_http_methods(['GET', 'POST'])
+def get_my_profile(request):
+    if not request.user.is_authenticated:
+        return JsonResponse(
+            {'error': 'Please log in to view or update your profile.'},
+            status=401,
+        )
+
+    user = request.user
+
+    if request.method == 'POST':
+        profile_type = request.POST.get('profile_type', 'account')
+
+        if profile_type == 'student':
+            return _update_student_profile(user, request.POST)
+
+        if profile_type == 'tutor':
+            return _update_tutor_profile(request)
+
+        if profile_type != 'account':
+            return JsonResponse(
+                {'errors': {
+                    'profile_type': ['Choose a valid profile type.'],
+                }},
+                status=400,
+            )
+
+        form = AccountProfileForm(
+            data=request.POST,
+            instance=user,
+        )
+
+        if not form.is_valid():
+            return JsonResponse(
+                {'errors': form.errors.get_json_data()},
+                status=400,
+            )
+
+        form.save()
+
+        return JsonResponse({
+            'message': 'Account profile updated.',
+        })
+
+    student_profile = StudentProfile.objects.filter(user=user).first()
+    student_data = None
+
+    if student_profile is not None:
+        student_data = {
+            'major': student_profile.major,
+            'semester': student_profile.semester,
+            'courses': list(
+                student_profile.courses
+                .order_by('pk')
+                .values_list('pk', flat=True)
+            ),
+            'average_rating': (
+                str(student_profile.average_rating)
+                if student_profile.average_rating is not None
+                else None
+            ),
+        }
+
+    tutor_profile = TutorProfile.objects.filter(user=user).first()
+    tutor_data = None
+
+    if tutor_profile is not None:
+        tutor_data = {
+            'bio': tutor_profile.bio,
+            'courses_passed': list(
+                tutor_profile.courses_passed
+                .order_by('pk')
+                .values_list('pk', flat=True)
+            ),
+            'average_rating': (
+                str(tutor_profile.average_rating)
+                if tutor_profile.average_rating is not None
+                else None
+            ),
+        }
+
+    return JsonResponse({
+        'account': {
+            'id': user.pk,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'email': user.email,
+            'phone': user.phone,
+            'role': user.role,
+        },
+        'student_profile': student_data,
+        'tutor_profile': tutor_data,
+    })
+
+
+
+def _update_student_profile(user, data):
+    profile = StudentProfile.objects.filter(user=user).first()
+
+    if profile is None:
+        profile = StudentProfile(user=user)
+
+    form = StudentProfileForm(
+        data=data,
+        instance=profile,
+    )
+
+    if not form.is_valid():
+        return JsonResponse(
+            {'errors': form.errors.get_json_data()},
+            status=400,
+        )
+
+    with transaction.atomic():
+        form.save()
+
+    return JsonResponse({
+        'message': 'Student profile updated.',
+    })
+
+@require_POST
+def switch_role(request):
+    if not request.user.is_authenticated:
+        return JsonResponse(
+            {'error': 'Please log in to switch your role.'},
+            status=401,
+        )
+
+    user = request.user
+    role = request.POST.get('role', '')
+
+    try:
+        user.switch_role(role)
+    except ValueError as error:
+        return JsonResponse(
+            {'errors': {
+                'role': [str(error)],
+            }},
+            status=400,
+        )
+
+    user.save(update_fields=['role', 'updated_at'])
+
+    return JsonResponse({
+        'message': 'Active role updated.',
+        'role': user.role,
+    })
+
+def _update_tutor_profile(request):
+    if not request.user.is_authenticated:
+        return JsonResponse(
+            {'error': 'Authentication required.'},
+            status=401,
+        )
+
+    profile = TutorProfile.objects.filter(
+        user=request.user,
+    ).first()
+
+    if profile is None:
+        profile = TutorProfile(user=request.user)
+
+    form = TutorProfileForm(
+        data=request.POST,
+        instance=profile,
+    )
+
+    if not form.is_valid():
+        return JsonResponse(
+            {'errors': form.errors.get_json_data()},
+            status=400,
+        )
+
+    with transaction.atomic():
+        form.save()
+
+    return JsonResponse(
+        {'message': 'Tutor profile updated.'},
+        status=200,
+    )
 #     get My Profile()
 #     update Student Profil()
 #     update Tutor Profil()

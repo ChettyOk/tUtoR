@@ -1,4 +1,3 @@
-from django.test import TestCase
 from .models import Course
 from django.urls import reverse
 from django.db import IntegrityError, transaction
@@ -7,9 +6,12 @@ from django.test import override_settings
 from urllib.parse import urlsplit
 
 # user import
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, RequestFactory
 from accounts.models import User, UserManager, StudentProfile
-from .models import User
+from .forms import AccountProfileForm, StudentProfileForm, TutorProfileForm
+import json
+from .views import _update_tutor_profile
+
 
 # tutor profile tests
 from accounts.models import TutorProfile
@@ -262,6 +264,9 @@ class test_Student_Profile(TestCase):
             self.profile.update_profile(major="ENER", semester=0)
         with self.assertRaises(ValueError):
             self.profile.update_profile(major="ENER", semester=-1)
+
+
+# registration tests
 class RegisterViewTests(TestCase):
     def test_register_creates_user(self):
         response = self.client.post(reverse("register"), {
@@ -423,7 +428,6 @@ class PasswordResetFlowTests(TestCase):
             response,
             "This password reset link is invalid or has expired.",
         )
-
 
 #tutor profile tests
 class TutorProfileModelTests(TestCase):
@@ -667,3 +671,1302 @@ class TutorProfileModelTests(TestCase):
             profile.display_tutor_rating,
             "4.50",
         )
+
+# profile controller tests
+class AccountProfileFormTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='profile@example.com',
+            password='ProfileTestPassword123!',
+            first_name='Marie',
+            last_name='Example',
+            phone='123456',
+        )
+
+    def test_form_contains_only_editable_account_fields(self):
+        form = AccountProfileForm(instance=self.user)
+
+        self.assertEqual(
+            list(form.fields),
+            ['first_name', 'last_name', 'phone'],
+        )
+
+    def test_valid_form_updates_existing_user(self):
+        form = AccountProfileForm(
+            data={
+                'first_name': 'Alex',
+                'last_name': 'Updated',
+                'phone': '+1 306 555 0123',
+            },
+            instance=self.user,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        saved_user = form.save()
+        self.user.refresh_from_db()
+
+        self.assertEqual(saved_user.pk, self.user.pk)
+        self.assertEqual(self.user.first_name, 'Alex')
+        self.assertEqual(self.user.last_name, 'Updated')
+        self.assertEqual(self.user.phone, '+1 306 555 0123')
+        self.assertEqual(self.user.email, 'profile@example.com')
+
+    def test_phone_can_be_empty(self):
+        form = AccountProfileForm(
+            data={
+                'first_name': 'Marie',
+                'last_name': 'Example',
+                'phone': '',
+            },
+            instance=self.user,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_phone_exceeding_model_length_is_invalid(self):
+        form = AccountProfileForm(
+            data={
+                'first_name': 'Marie',
+                'last_name': 'Example',
+                'phone': '1' * 31,
+            },
+            instance=self.user,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('phone', form.errors)
+
+
+class ProfileControllerTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='profile@example.com',
+            password='ProfileTestPassword123!',
+            first_name='Marie',
+            last_name='Example',
+            phone='123456',
+            role=User.Role.STUDENT,
+        )
+        self.url = reverse('profile')
+
+    def test_anonymous_user_cannot_get_profile(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 401)
+        self.assertIn('error', response.json())
+
+    def test_authenticated_user_gets_own_account_data(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                'account': {
+                    'id': self.user.pk,
+                    'first_name': 'Marie',
+                    'last_name': 'Example',
+                    'email': 'profile@example.com',
+                    'phone': '123456',
+                    'role': User.Role.STUDENT,
+                },
+                'student_profile': None,
+                'tutor_profile': None,
+            },
+        )
+
+    def test_user_id_parameter_does_not_select_another_account(self):
+        other_user = User.objects.create_user(
+            email='other@example.com',
+            password='OtherTestPassword123!',
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            self.url,
+            {'user_id': other_user.pk},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()['account']['id'],
+            self.user.pk,
+        )
+
+    def test_profile_endpoint_rejects_put(self):
+        self.client.force_login(self.user)
+
+        response = self.client.put(self.url)
+
+        self.assertEqual(response.status_code, 405)
+
+    def test_valid_post_updates_own_account(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {
+                'first_name': 'Alex',
+                'last_name': 'Updated',
+                'phone': '+1 306 555 0123',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, 'Alex')
+        self.assertEqual(self.user.last_name, 'Updated')
+        self.assertEqual(self.user.phone, '+1 306 555 0123')
+
+    def test_invalid_post_does_not_save_account_changes(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {
+                'first_name': 'Changed',
+                'last_name': 'Updated',
+                'phone': '1' * 31,
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('phone', response.json()['errors'])
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, 'Marie')
+        self.assertEqual(self.user.last_name, 'Example')
+        self.assertEqual(self.user.phone, '123456')
+
+    def test_anonymous_user_cannot_update_account(self):
+        response = self.client.post(
+            self.url,
+            {
+                'first_name': 'Changed',
+                'last_name': 'Updated',
+                'phone': '',
+            },
+        )
+
+        self.assertEqual(response.status_code, 401)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, 'Marie')
+
+    def test_post_ignores_other_user_and_protected_fields(self):
+        other_user = User.objects.create_user(
+            email='other@example.com',
+            password='OtherTestPassword123!',
+            first_name='Other',
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {
+                'first_name': 'Alex',
+                'last_name': 'Updated',
+                'phone': '',
+                'user_id': other_user.pk,
+                'email': 'changed@example.com',
+                'role': User.Role.TUTOR,
+                'is_staff': 'true',
+                'is_superuser': 'true',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        self.user.refresh_from_db()
+        other_user.refresh_from_db()
+
+        self.assertEqual(self.user.first_name, 'Alex')
+        self.assertEqual(self.user.email, 'profile@example.com')
+        self.assertEqual(self.user.role, User.Role.STUDENT)
+        self.assertFalse(self.user.is_staff)
+        self.assertFalse(self.user.is_superuser)
+        self.assertEqual(other_user.first_name, 'Other')
+
+class StudentProfileFormTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='student-profile@example.com',
+            password='StudentTestPassword123!',
+        )
+        self.profile = StudentProfile.objects.create(
+            user=self.user,
+            major='CS',
+            semester=1,
+        )
+        self.course = Course.create_course(
+            'CS 476',
+            'Software Development Project',
+        )
+
+    def test_form_contains_only_editable_student_fields(self):
+        form = StudentProfileForm(instance=self.profile)
+
+        self.assertEqual(
+            list(form.fields),
+            ['major', 'semester', 'courses'],
+        )
+
+    def test_valid_form_updates_profile_and_courses(self):
+        form = StudentProfileForm(
+            data={
+                'major': 'ENER',
+                'semester': '3',
+                'courses': [str(self.course.pk)],
+            },
+            instance=self.profile,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        saved_profile = form.save()
+        self.profile.refresh_from_db()
+
+        self.assertEqual(saved_profile.pk, self.profile.pk)
+        self.assertEqual(self.profile.major, 'ENER')
+        self.assertEqual(self.profile.semester, 3)
+        self.assertQuerySetEqual(
+            self.profile.courses.all(),
+            [self.course],
+        )
+
+    def test_invalid_major_is_rejected(self):
+        form = StudentProfileForm(
+            data={
+                'major': 'NOT_A_MAJOR',
+                'semester': '1',
+                'courses': [],
+            },
+            instance=self.profile,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('major', form.errors)
+
+    def test_invalid_semester_is_rejected(self):
+        for semester in ('0', '-1', 'abc'):
+            with self.subTest(semester=semester):
+                form = StudentProfileForm(
+                    data={
+                        'major': 'CS',
+                        'semester': semester,
+                        'courses': [],
+                    },
+                    instance=self.profile,
+                )
+
+                self.assertFalse(form.is_valid())
+                self.assertIn('semester', form.errors)
+
+    def test_unknown_course_is_rejected(self):
+        unknown_course_id = self.course.pk + 1
+
+        form = StudentProfileForm(
+            data={
+                'major': 'CS',
+                'semester': '1',
+                'courses': [str(unknown_course_id)],
+            },
+            instance=self.profile,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('courses', form.errors)
+
+    def test_empty_course_selection_removes_previous_courses(self):
+        self.profile.courses.add(self.course)
+
+        form = StudentProfileForm(
+            data={
+                'major': 'CS',
+                'semester': '1',
+                'courses': [],
+            },
+            instance=self.profile,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+
+        self.assertFalse(self.profile.courses.exists())
+        self.assertTrue(
+            Course.objects.filter(pk=self.course.pk).exists(),
+        )
+
+class StudentProfileControllerTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='student-controller@example.com',
+            password='StudentTestPassword123!',
+            first_name='Marie',
+            phone='123456',
+        )
+        self.course = Course.create_course(
+            'CS 476',
+            'Software Development Project',
+        )
+        self.url = reverse('profile')
+
+    def test_valid_post_creates_student_profile(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {
+                'profile_type': 'student',
+                'major': 'CS',
+                'semester': '2',
+                'courses': [str(self.course.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        profile = StudentProfile.objects.get(user=self.user)
+        self.assertEqual(profile.major, 'CS')
+        self.assertEqual(profile.semester, 2)
+        self.assertTrue(
+            profile.courses.filter(pk=self.course.pk).exists(),
+        )
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, 'Marie')
+        self.assertEqual(self.user.phone, '123456')
+
+    def test_valid_post_updates_existing_profile(self):
+        profile = StudentProfile.objects.create(
+            user=self.user,
+            major='CS',
+            semester=1,
+        )
+        profile.courses.add(self.course)
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {
+                'profile_type': 'student',
+                'major': 'ENER',
+                'semester': '3',
+                'courses': [],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        profile.refresh_from_db()
+        self.assertEqual(profile.major, 'ENER')
+        self.assertEqual(profile.semester, 3)
+        self.assertFalse(profile.courses.exists())
+        self.assertEqual(
+            StudentProfile.objects.filter(user=self.user).count(),
+            1,
+        )
+
+    def test_invalid_post_does_not_create_profile(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {
+                'profile_type': 'student',
+                'major': 'CS',
+                'semester': '0',
+                'courses': [],
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('semester', response.json()['errors'])
+        self.assertFalse(
+            StudentProfile.objects.filter(user=self.user).exists(),
+        )
+
+    def test_invalid_post_preserves_existing_profile(self):
+        profile = StudentProfile.objects.create(
+            user=self.user,
+            major='CS',
+            semester=1,
+        )
+        profile.courses.add(self.course)
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {
+                'profile_type': 'student',
+                'major': 'ENER',
+                'semester': '0',
+                'courses': [],
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        profile.refresh_from_db()
+        self.assertEqual(profile.major, 'CS')
+        self.assertEqual(profile.semester, 1)
+        self.assertTrue(
+            profile.courses.filter(pk=self.course.pk).exists(),
+        )
+
+    def test_anonymous_user_cannot_create_student_profile(self):
+        response = self.client.post(
+            self.url,
+            {
+                'profile_type': 'student',
+                'major': 'CS',
+                'semester': '1',
+                'courses': [],
+            },
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertFalse(StudentProfile.objects.exists())
+
+    def test_unknown_profile_type_does_not_change_account(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {
+                'profile_type': 'unknown',
+                'first_name': 'Changed',
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, 'Marie')
+
+    def test_get_returns_student_profile_data(self):
+        profile = StudentProfile.objects.create(
+            user=self.user,
+            major='CS',
+            semester=2,
+        )
+        profile.courses.add(self.course)
+        self.client.force_login(self.user)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()['student_profile'],
+            {
+                'major': 'CS',
+                'semester': 2,
+                'courses': [self.course.pk],
+                'average_rating': None,
+            },
+        )
+
+    def test_get_without_student_profile_does_not_create_one(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()['student_profile'])
+        self.assertFalse(
+            StudentProfile.objects.filter(user=self.user).exists(),
+        )
+
+    def test_get_does_not_return_another_users_student_profile(self):
+        other_user = User.objects.create_user(
+            email='other-student@example.com',
+            password='OtherStudentPassword123!',
+        )
+        StudentProfile.objects.create(
+            user=other_user,
+            major='ENER',
+            semester=4,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            self.url,
+            {'user_id': other_user.pk},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()['account']['id'],
+            self.user.pk,
+        )
+        self.assertIsNone(response.json()['student_profile'])
+
+
+class RoleSwitchControllerTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='role-switch@example.com',
+            password='RoleSwitchPassword123!',
+            role=User.Role.STUDENT,
+        )
+        self.url = reverse('switch_role')
+
+    def test_authenticated_user_can_switch_between_roles(self):
+        self.client.force_login(self.user)
+
+        for role in (User.Role.TUTOR, User.Role.STUDENT):
+            with self.subTest(role=role):
+                response = self.client.post(
+                    self.url,
+                    {'role': role},
+                )
+
+                self.assertEqual(response.status_code, 200)
+                self.user.refresh_from_db()
+                self.assertEqual(self.user.role, role)
+                self.assertEqual(response.json()['role'], role)
+
+    def test_invalid_or_missing_role_is_rejected(self):
+        self.client.force_login(self.user)
+
+        for data in ({}, {'role': ''}, {'role': 'admin'}):
+            with self.subTest(data=data):
+                response = self.client.post(self.url, data)
+
+                self.assertEqual(response.status_code, 400)
+                self.assertIn('role', response.json()['errors'])
+
+                self.user.refresh_from_db()
+                self.assertEqual(
+                    self.user.role,
+                    User.Role.STUDENT,
+                )
+
+    def test_anonymous_user_cannot_switch_role(self):
+        response = self.client.post(
+            self.url,
+            {'role': User.Role.TUTOR},
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.role, User.Role.STUDENT)
+
+    def test_get_does_not_switch_role(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            self.url,
+            {'role': User.Role.TUTOR},
+        )
+
+        self.assertEqual(response.status_code, 405)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.role, User.Role.STUDENT)
+
+    def test_role_switch_preserves_student_profile_and_courses(self):
+        profile = StudentProfile.objects.create(
+            user=self.user,
+            major='CS',
+            semester=2,
+        )
+        course = Course.create_course(
+            'CS 476',
+            'Software Development Project',
+        )
+        profile.courses.add(course)
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {'role': User.Role.TUTOR},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        profile.refresh_from_db()
+        self.assertEqual(profile.user_id, self.user.pk)
+        self.assertEqual(profile.major, 'CS')
+        self.assertEqual(profile.semester, 2)
+        self.assertTrue(
+            profile.courses.filter(pk=course.pk).exists(),
+        )
+
+    def test_user_id_does_not_select_another_account(self):
+        other_user = User.objects.create_user(
+            email='other-role@example.com',
+            password='OtherRolePassword123!',
+            role=User.Role.STUDENT,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {
+                'role': User.Role.TUTOR,
+                'user_id': other_user.pk,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        self.user.refresh_from_db()
+        other_user.refresh_from_db()
+
+        self.assertEqual(self.user.role, User.Role.TUTOR)
+        self.assertEqual(other_user.role, User.Role.STUDENT)
+
+class TutorProfileFormTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='tutor-form@example.com',
+            password='TutorFormPassword123!',
+        )
+        self.profile = TutorProfile.objects.create(
+            user=self.user,
+            bio='Original bio.',
+        )
+        self.course = Course.create_course(
+            'CS 476',
+            'Software Development Project',
+        )
+
+    def test_form_contains_only_editable_tutor_fields(self):
+        form = TutorProfileForm(instance=self.profile)
+
+        self.assertEqual(
+            list(form.fields),
+            ['bio', 'courses_passed'],
+        )
+
+    def test_valid_form_updates_bio_and_passed_courses(self):
+        form = TutorProfileForm(
+            data={
+                'bio': 'I offer tutoring for computer science courses.',
+                'courses_passed': [str(self.course.pk)],
+            },
+            instance=self.profile,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        saved_profile = form.save()
+        self.profile.refresh_from_db()
+
+        self.assertEqual(saved_profile.pk, self.profile.pk)
+        self.assertEqual(
+            self.profile.bio,
+            'I offer tutoring for computer science courses.',
+        )
+        self.assertTrue(
+            self.profile.courses_passed.filter(
+                pk=self.course.pk,
+            ).exists(),
+        )
+
+    def test_unknown_course_is_rejected(self):
+        form = TutorProfileForm(
+            data={
+                'bio': 'Updated bio.',
+                'courses_passed': [str(self.course.pk + 1)],
+            },
+            instance=self.profile,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('courses_passed', form.errors)
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.bio, 'Original bio.')
+        self.assertFalse(self.profile.courses_passed.exists())
+
+    def test_empty_fields_clear_bio_and_course_relations(self):
+        self.profile.courses_passed.add(self.course)
+
+        form = TutorProfileForm(
+            data={
+                'bio': '',
+                'courses_passed': [],
+            },
+            instance=self.profile,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.profile.refresh_from_db()
+
+        self.assertEqual(self.profile.bio, '')
+        self.assertFalse(self.profile.courses_passed.exists())
+        self.assertTrue(
+            Course.objects.filter(pk=self.course.pk).exists(),
+        )
+
+    def test_form_does_not_change_owner_or_rating(self):
+        other_user = User.objects.create_user(
+            email='other-tutor-form@example.com',
+            password='OtherTutorPassword123!',
+        )
+
+        form = TutorProfileForm(
+            data={
+                'bio': 'Updated bio.',
+                'courses_passed': [],
+                'user': str(other_user.pk),
+                'average_rating': '5.00',
+            },
+            instance=self.profile,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.profile.refresh_from_db()
+
+        self.assertEqual(self.profile.user_id, self.user.pk)
+        self.assertIsNone(self.profile.average_rating)
+
+class TutorProfileUpdateTests(TestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+        self.user = User.objects.create_user(
+            email='tutor-update@example.com',
+            password='TutorUpdatePassword123!',
+        )
+        self.course = Course.create_course(
+            'CS 476',
+            'Software Development Project',
+        )
+
+    def submit(self, data):
+        request = self.factory.post('/', data=data)
+        request.user = self.user
+        return _update_tutor_profile(request)
+
+    def test_valid_request_creates_profile(self):
+        response = self.submit({
+            'bio': 'I offer computer science tutoring.',
+            'courses_passed': [str(self.course.pk)],
+        })
+
+        self.assertEqual(response.status_code, 200)
+
+        profile = TutorProfile.objects.get(user=self.user)
+        self.assertEqual(
+            profile.bio,
+            'I offer computer science tutoring.',
+        )
+        self.assertEqual(
+            list(profile.courses_passed.all()),
+            [self.course],
+        )
+
+    def test_valid_request_updates_existing_profile(self):
+        profile = TutorProfile.objects.create(
+            user=self.user,
+            bio='Original bio.',
+        )
+
+        response = self.submit({
+            'bio': 'Updated bio.',
+            'courses_passed': [str(self.course.pk)],
+        })
+
+        self.assertEqual(response.status_code, 200)
+        profile.refresh_from_db()
+
+        self.assertEqual(profile.bio, 'Updated bio.')
+        self.assertEqual(
+            TutorProfile.objects.filter(user=self.user).count(),
+            1,
+        )
+        self.assertTrue(
+            profile.courses_passed.filter(
+                pk=self.course.pk,
+            ).exists(),
+        )
+
+    def test_invalid_request_does_not_create_profile(self):
+        response = self.submit({
+            'bio': 'Invalid request.',
+            'courses_passed': ['not-a-course-id'],
+        })
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(
+            TutorProfile.objects.filter(user=self.user).exists(),
+        )
+
+        body = json.loads(response.content)
+        self.assertIn('courses_passed', body['errors'])
+
+    def test_invalid_request_preserves_existing_profile(self):
+        profile = TutorProfile.objects.create(
+            user=self.user,
+            bio='Original bio.',
+        )
+        profile.courses_passed.add(self.course)
+
+        response = self.submit({
+            'bio': 'Must not be saved.',
+            'courses_passed': ['not-a-course-id'],
+        })
+
+        self.assertEqual(response.status_code, 400)
+        profile.refresh_from_db()
+
+        self.assertEqual(profile.bio, 'Original bio.')
+        self.assertEqual(
+            list(profile.courses_passed.all()),
+            [self.course],
+        )
+
+    def test_empty_fields_clear_existing_profile_data(self):
+        profile = TutorProfile.objects.create(
+            user=self.user,
+            bio='Original bio.',
+        )
+        profile.courses_passed.add(self.course)
+
+        response = self.submit({
+            'bio': '',
+            'courses_passed': [],
+        })
+
+        self.assertEqual(response.status_code, 200)
+        profile.refresh_from_db()
+
+        self.assertEqual(profile.bio, '')
+        self.assertFalse(profile.courses_passed.exists())
+        self.assertTrue(
+            Course.objects.filter(pk=self.course.pk).exists(),
+        )
+
+    def test_submitted_owner_and_rating_are_ignored(self):
+        other_user = User.objects.create_user(
+            email='other-tutor-update@example.com',
+            password='OtherTutorPassword123!',
+        )
+        original_role = self.user.role
+
+        response = self.submit({
+            'bio': 'My tutor bio.',
+            'courses_passed': [],
+            'user': str(other_user.pk),
+            'average_rating': '5.00',
+            'role': User.Role.TUTOR,
+        })
+
+        self.assertEqual(response.status_code, 200)
+
+        profile = TutorProfile.objects.get(user=self.user)
+        self.assertEqual(profile.user_id, self.user.pk)
+        self.assertIsNone(profile.average_rating)
+        self.assertFalse(
+            TutorProfile.objects.filter(user=other_user).exists(),
+        )
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.role, original_role)
+
+class TutorProfileGetTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='tutor-get@example.com',
+            password='TutorGetPassword123!',
+            role=User.Role.STUDENT,
+        )
+        self.course1 = Course.create_course(
+            'CS 476',
+            'Software Development Project',
+        )
+        self.course2 = Course.create_course(
+            'MATH 110',
+            'Calculus I',
+        )
+        self.url = reverse('profile')
+
+    def test_get_returns_own_tutor_profile_data(self):
+        profile = TutorProfile.objects.create(
+            user=self.user,
+            bio='I offer tutoring for computer science.',
+        )
+        profile.courses_passed.add(
+            self.course2,
+            self.course1,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()['tutor_profile'],
+            {
+                'bio': 'I offer tutoring for computer science.',
+                'courses_passed': sorted([
+                    self.course1.pk,
+                    self.course2.pk,
+                ]),
+                'average_rating': None,
+            },
+        )
+
+    def test_get_without_tutor_profile_does_not_create_one(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()['tutor_profile'])
+        self.assertFalse(
+            TutorProfile.objects.filter(user=self.user).exists(),
+        )
+
+    def test_get_does_not_return_another_users_tutor_profile(self):
+        other_user = User.objects.create_user(
+            email='other-tutor-get@example.com',
+            password='OtherTutorGetPassword123!',
+        )
+        other_profile = TutorProfile.objects.create(
+            user=other_user,
+            bio='Another tutor bio.',
+        )
+        other_profile.courses_passed.add(self.course1)
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            self.url,
+            {'user_id': other_user.pk},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()['account']['id'],
+            self.user.pk,
+        )
+        self.assertIsNone(response.json()['tutor_profile'])
+        self.assertFalse(
+            TutorProfile.objects.filter(user=self.user).exists(),
+        )
+
+    def test_get_returns_rating_as_decimal_string(self):
+        TutorProfile.objects.create(
+            user=self.user,
+            bio='Rated tutor.',
+            average_rating=Decimal('4.25'),
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()['tutor_profile']['average_rating'],
+            '4.25',
+        )
+
+    def test_get_returns_both_profiles_regardless_of_active_role(self):
+        student_profile = StudentProfile.objects.create(
+            user=self.user,
+            major='CS',
+            semester=2,
+        )
+        student_profile.courses.add(self.course1)
+
+        tutor_profile = TutorProfile.objects.create(
+            user=self.user,
+            bio='Student and tutor.',
+        )
+        tutor_profile.courses_passed.add(self.course2)
+
+        self.client.force_login(self.user)
+
+        for role in (User.Role.STUDENT, User.Role.TUTOR):
+            with self.subTest(role=role):
+                self.user.role = role
+                self.user.save(update_fields=['role'])
+
+                response = self.client.get(self.url)
+
+                self.assertEqual(response.status_code, 200)
+                body = response.json()
+
+                self.assertEqual(body['account']['role'], role)
+                self.assertEqual(
+                    body['student_profile'],
+                    {
+                        'major': 'CS',
+                        'semester': 2,
+                        'courses': [self.course1.pk],
+                        'average_rating': None,
+                    },
+                )
+                self.assertEqual(
+                    body['tutor_profile'],
+                    {
+                        'bio': 'Student and tutor.',
+                        'courses_passed': [self.course2.pk],
+                        'average_rating': None,
+                    },
+                )
+
+class CrossProfileRegressionTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='cross-profile@example.com',
+            password='CrossProfilePassword123!',
+            first_name='Marie',
+            last_name='Example',
+            phone='123456',
+            role=User.Role.STUDENT,
+        )
+
+        self.student_course = Course.create_course(
+            'CS 476',
+            'Software Development Project',
+        )
+        self.tutor_course = Course.create_course(
+            'MATH 110',
+            'Calculus I',
+        )
+        self.new_course = Course.create_course(
+            'ENER 120',
+            'Energy',
+        )
+
+        self.student_profile = StudentProfile.objects.create(
+            user=self.user,
+            major='CS',
+            semester=2,
+            average_rating=Decimal('4.00'),
+        )
+        self.student_profile.courses.add(self.student_course)
+
+        self.tutor_profile = TutorProfile.objects.create(
+            user=self.user,
+            bio='Original tutor bio.',
+            average_rating=Decimal('4.25'),
+        )
+        self.tutor_profile.courses_passed.add(self.tutor_course)
+
+        self.profile_url = reverse('profile')
+        self.role_url = reverse('switch_role')
+
+    def assert_account_unchanged(self):
+        self.user.refresh_from_db()
+
+        self.assertEqual(self.user.first_name, 'Marie')
+        self.assertEqual(self.user.last_name, 'Example')
+        self.assertEqual(self.user.phone, '123456')
+        self.assertEqual(
+            self.user.email,
+            'cross-profile@example.com',
+        )
+        self.assertEqual(self.user.role, User.Role.STUDENT)
+        self.assertFalse(self.user.is_staff)
+        self.assertFalse(self.user.is_superuser)
+
+    def assert_student_profile_unchanged(self):
+        self.student_profile.refresh_from_db()
+
+        self.assertEqual(
+            self.student_profile.user_id,
+            self.user.pk,
+        )
+        self.assertEqual(self.student_profile.major, 'CS')
+        self.assertEqual(self.student_profile.semester, 2)
+        self.assertEqual(
+            self.student_profile.average_rating,
+            Decimal('4.00'),
+        )
+        self.assertEqual(
+            set(
+                self.student_profile.courses.values_list(
+                    'pk',
+                    flat=True,
+                )
+            ),
+            {self.student_course.pk},
+        )
+
+    def assert_tutor_profile_unchanged(self):
+        self.tutor_profile.refresh_from_db()
+
+        self.assertEqual(
+            self.tutor_profile.user_id,
+            self.user.pk,
+        )
+        self.assertEqual(
+            self.tutor_profile.bio,
+            'Original tutor bio.',
+        )
+        self.assertEqual(
+            self.tutor_profile.average_rating,
+            Decimal('4.25'),
+        )
+        self.assertEqual(
+            set(
+                self.tutor_profile.courses_passed.values_list(
+                    'pk',
+                    flat=True,
+                )
+            ),
+            {self.tutor_course.pk},
+        )
+
+    def test_role_switch_preserves_both_profiles_and_courses(self):
+        self.client.force_login(self.user)
+
+        for role in (User.Role.TUTOR, User.Role.STUDENT):
+            with self.subTest(role=role):
+                response = self.client.post(
+                    self.role_url,
+                    {'role': role},
+                )
+
+                self.assertEqual(response.status_code, 200)
+                self.user.refresh_from_db()
+                self.assertEqual(self.user.role, role)
+
+                self.assert_student_profile_unchanged()
+                self.assert_tutor_profile_unchanged()
+
+                self.assertEqual(
+                    StudentProfile.objects.filter(
+                        user=self.user,
+                    ).count(),
+                    1,
+                )
+                self.assertEqual(
+                    TutorProfile.objects.filter(
+                        user=self.user,
+                    ).count(),
+                    1,
+                )
+
+    def test_tutor_post_updates_only_tutor_fields(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.profile_url,
+            {
+                'profile_type': 'tutor',
+                'bio': 'Updated tutor bio.',
+                'courses_passed': [str(self.new_course.pk)],
+                'first_name': 'Must not change',
+                'phone': '999999',
+                'major': 'ENER',
+                'semester': '9',
+                'courses': [str(self.new_course.pk)],
+                'average_rating': '1.00',
+                'role': User.Role.TUTOR,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.tutor_profile.refresh_from_db()
+
+        self.assertEqual(
+            self.tutor_profile.bio,
+            'Updated tutor bio.',
+        )
+        self.assertEqual(
+            set(
+                self.tutor_profile.courses_passed.values_list(
+                    'pk',
+                    flat=True,
+                )
+            ),
+            {self.new_course.pk},
+        )
+        self.assertEqual(
+            self.tutor_profile.average_rating,
+            Decimal('4.25'),
+        )
+        self.assertEqual(
+            self.tutor_profile.user_id,
+            self.user.pk,
+        )
+        self.assertEqual(
+            TutorProfile.objects.filter(user=self.user).count(),
+            1,
+        )
+
+        self.assert_account_unchanged()
+        self.assert_student_profile_unchanged()
+
+    def test_student_post_preserves_account_and_tutor_profile(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.profile_url,
+            {
+                'profile_type': 'student',
+                'major': 'ENER',
+                'semester': '3',
+                'courses': [str(self.new_course.pk)],
+                'bio': 'Must not change tutor bio.',
+                'courses_passed': [str(self.new_course.pk)],
+                'average_rating': '1.00',
+                'first_name': 'Must not change',
+                'role': User.Role.TUTOR,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.student_profile.refresh_from_db()
+
+        self.assertEqual(self.student_profile.major, 'ENER')
+        self.assertEqual(self.student_profile.semester, 3)
+        self.assertEqual(
+            set(
+                self.student_profile.courses.values_list(
+                    'pk',
+                    flat=True,
+                )
+            ),
+            {self.new_course.pk},
+        )
+        self.assertEqual(
+            self.student_profile.average_rating,
+            Decimal('4.00'),
+        )
+
+        self.assert_account_unchanged()
+        self.assert_tutor_profile_unchanged()
+
+    def test_invalid_tutor_post_preserves_all_profile_data(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.profile_url,
+            {
+                'profile_type': 'tutor',
+                'bio': 'Must not be saved.',
+                'courses_passed': ['not-a-course-id'],
+                'first_name': 'Must not change',
+                'major': 'ENER',
+                'semester': '9',
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(
+            'courses_passed',
+            response.json()['errors'],
+        )
+
+        self.assert_account_unchanged()
+        self.assert_student_profile_unchanged()
+        self.assert_tutor_profile_unchanged()
+
+    def test_anonymous_tutor_post_does_not_create_profile(self):
+        response = self.client.post(
+            self.profile_url,
+            {
+                'profile_type': 'tutor',
+                'bio': 'Anonymous tutor bio.',
+                'courses_passed': [str(self.new_course.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(TutorProfile.objects.count(), 1)
+
+        self.assert_account_unchanged()
+        self.assert_student_profile_unchanged()
+        self.assert_tutor_profile_unchanged()
