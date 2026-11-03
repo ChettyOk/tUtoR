@@ -300,3 +300,90 @@ class test_create_booking(TestCase):
 
     #     self.assertEqual(len(results), 1)
     #     self.assertEqual(len(errors), 1)
+
+class test_session_request(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(
+            email='student@ureg.com',
+            password='676767HHh?',
+            first_name='Dieter',
+            last_name='Schwarz',
+        )
+        self.tutor = User.objects.create_user(
+            email='tutor@ureg.com',
+            password='676767HHh?',
+            first_name='Olli',
+            last_name='Blume',
+        )
+        self.other_user = User.objects.create_user(
+            email='other@jyy.com',
+            password='676767HHh?',
+            first_name='Manfred',
+            last_name='mueller',
+        )
+        self.course = Course.create_course('CS 476', 'SW dev Project')
+        self.booking = Booking.objects.create(
+            student=self.student,
+            tutor=self.tutor,
+            course=self.course,
+            student_note='bitte helfen sie mir ich bin in gefahr',
+            session_price=Decimal('25.00'),
+            status=Booking.Status.PENDING,
+        )
+
+    def test_student_create_session_request(self):
+        self.client.force_login(self.student)
+        url = reverse('create_request')
+        response = self.client.post(url, {
+            'tutor_id': self.tutor.id,
+            'course_id': self.course.id,
+            'student_note': 'wowhooo bitte bring mir fortnite bei daddy',
+            'session_price': '30.00',
+        })
+        self.assertEqual(response.status_code, 201)
+        data = response.json()
+        self.assertEqual(data['status'], Booking.Status.PENDING)
+
+    def test_tutor_get_incoming_requests(self):
+        self.booking.status = Booking.Status.PENDING
+        self.booking.save()
+
+        self.client.force_login(self.tutor)
+        url = reverse('incoming_requests')
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data['open_requests']), 1)
+        self.assertEqual(data['open_requests'][0]['id'], self.booking.id)
+
+    def test_tutor_accept_request(self):
+        self.booking.status = Booking.Status.PENDING
+        self.booking.save()
+
+        self.client.force_login(self.tutor)
+        url = reverse('accept_request', kwargs={'booking_id': self.booking.id})
+        response = self.client.post(url)
+        self.assertEqual(response.status_code, 200)
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.status, Booking.Status.CONFIRMED)
+
+    def test_tutor_decline_request(self):
+        self.booking.status = Booking.Status.PENDING
+        self.booking.save()
+
+        self.client.force_login(self.tutor)
+        url = reverse('decline_request', kwargs={'booking_id': self.booking.id})
+        response = self.client.post(url, {'reason': 'Kein bock auf dich'})
+        self.assertEqual(response.status_code, 200)
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.status, Booking.Status.CANCELLED_TUTOR)
+        self.assertEqual(self.booking.cancellation_reason, 'Kein bock auf dich')
+
+    def test_wrong_user_accept(self):
+        self.booking.status = Booking.Status.PENDING
+        self.booking.save()
+
+        self.client.force_login(self.other_user)
+        url = reverse('accept_request', kwargs={'booking_id': self.booking.id})
+        response = self.client.post(url)
+        self.assertEqual(response.status_code, 403)
