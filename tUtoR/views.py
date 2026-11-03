@@ -5,7 +5,7 @@ from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth import update_session_auth_hash
 from django.shortcuts import render
 
-from accounts.views import get_my_profile
+from accounts.views import get_my_profile, switch_role as api_switch_role
 
 
 def register(request):
@@ -173,6 +173,38 @@ def account_password(request):
         return render(request, "profile/change_password.html", context)
 
     return render(request, "profile/change_password.html", context, status=400)
+
+
+@login_required
+def account_role(request):
+    """Role switch page backed by switch_role."""
+    context = _account_context(request, active_section="role")
+
+    if request.method != "POST":
+        return render(request, "profile/role_switch.html", context)
+
+    response = api_switch_role(request)
+    selected_role = request.POST.get("role", "")
+
+    if response.status_code == 200:
+        request.user.refresh_from_db()
+        context = _account_context(
+            request,
+            active_section="role",
+            success_message="Your active role was updated.",
+        )
+        return render(request, "profile/role_switch.html", context)
+
+    field_errors, form_error = _field_errors_from_response(response)
+    context["field_errors"] = field_errors
+    context["form_error"] = form_error
+    context["account"]["role"] = selected_role or context["account"]["role"]
+    return render(
+        request,
+        "profile/role_switch.html",
+        context,
+        status=response.status_code,
+    )
 
 
 def landing(request):

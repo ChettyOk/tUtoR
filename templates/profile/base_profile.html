@@ -43,6 +43,11 @@
           href="{% url 'account_password' %}"
           >Change password</a
         >
+        <a
+          class="profile-nav-link{% if active_section == 'role' %} is-active{% endif %}"
+          href="{% url 'account_role' %}"
+          >Role</a
+        >
         {% endblock %}
       </nav>
 

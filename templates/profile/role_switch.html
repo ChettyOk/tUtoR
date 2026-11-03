@@ -1,0 +1,71 @@
+{% extends "profile/base_profile.html" %} {% load static %} {% block title %}Role ·
+{{ site_name|default:"tUtoR" }}{% endblock %} {% block aside_title %}Use one account
+for both sides of tutoring.{% endblock %} {% block aside_extra %}
+<p>
+  Switching roles changes what you see next. Your student and tutor profiles stay
+  saved on this account.
+</p>
+{% endblock %} {% block profile_content %}
+<h1>Role</h1>
+<p class="auth-sub">
+  {% if account.role == "student" %}
+  You are currently using tUtoR as a student.
+  {% elif account.role == "tutor" %}
+  You are currently using tUtoR as a tutor.
+  {% else %}
+  Choose how you want to use tUtoR right now.
+  {% endif %}
+</p>
+
+<form method="post" action="{% url 'account_role' %}" class="needs-validation" novalidate>
+  {% csrf_token %}
+  <fieldset>
+    <legend class="visually-hidden">Active role</legend>
+    <div class="role-grid role-grid-two">
+      <div class="role-option">
+        <input
+          class="role-input"
+          type="radio"
+          name="role"
+          id="role-student"
+          value="student"
+          {% if account.role == "student" or not account.role %}checked{% endif %}
+          required
+        />
+        <label class="role-card" for="role-student">
+          <strong>Student</strong>
+          <span>Find a tutor for my courses</span>
+        </label>
+      </div>
+      <div class="role-option">
+        <input
+          class="role-input"
+          type="radio"
+          name="role"
+          id="role-tutor"
+          value="tutor"
+          {% if account.role == "tutor" %}checked{% endif %}
+          required
+        />
+        <label class="role-card" for="role-tutor">
+          <strong>Tutor</strong>
+          <span>Offer sessions for courses I passed</span>
+        </label>
+      </div>
+    </div>
+    {% if field_errors.role %}
+    <div class="text-danger small mt-2">{{ field_errors.role }}</div>
+    {% endif %}
+  </fieldset>
+
+  <button
+    type="submit"
+    class="btn btn-green rounded-pill w-100 mt-4"
+    data-loading="Updating role…"
+  >
+    Switch role
+  </button>
+</form>
+{% endblock %} {% block extra_js %}
+<script src="{% static 'js/auth.js' %}"></script>
+{% endblock %}
