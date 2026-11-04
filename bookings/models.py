@@ -4,6 +4,8 @@ from django.conf import settings
 from django.utils import timezone
 from accounts.models import Course
 from decimal import Decimal, ROUND_HALF_UP
+from django.core.validators import MinValueValidator, MaxValueValidator
+
 
 class Booking(models.Model):
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='student_bookings')
@@ -87,3 +89,18 @@ class Booking(models.Model):
         if hasattr(self, 'time_slot') and self.time_slot:
             self.time_slot.status = 'available'
             self.time_slot.save()
+
+class Rating(models.Model):
+    booking = models.OneToOneField(Booking, on_delete=models.CASCADE, related_name='rating',)
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+ related_name='ratings_given',)
+    tutor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='ratings_received',)
+
+    rating_stars = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(5)])
+
+    rating_comment = models.TextField(blank=True, default='')
+    rating_created_time = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Rating #{self.id} | {self.rating_stars}/5 for {self.tutor.email}"
