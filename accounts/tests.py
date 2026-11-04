@@ -1006,6 +1006,8 @@ class StudentProfileControllerTests(TestCase):
             password='StudentTestPassword123!',
             first_name='Marie',
             phone='123456',
+            role=User.Role.STUDENT,
+
         )
         self.course = Course.create_course(
             'CS 476',
@@ -1747,7 +1749,7 @@ class CrossProfileRegressionTests(TestCase):
         self.profile_url = reverse('profile')
         self.role_url = reverse('switch_role')
 
-    def assert_account_unchanged(self):
+    def assert_account_unchanged(self, expected_role=User.Role.STUDENT):
         self.user.refresh_from_db()
 
         self.assertEqual(self.user.first_name, 'Marie')
@@ -1757,7 +1759,7 @@ class CrossProfileRegressionTests(TestCase):
             self.user.email,
             'cross-profile@example.com',
         )
-        self.assertEqual(self.user.role, User.Role.STUDENT)
+        self.assertEqual(self.user.role, expected_role)
         self.assertFalse(self.user.is_staff)
         self.assertFalse(self.user.is_superuser)
 
@@ -1840,6 +1842,9 @@ class CrossProfileRegressionTests(TestCase):
                 )
 
     def test_tutor_post_updates_only_tutor_fields(self):
+        self.user.switch_role(User.Role.TUTOR)
+        self.user.save(update_fields=['role'])
+
         self.client.force_login(self.user)
 
         response = self.client.post(
@@ -1854,7 +1859,7 @@ class CrossProfileRegressionTests(TestCase):
                 'semester': '9',
                 'courses': [str(self.new_course.pk)],
                 'average_rating': '1.00',
-                'role': User.Role.TUTOR,
+                'role': User.Role.STUDENT,
             },
         )
 
@@ -1887,7 +1892,7 @@ class CrossProfileRegressionTests(TestCase):
             1,
         )
 
-        self.assert_account_unchanged()
+        self.assert_account_unchanged(expected_role=User.Role.TUTOR)
         self.assert_student_profile_unchanged()
 
     def test_student_post_preserves_account_and_tutor_profile(self):
@@ -1931,6 +1936,8 @@ class CrossProfileRegressionTests(TestCase):
         self.assert_tutor_profile_unchanged()
 
     def test_invalid_tutor_post_preserves_all_profile_data(self):
+        self.user.switch_role(User.Role.TUTOR)
+        self.user.save(update_fields=['role'])
         self.client.force_login(self.user)
 
         response = self.client.post(
@@ -1951,7 +1958,7 @@ class CrossProfileRegressionTests(TestCase):
             response.json()['errors'],
         )
 
-        self.assert_account_unchanged()
+        self.assert_account_unchanged(expected_role=User.Role.TUTOR)
         self.assert_student_profile_unchanged()
         self.assert_tutor_profile_unchanged()
 
@@ -2044,3 +2051,51 @@ class RoleAccessCheckTests(SimpleTestCase):
                 response = check_role_access(request, required_role)
 
                 self.assertEqual(response.status_code, 403)
+
+class ProfileRoleAccessTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='profile-role-access@example.com',
+            password='ProfileRolePassword123!',
+            role=User.Role.STUDENT,
+        )
+        self.url = reverse('profile')
+
+    def test_student_cannot_update_tutor_profile(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {
+                'profile_type': 'tutor',
+                'bio': 'I offer tutoring for computer science.',
+                'courses_passed': [],
+            },
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn('error', response.json())
+        self.assertFalse(
+            TutorProfile.objects.filter(user=self.user).exists(),
+        )
+
+    def test_tutor_cannot_update_student_profile(self):
+        self.user.switch_role(User.Role.TUTOR)
+        self.user.save(update_fields=['role'])
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {
+                'profile_type': 'student',
+                'major': 'CS',
+                'semester': '1',
+                'courses': [],
+            },
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn('error', response.json())
+        self.assertFalse(
+            StudentProfile.objects.filter(user=self.user).exists(),
+        )

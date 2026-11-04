@@ -135,9 +135,25 @@ def get_my_profile(request):
         profile_type = request.POST.get('profile_type', 'account')
 
         if profile_type == 'student':
+            error_response = check_role_access(
+                request,
+                User.Role.STUDENT,
+            )
+
+            if error_response is not None:
+                return error_response
+
             return _update_student_profile(user, request.POST)
 
         if profile_type == 'tutor':
+            error_response = check_role_access(
+                request,
+                User.Role.TUTOR,
+            )
+
+            if error_response is not None:
+                return error_response
+
             return _update_tutor_profile(user, request.POST)
 
         if profile_type != 'account':
