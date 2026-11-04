@@ -10,7 +10,8 @@ from django.test import SimpleTestCase, TestCase, RequestFactory
 from accounts.models import User, UserManager, StudentProfile
 from .forms import AccountProfileForm, StudentProfileForm, TutorProfileForm
 import json
-from .views import _update_tutor_profile
+from .views import _update_tutor_profile, check_role_access
+from django.contrib.auth.models import AnonymousUser
 
 
 # tutor profile tests
@@ -1970,3 +1971,76 @@ class CrossProfileRegressionTests(TestCase):
         self.assert_account_unchanged()
         self.assert_student_profile_unchanged()
         self.assert_tutor_profile_unchanged()
+
+# role access tests
+class RoleAccessCheckTests(SimpleTestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def make_request(self, user):
+        request = self.factory.post('/accounts/profile/')
+        request.user = user
+        return request
+
+    def test_anonymous_user_receives_401(self):
+        request = self.make_request(AnonymousUser())
+
+        response = check_role_access(request, User.Role.TUTOR)
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(
+            json.loads(response.content),
+            {'error': 'Authentication required.'},
+        )
+
+    def test_matching_active_role_is_allowed(self):
+        for role in (User.Role.STUDENT, User.Role.TUTOR):
+            with self.subTest(role=role):
+                user = User(
+                    email='role-check@example.com',
+                    role=role,
+                )
+                request = self.make_request(user)
+
+                response = check_role_access(request, role)
+
+                self.assertIsNone(response)
+
+    def test_wrong_active_role_receives_403(self):
+        role_pairs = (
+            (User.Role.STUDENT, User.Role.TUTOR),
+            (User.Role.TUTOR, User.Role.STUDENT),
+        )
+
+        for active_role, required_role in role_pairs:
+            with self.subTest(
+                active_role=active_role,
+                required_role=required_role,
+            ):
+                user = User(
+                    email='role-check@example.com',
+                    role=active_role,
+                )
+                request = self.make_request(user)
+
+                response = check_role_access(request, required_role)
+
+                self.assertEqual(response.status_code, 403)
+                self.assertEqual(
+                    json.loads(response.content),
+                    {
+                        'error': (
+                            'Your active role does not allow this action.'
+                        ),
+                    },
+                )
+
+    def test_user_without_active_role_receives_403(self):
+        user = User(email='role-check@example.com')
+        request = self.make_request(user)
+
+        for required_role in (User.Role.STUDENT, User.Role.TUTOR):
+            with self.subTest(required_role=required_role):
+                response = check_role_access(request, required_role)
+
+                self.assertEqual(response.status_code, 403)

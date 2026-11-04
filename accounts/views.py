@@ -101,6 +101,26 @@ def request_forgotten_password(request):
     )
 
 # Profile Controller
+from django.http import JsonResponse
+
+
+def check_role_access(request, required_role):
+    user = request.user
+
+    if not user.is_authenticated:
+        return JsonResponse(
+            {'error': 'Authentication required.'},
+            status=401,
+        )
+
+    if not user.has_role(required_role):
+        return JsonResponse(
+            {'error': 'Your active role does not allow this action.'},
+            status=403,
+        )
+
+    return None
+
 @require_http_methods(['GET', 'POST'])
 def get_my_profile(request):
     if not request.user.is_authenticated:
@@ -194,8 +214,6 @@ def get_my_profile(request):
         'student_profile': student_data,
         'tutor_profile': tutor_data,
     })
-
-
 
 def _update_student_profile(user, data):
     profile = StudentProfile.objects.filter(user=user).first()
