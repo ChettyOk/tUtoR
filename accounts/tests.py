@@ -1997,3 +1997,40 @@ class test_favorite_tutors(TestCase):
         self.assertIn(self.tutor, profile.get_favorite_tutors())
         profile.remove_favorite_tutor(self.tutor)
         self.assertNotIn(self.tutor, profile.get_favorite_tutors())
+
+
+    def test_addrm_fav_tutor_view(self):
+        StudentProfile.objects.create(user=self.student)
+        self.client.force_login(self.student)
+
+        url = reverse('toggle_favorite_tutor', kwargs={'tutor_id': self.tutor.id})
+        list_url = reverse('favorite_tutors')
+
+        list_added = self.client.post(url)
+        self.assertEqual(list_added.status_code, 200)
+        self.assertTrue(list_added.json()['is_favorite'])
+
+        res_list = self.client.get(list_url)
+        self.assertEqual(res_list.status_code, 200)
+        favs = res_list.json()['favorite_tutors']
+        self.assertEqual(len(favs), 1)
+        self.assertEqual(favs[0]['id'], self.tutor.id)
+        self.assertEqual(favs[0]['average_rating'], '1.80')
+
+        list_removed = self.client.post(url)
+        self.assertEqual(list_removed.status_code, 200)
+        self.assertFalse(list_removed.json()['is_favorite'])
+
+        list_empty = self.client.get(list_url)
+        self.assertEqual(len(list_empty.json()['favorite_tutors']), 0)
+
+    def test_fav_tutor_no_studenttutor_profile(self):
+        self.client.force_login(self.student)
+        url = reverse('toggle_favorite_tutor', kwargs={'tutor_id': self.tutor.id})
+        fav_list = self.client.post(url)
+        self.assertEqual(fav_list.status_code, 400)
+
+        StudentProfile.objects.create(user=self.student)
+        url_self = reverse('toggle_favorite_tutor', kwargs={'tutor_id': self.student.id})
+        fav_list2 = self.client.post(url_self)
+        self.assertEqual(fav_list2.status_code, 400)
