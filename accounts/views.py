@@ -118,7 +118,7 @@ def get_my_profile(request):
             return _update_student_profile(user, request.POST)
 
         if profile_type == 'tutor':
-            return _update_tutor_profile(request)
+            return _update_tutor_profile(user, request.POST)
 
         if profile_type != 'account':
             return JsonResponse(
@@ -249,22 +249,14 @@ def switch_role(request):
         'role': user.role,
     })
 
-def _update_tutor_profile(request):
-    if not request.user.is_authenticated:
-        return JsonResponse(
-            {'error': 'Authentication required.'},
-            status=401,
-        )
-
-    profile = TutorProfile.objects.filter(
-        user=request.user,
-    ).first()
+def _update_tutor_profile(user, data):
+    profile = TutorProfile.objects.filter(user=user).first()
 
     if profile is None:
-        profile = TutorProfile(user=request.user)
+        profile = TutorProfile(user=user)
 
     form = TutorProfileForm(
-        data=request.POST,
+        data=data,
         instance=profile,
     )
 
@@ -281,10 +273,6 @@ def _update_tutor_profile(request):
         {'message': 'Tutor profile updated.'},
         status=200,
     )
-#     get My Profile()
-#     update Student Profil()
-#     update Tutor Profil()
-#     Switch Role()
 
 # Tutor Controller
 #     get Tutor Profile

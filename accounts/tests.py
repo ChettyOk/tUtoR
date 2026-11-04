@@ -1434,7 +1434,7 @@ class TutorProfileUpdateTests(TestCase):
     def submit(self, data):
         request = self.factory.post('/', data=data)
         request.user = self.user
-        return _update_tutor_profile(request)
+        return _update_tutor_profile(request.user, request.POST)
 
     def test_valid_request_creates_profile(self):
         response = self.submit({
