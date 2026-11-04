@@ -20,6 +20,9 @@ from django.db import connection
 from tUtoR.views import custom_403, custom_500
 
 
+from accounts.models import Course, User, TutorProfile
+
+
 class test_filter_courses_system(TestCase):
     
     def setUp(self):
@@ -106,8 +109,6 @@ class Latency_tests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertLess(response_time, 1.0)
-
-
 
 class Test_pricing(TestCase):
     def setUp(self):
@@ -328,3 +329,58 @@ class test_custom_error_handler(TestCase):
         response = custom_500(None)
         self.assertEqual(response.status_code, 500)
         self.assertIn(b'500', response.content)
+
+class test_tutor_details(TestCase):
+    def setUp(self):
+        self.tutor_user = User.objects.create_user(
+            email='tutor@uregina.ca',
+            password='676767hhH""!',
+            first_name='Dieter',
+            last_name='Smith',
+        )
+        self.normal_user = User.objects.create_user(
+            email='student@uregina.ca',
+            password='Password1d23!',
+            first_name='Bob',
+            last_name='Maier',
+        )
+        self.course_with_tutor = Course.create_course('CS 476', 'Software Development Project')
+        self.course_without_tutor = Course.create_course('Ener 258', 'energie I')
+
+        self.tutor_profile = TutorProfile.objects.create(
+            user=self.tutor_user,
+            bio='Wat is Elektrotechnik',
+            average_rating=Decimal('1.00'),
+        )
+        self.tutor_profile.courses_passed.add(self.course_with_tutor)
+
+    def test_filter_courses_with_tutor(self):
+        response = self.client.get(reverse('search'), {'has_tutor': 'true'})
+        self.assertEqual(response.status_code, 200)
+        courses = list(response.context['courses'])
+        self.assertEqual(len(courses), 1)
+        self.assertEqual(courses[0].course_code, 'CS 476')
+
+    def test_get_tutor_details_view(self):
+        url = reverse('tutor_details', kwargs={'tutor_id': self.tutor_user.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()['tutor']
+        self.assertEqual(data['first_name'], 'Dieter')
+        self.assertEqual(data['bio'], 'Wat is Elektrotechnik')
+        self.assertEqual(data['average_rating'], '1.00')
+        self.assertEqual(len(data['courses_passed']), 1)
+        self.assertEqual(data['courses_passed'][0]['course_code'], 'CS 476')
+
+    def test_get_tutor_details_error(self):
+        url = reverse('tutor_details', kwargs={'tutor_id': self.normal_user.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 404)
+
+    def test_get_tutor_slots_view(self):
+        url = reverse('tutor_slots', kwargs={'tutor_id': self.tutor_user.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data['tutor_id'], self.tutor_user.id)
+        self.assertEqual(data['available_slots'], [])
