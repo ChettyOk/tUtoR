@@ -1,7 +1,11 @@
-from django.shortcuts import render
+from django.shortcuts import render, get_object_or_404
 from django.db.models import Q
-from accounts.models import Course
+from django.http import JsonResponse
+from django.views.decorators.http import require_GET
+
+from accounts.models import Course, User, TutorProfile
 from accounts.constants import FACULTIES
+from .services import get_tutor_details, get_tutor_available_slots
 
 
 def filter_courses(request):
@@ -23,8 +27,8 @@ def filter_courses(request):
         
     
     if has_tutor_offering: 
-        # To be added once available slots are implemented
-        pass
+        courses = courses.filter(tutor_profiles__isnull=False).distinct()
+        
 
     if search_query:
         courses = courses.filter(Q(course_code__icontains = search_query) | Q(course_name__icontains = search_query))
@@ -44,4 +48,27 @@ def filter_courses(request):
     return render(request, 'bookings/search_results.html', context)
     
 
-    
+@require_GET
+def get_tutor_details_view(request, tutor_id):
+    tutor = get_object_or_404(User, id=tutor_id)
+
+    try:
+        details = get_tutor_details(tutor)
+    except ValueError as e:
+        return JsonResponse({'error': str(e)}, status=404)
+
+    return JsonResponse({'tutor': details})
+
+
+@require_GET
+def get_tutor_slots_view(request, tutor_id):
+    tutor = get_object_or_404(User, id=tutor_id)
+
+    if not TutorProfile.objects.filter(user=tutor).exists():
+        return JsonResponse({'error': 'No tutor Profile found for this user.'}, status=404)
+
+    slots = get_tutor_available_slots(tutor)
+    return JsonResponse({
+        'tutor_id': tutor.id,
+        'available_slots': slots,
+    })  
