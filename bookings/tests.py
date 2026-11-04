@@ -1,6 +1,6 @@
 from django.urls import reverse
 from django.test import TestCase
-from accounts.models import Course, User
+from accounts.models import Course, User, TutorProfile
 from django.test import Client
 from django.urls import reverse
 from bookings.pricing import (calc_price_suggestion, DEFAULT_PRICE_UNDERGRAD, DEFAULT_PRICE_GRAD, MAX_PRICE, MIN_PRICE, custom_pricing)
@@ -10,12 +10,13 @@ import time
 from datetime import datetime, timedelta
 from decimal import Decimal
 from django.contrib.auth import get_user_model
-from bookings.models import Booking
+from bookings.models import Booking, Rating
 
 from unittest.mock import MagicMock
 from bookings.services import create_booking_request, get_user_bookings, DoubleBookingError
 import threading
 from django.db import connection
+
 
 class test_filter_courses_system(TestCase):
     
@@ -300,3 +301,93 @@ class test_create_booking(TestCase):
 
     #     self.assertEqual(len(results), 1)
     #     self.assertEqual(len(errors), 1)
+
+class test_ratings_system(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(
+            email='student@uregina.ca',
+            password='676767hhG!',
+            first_name='Tim',
+            last_name='Peter',
+        )
+        self.tutor = User.objects.create_user(
+            email='tutor@uregina.ca',
+            password='676767hhG!',
+            first_name='Sara',
+            last_name='kkdfjh',
+        )
+        self.other_user = User.objects.create_user(
+            email='stranger@uregina.ca',
+            password='676767hhG!',
+        )
+        self.tutor_profile = TutorProfile.objects.create(
+            user=self.tutor,
+            bio='jaaaaa',
+        )
+        self.course = Course.create_course('CS 476', 'sw dev Project')
+
+        self.completed_booking = Booking.objects.create(
+            student=self.student,
+            tutor=self.tutor,
+            course=self.course,
+            session_price=Decimal('25.00'),
+            status=Booking.Status.COMPLETED,
+        )
+        self.pending_booking = Booking.objects.create(
+            student=self.student,
+            tutor=self.tutor,
+            course=self.course,
+            session_price=Decimal('25.00'),
+            status=Booking.Status.PENDING,
+        )
+
+    def test_submit_rating(self):
+        self.client.force_login(self.student)
+        url = reverse('submit_rating', kwargs={'booking_id': self.completed_booking.id})
+        response = self.client.post(url, {'stars': 5, 'comment': 'tolllllll!'})
+        self.assertEqual(response.status_code, 201)
+
+        booking2 = Booking.objects.create(
+            student=self.student,
+            tutor=self.tutor,
+            course=self.course,
+            session_price=Decimal('25.00'),
+            status=Booking.Status.COMPLETED,
+        )
+        url2 = reverse('submit_rating', kwargs={'booking_id': booking2.id})
+        self.client.post(url2, {'stars': 4, 'comment': 'Sehr gut'})
+
+        self.tutor_profile.refresh_from_db()
+        self.assertEqual(self.tutor_profile.average_rating, Decimal('4.50'))
+
+        list_url = reverse('tutor_ratings', kwargs={'tutor_id': self.tutor.id})
+        list_res = self.client.get(list_url)
+        self.assertEqual(list_res.status_code, 200)
+        data = list_res.json()
+        self.assertEqual(data['average_rating'], '4.50')
+        self.assertEqual(len(data['ratings']), 2)
+
+    def test_rate_incomplete_booking(self):
+        self.client.force_login(self.student)
+        url = reverse('submit_rating', kwargs={'booking_id': self.pending_booking.id})
+        response = self.client.post(url, {'stars': 5})
+        self.assertEqual(response.status_code, 400)
+
+    def test_rate_twice(self):
+        self.client.force_login(self.student)
+        url = reverse('submit_rating', kwargs={'booking_id': self.completed_booking.id})
+        self.client.post(url, {'stars': 5})
+        response_second = self.client.post(url, {'stars': 3})
+        self.assertEqual(response_second.status_code, 400)
+
+    def test_stars_onetofive(self):
+        self.client.force_login(self.student)
+        url = reverse('submit_rating', kwargs={'booking_id': self.completed_booking.id})
+        response = self.client.post(url, {'stars': 6})
+        self.assertEqual(response.status_code, 400)
+
+    def test_stranger_rateiong(self):
+        self.client.force_login(self.other_user)
+        url = reverse('submit_rating', kwargs={'booking_id': self.completed_booking.id})
+        response = self.client.post(url, {'stars': 1})
+        self.assertEqual(response.status_code, 403)
