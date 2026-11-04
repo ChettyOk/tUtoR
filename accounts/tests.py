@@ -1979,6 +1979,112 @@ class CrossProfileRegressionTests(TestCase):
         self.assert_student_profile_unchanged()
         self.assert_tutor_profile_unchanged()
 
+    def test_student_cannot_change_existing_tutor_profile(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.profile_url,
+            {
+                'profile_type': 'tutor',
+                'bio': 'Must not be saved.',
+                'courses_passed': [str(self.new_course.pk)],
+                'role': User.Role.TUTOR,
+            },
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn('error', response.json())
+
+        self.assert_account_unchanged()
+        self.assert_student_profile_unchanged()
+        self.assert_tutor_profile_unchanged()
+
+    def test_user_without_role_cannot_change_role_specific_profiles(self):
+        self.user.role = ''
+        self.user.save(update_fields=['role'])
+        self.client.force_login(self.user)
+
+        payloads = (
+            {
+                'profile_type': 'student',
+                'major': 'ENER',
+                'semester': '3',
+                'courses': [str(self.new_course.pk)],
+            },
+            {
+                'profile_type': 'tutor',
+                'bio': 'Must not be saved.',
+                'courses_passed': [str(self.new_course.pk)],
+            },
+        )
+
+        for data in payloads:
+            with self.subTest(profile_type=data['profile_type']):
+                response = self.client.post(self.profile_url, data)
+
+                self.assertEqual(response.status_code, 403)
+                self.assertIn('error', response.json())
+
+                self.assert_account_unchanged(expected_role='')
+                self.assert_student_profile_unchanged()
+                self.assert_tutor_profile_unchanged()
+
+    def test_tutor_update_is_allowed_after_switching_active_role(self):
+        self.client.force_login(self.user)
+
+        data = {
+            'profile_type': 'tutor',
+            'bio': 'Updated after role switch.',
+            'courses_passed': [str(self.new_course.pk)],
+        }
+
+        response = self.client.post(self.profile_url, data)
+
+        self.assertEqual(response.status_code, 403)
+        self.assert_account_unchanged()
+        self.assert_student_profile_unchanged()
+        self.assert_tutor_profile_unchanged()
+
+        response = self.client.post(
+            self.role_url,
+            {'role': User.Role.TUTOR},
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.role, User.Role.TUTOR)
+        self.assert_student_profile_unchanged()
+        self.assert_tutor_profile_unchanged()
+
+        response = self.client.post(self.profile_url, data)
+
+        self.assertEqual(response.status_code, 200)
+
+        self.tutor_profile.refresh_from_db()
+        self.assertEqual(
+            self.tutor_profile.bio,
+            'Updated after role switch.',
+        )
+        self.assertEqual(
+            set(
+                self.tutor_profile.courses_passed.values_list(
+                    'pk',
+                    flat=True,
+                )
+            ),
+            {self.new_course.pk},
+        )
+        self.assertEqual(
+            self.tutor_profile.average_rating,
+            Decimal('4.25'),
+        )
+
+        self.assert_account_unchanged(
+            expected_role=User.Role.TUTOR,
+        )
+        self.assert_student_profile_unchanged()
+
 # role access tests
 class RoleAccessCheckTests(SimpleTestCase):
     def setUp(self):
@@ -2096,6 +2202,102 @@ class ProfileRoleAccessTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertIn('error', response.json())
+        self.assertFalse(
+            StudentProfile.objects.filter(user=self.user).exists(),
+        )
+
+class ProfileAccessWithoutRoleTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='no-role-profile@example.com',
+            password='NoRoleProfilePassword123!',
+            first_name='Marie',
+            last_name='Example',
+            phone='123456',
+        )
+        self.profile_url = reverse('profile')
+        self.role_url = reverse('switch_role')
+        self.client.force_login(self.user)
+
+    def test_user_without_role_can_read_own_profile(self):
+        response = self.client.get(self.profile_url)
+
+        self.assertEqual(response.status_code, 200)
+
+        data = response.json()
+        self.assertEqual(data['account']['id'], self.user.pk)
+        self.assertEqual(data['account']['role'], '')
+        self.assertIsNone(data['student_profile'])
+        self.assertIsNone(data['tutor_profile'])
+
+        self.assertFalse(
+            StudentProfile.objects.filter(user=self.user).exists(),
+        )
+        self.assertFalse(
+            TutorProfile.objects.filter(user=self.user).exists(),
+        )
+
+    def test_user_without_role_can_update_account(self):
+        response = self.client.post(
+            self.profile_url,
+            {
+                'first_name': 'Alex',
+                'last_name': 'Updated',
+                'phone': '987654',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, 'Alex')
+        self.assertEqual(self.user.last_name, 'Updated')
+        self.assertEqual(self.user.phone, '987654')
+        self.assertEqual(self.user.role, '')
+        self.assertEqual(
+            self.user.email,
+            'no-role-profile@example.com',
+        )
+
+        self.assertFalse(
+            StudentProfile.objects.filter(user=self.user).exists(),
+        )
+        self.assertFalse(
+            TutorProfile.objects.filter(user=self.user).exists(),
+        )
+
+    def test_user_without_role_can_choose_role_and_create_tutor_profile(self):
+        response = self.client.post(
+            self.role_url,
+            {'role': User.Role.TUTOR},
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.role, User.Role.TUTOR)
+
+        self.assertFalse(
+            TutorProfile.objects.filter(user=self.user).exists(),
+        )
+
+        response = self.client.post(
+            self.profile_url,
+            {
+                'profile_type': 'tutor',
+                'bio': 'I offer tutoring for computer science.',
+                'courses_passed': [],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        profile = TutorProfile.objects.get(user=self.user)
+        self.assertEqual(
+            profile.bio,
+            'I offer tutoring for computer science.',
+        )
+        self.assertFalse(profile.courses_passed.exists())
         self.assertFalse(
             StudentProfile.objects.filter(user=self.user).exists(),
         )
