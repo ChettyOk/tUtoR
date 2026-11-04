@@ -1,7 +1,7 @@
 from django.urls import reverse
 from django.test import TestCase
 from accounts.models import Course, User
-from django.test import Client
+from django.test import Client, override_settings
 from django.urls import reverse
 from bookings.pricing import (calc_price_suggestion, DEFAULT_PRICE_UNDERGRAD, DEFAULT_PRICE_GRAD, MAX_PRICE, MIN_PRICE, custom_pricing)
 from decimal import Decimal
@@ -16,6 +16,9 @@ from unittest.mock import MagicMock
 from bookings.services import create_booking_request, get_user_bookings, DoubleBookingError
 import threading
 from django.db import connection
+
+from tUtoR.views import custom_403, custom_500
+
 
 class test_filter_courses_system(TestCase):
     
@@ -300,3 +303,28 @@ class test_create_booking(TestCase):
 
     #     self.assertEqual(len(results), 1)
     #     self.assertEqual(len(errors), 1)
+
+@override_settings(DEBUG=False, ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
+class test_custom_error_handler(TestCase):
+    def test_404_html(self):
+        response = self.client.get('/this-url-does-not-exist-12345/')
+        self.assertEqual(response.status_code, 404)
+        self.assertIn(b'404', response.content)
+
+    def test_404_json(self):
+        response = self.client.get(
+            '/this-url-does-not-exist-12345/',
+            HTTP_ACCEPT='application/json',
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertIn('error', response.json())
+
+    def test_403_json(self):
+        response = custom_403(None)
+        self.assertEqual(response.status_code, 403)
+        self.assertIn(b'403', response.content)
+
+    def test_500_json(self):
+        response = custom_500(None)
+        self.assertEqual(response.status_code, 500)
+        self.assertIn(b'500', response.content)
