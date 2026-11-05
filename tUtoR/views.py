@@ -65,11 +65,13 @@ def _reset_email_error(response):
 
 
 def login(request):
-    """Placeholder for the student and tutor sign-in page."""
+    """Render the sign-in page for GET and authenticate submitted credentials."""
+    if request.method == "POST":
+        from accounts.views import login as authenticate_login
+        return authenticate_login(request)
     return render(request, "login.html", {
         "site_name": "tUtoR",
     })
-
 
 
 def _account_context(request, **extra):
