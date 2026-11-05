@@ -6,11 +6,11 @@ from django.views.decorators.http import require_GET, require_POST
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET
 
-from accounts.models import Course, User, TutorProfile, User, TutorProfile
+from accounts.models import Course, User, TutorProfile, User, TutorProfile, StudentProfile
 from accounts.constants import FACULTIES
 from .models import Booking, Rating
-from .services import create_rating, get_tutor_ratings
-from .services import get_tutor_details, get_tutor_available_slots
+from .services import create_rating, get_ratings
+from .services import get_user_details, get_tutor_available_slots
 
 
 def filter_courses(request):
@@ -64,7 +64,7 @@ def submit_rating_view(request, booking_id):
 
     try:
         rating = create_rating(
-            student=request.user,
+            user=request.user,
             booking=booking,
             rating_stars=rating_stars,
             rating_comment=rating_comment,
@@ -81,17 +81,27 @@ def submit_rating_view(request, booking_id):
         'comment': rating.rating_comment,
     }, status=201)
 
-
 @require_GET
-def get_tutor_ratings_view(request, tutor_id):
-    tutor = get_object_or_404(User, id=tutor_id)
-    ratings = get_tutor_ratings(tutor)
-    tutor_profile = TutorProfile.objects.filter(user=tutor).first()
+def get_ratings_view(request, user_id, rated_role):
+    user = get_object_or_404(User, id=user_id)
+
+    try:
+        ratings = get_ratings(user, rated_role)
+    except ValueError as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+    if rated_role == Rating.RatedRole.TUTOR:
+        profile = TutorProfile.objects.filter(user=user).first()
+        avg_rating = profile.display_tutor_rating if profile else 'No rating yet'
+    else:
+        profile = StudentProfile.objects.filter(user=user).first()
+        avg_rating = profile.display_student_rating if profile else 'No rating yet'
 
     data = [
         {
             'id': rating.id,
             'student_email': rating.student.email,
+            'tutor_email': rating.tutor.email,
             'stars': rating.rating_stars,
             'comment': rating.rating_comment,
             'created_at': rating.rating_created_time.isoformat() if rating.rating_created_time else None,
@@ -100,20 +110,22 @@ def get_tutor_ratings_view(request, tutor_id):
     ]
 
     return JsonResponse({
-        'tutor_id': tutor.id,
-        'average_rating': tutor_profile.display_tutor_rating if tutor_profile else 'No rating yet',
+        'user_id': user.id,
+        'rated_role': rated_role,
+        'average_rating': avg_rating,
         'ratings': data,
     })
+
 @require_GET
-def get_tutor_details_view(request, tutor_id):
-    tutor = get_object_or_404(User, id=tutor_id)
+def get_user_details_view(request, user_id, role):
+    user = get_object_or_404(User, id=user_id)
 
     try:
-        details = get_tutor_details(tutor)
+        details = get_user_details(user, role)
     except ValueError as e:
         return JsonResponse({'error': str(e)}, status=404)
 
-    return JsonResponse({'tutor': details})
+    return JsonResponse({role: details})
 
 
 @require_GET

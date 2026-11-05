@@ -91,11 +91,14 @@ class Booking(models.Model):
             self.time_slot.save()
 
 class Rating(models.Model):
-    booking = models.OneToOneField(Booking, on_delete=models.CASCADE, related_name='rating',)
-    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
- related_name='ratings_given',)
+    booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name='rating',)
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,related_name='ratings_given',)
     tutor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='ratings_received',)
-
+    class RatedRole(models.TextChoices):
+        TUTOR = 'tutor', 'Tutor'
+        STUDENT = 'student', 'Student'
+    rated_role = models.CharField(max_length=10, choices=RatedRole.choices)
+    
     rating_stars = models.PositiveSmallIntegerField(
         validators=[MinValueValidator(1), MaxValueValidator(5)])
 
@@ -103,4 +106,4 @@ class Rating(models.Model):
     rating_created_time = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"Rating #{self.id} | {self.rating_stars}/5 for {self.tutor.email}"
+        return f"Rating #{self.id} ({self.rated_role}) | {self.rating_stars}/5"

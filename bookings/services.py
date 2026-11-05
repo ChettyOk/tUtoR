@@ -7,7 +7,7 @@ from bookings.models import Booking
 from django.db.models import Q
 
 from bookings.pricing import calc_price_suggestion
-from accounts.models import TutorProfile
+from accounts.models import TutorProfile, StudentProfile
 
 
 
@@ -47,24 +47,37 @@ def get_user_bookings(user):
     
     return {'all_bookings': all_bookings, 'student_bookings': student_bookings, 'tutor_bookings': tutor_bookings}
 
-def update_tutor_rating(tutor):
-    existing_ratings = Rating.objects.filter(tutor=tutor)
-    tutor_profile = TutorProfile.objects.filter(user=tutor).first()
+def update_rating(user, rated_role):
+    if rated_role == Rating.RatedRole.TUTOR:
+        existing_ratings = Rating.objects.filter(tutor=user, rated_role=Rating.RatedRole.TUTOR)
+        profile = TutorProfile.objects.filter(user=user).first()
+    elif rated_role == Rating.RatedRole.STUDENT:
+        existing_ratings = Rating.objects.filter(student=user, rated_role=Rating.RatedRole.STUDENT)
+        profile = StudentProfile.objects.filter(user=user).first()
+    else:
+        raise ValueError("Error: no role (student/tutor) provided.")
 
-    if tutor_profile and existing_ratings.exists():
+    if profile and existing_ratings.exists():
         stars_list = [r.rating_stars for r in existing_ratings]
         mean_rating = Decimal(sum(stars_list)) / Decimal(len(stars_list))
-        tutor_profile.average_rating = mean_rating.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-        tutor_profile.save()
+        profile.average_rating = mean_rating.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        profile.save()
 
-def create_rating(student, booking, rating_stars, rating_comment=''):
-    if booking.student != student:
+
+def create_rating(user, booking, rating_stars, rating_comment=''):
+    if user == booking.student:
+        rated_role = Rating.RatedRole.TUTOR
+        rated_user = booking.tutor
+    elif user == booking.tutor:
+        rated_role = Rating.RatedRole.STUDENT
+        rated_user = booking.student
+    else:
         raise PermissionError("You cannot rate a session you didnt attend.")
 
     if booking.status != Booking.Status.COMPLETED:
         raise ValueError("You can rate sessions once they are completed.")
 
-    if Rating.objects.filter(booking=booking).exists():
+    if Rating.objects.filter(booking=booking, rated_role=rated_role).exists():
         raise ValueError("You can only rate a booking once.")
 
     try:
@@ -78,46 +91,81 @@ def create_rating(student, booking, rating_stars, rating_comment=''):
     with transaction.atomic():
         rating = Rating.objects.create(
             booking=booking,
-            student=student,
+            student=booking.student,
             tutor=booking.tutor,
+            rated_role=rated_role,
             rating_stars=stars_int,
             rating_comment=rating_comment.strip() if rating_comment else '',
         )
 
-    update_tutor_rating(booking.tutor)
+    update_rating(rated_user, rated_role)
 
     return rating
 
 
-def get_tutor_ratings(tutor):
-    return Rating.objects.filter(tutor=tutor).order_by('-rating_created_time')
+def get_ratings(user, rated_role):
+    if rated_role == Rating.RatedRole.STUDENT:
+        return Rating.objects.filter(student=user, rated_role=Rating.RatedRole.STUDENT).order_by('-rating_created_time')
+    elif rated_role == Rating.RatedRole.TUTOR:
+        return Rating.objects.filter(tutor=user, rated_role=Rating.RatedRole.TUTOR).order_by('-rating_created_time')
+    else:
+        raise ValueError("Error: no role (student/tutor) provided.")
 
 
-def get_tutor_details(tutor):
-    tutor_profile = TutorProfile.objects.filter(user=tutor).first()
-    if not tutor_profile:
-        raise ValueError("No Tutor Profile found for this user.")
+def get_user_details(user, role):
+    if role == user.Role.TUTOR:
+        tutor_profile = TutorProfile.objects.filter(user=user).first()
+        if not tutor_profile:
+            raise ValueError("This user doesnt have an tutor profile.")
 
-    courses = [
-        {
-            'id': course.id,
-            'course_code': course.course_code,
-            'course_name': course.course_name,
-            'course_faculty': course.course_faculty,
+        courses = [
+            {
+                'id': course.id,
+                'course_code': course.course_code,
+                'course_name': course.course_name,
+                'course_faculty': course.course_faculty,
+            }
+            for course in tutor_profile.courses_passed.all().order_by('course_code')
+        ]
+
+        return {
+            'id': user.id,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'email': user.email,
+            'bio': tutor_profile.bio,
+            'average_rating': tutor_profile.display_tutor_rating,
+            'suggested_price': str(calc_price_suggestion(user)),
+            'courses_passed': courses,
         }
-        for course in tutor_profile.courses_passed.all().order_by('course_code')
-    ]
 
-    return {
-        'id': tutor.id,
-        'first_name': tutor.first_name,
-        'last_name': tutor.last_name,
-        'email': tutor.email,
-        'bio': tutor_profile.bio,
-        'average_rating': tutor_profile.display_tutor_rating,
-        'suggested_price': str(calc_price_suggestion(tutor)),
-        'courses_passed': courses,
-    }
+    elif role == user.Role.STUDENT:
+        student_profile = StudentProfile.objects.filter(user=user).first()
+        if not student_profile:
+            raise ValueError("This user doesnt have an tutor profile.")
+
+        courses = [
+            {
+                'id': course.id,
+                'course_code': course.course_code,
+                'course_name': course.course_name,
+                'course_faculty': course.course_faculty,
+            }
+            for course in student_profile.courses.all().order_by('course_code')
+        ]
+
+        return {
+            'id': user.id,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'email': user.email,
+            'major': student_profile.major,
+            'semester': student_profile.semester,
+            'average_rating': student_profile.display_student_rating,
+            'courses': courses,
+        }
+    else:
+        raise ValueError("Error: no role (student/tutor) provided.")
 
 
 def get_tutor_available_slots(tutor):

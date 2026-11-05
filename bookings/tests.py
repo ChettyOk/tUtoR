@@ -1,8 +1,7 @@
 from django.urls import reverse
 from django.test import TestCase
-from accounts.models import Course, User, TutorProfile
+from accounts.models import Course, User, TutorProfile, StudentProfile
 from django.test import Client
-from accounts.models import Course, User
 from django.test import Client, override_settings
 from django.urls import reverse
 from bookings.pricing import (calc_price_suggestion, DEFAULT_PRICE_UNDERGRAD, DEFAULT_PRICE_GRAD, MAX_PRICE, MIN_PRICE, custom_pricing)
@@ -366,7 +365,7 @@ class test_ratings_system(TestCase):
         self.tutor_profile.refresh_from_db()
         self.assertEqual(self.tutor_profile.average_rating, Decimal('4.50'))
 
-        list_url = reverse('tutor_ratings', kwargs={'tutor_id': self.tutor.id})
+        list_url = reverse('tutor_ratings', kwargs={'user_id': self.tutor.id})
         list_res = self.client.get(list_url)
         self.assertEqual(list_res.status_code, 200)
         data = list_res.json()
@@ -397,6 +396,22 @@ class test_ratings_system(TestCase):
         url = reverse('submit_rating', kwargs={'booking_id': self.completed_booking.id})
         response = self.client.post(url, {'stars': 1})
         self.assertEqual(response.status_code, 403)
+
+    def test_rate_student(self):
+        student_profile = StudentProfile.objects.create(user=self.student)
+        self.client.force_login(self.tutor)
+        url = reverse('submit_rating', kwargs={'booking_id': self.completed_booking.id})
+        response = self.client.post(url, {'stars': 5, 'comment': 'Subba student!'})
+        self.assertEqual(response.status_code, 201)
+
+        student_profile.refresh_from_db()
+        self.assertEqual(student_profile.average_rating, Decimal('5.00'))
+
+        list_url = reverse('student_ratings', kwargs={'user_id': self.student.id})
+        list_res = self.client.get(list_url)
+        self.assertEqual(list_res.status_code, 200)
+        self.assertEqual(list_res.json()['average_rating'], '5.00')
+        self.assertEqual(len(list_res.json()['ratings']), 1)
 
 @override_settings(DEBUG=False, ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
 class test_custom_error_handler(TestCase):
@@ -455,7 +470,7 @@ class test_tutor_details(TestCase):
         self.assertEqual(courses[0].course_code, 'CS 476')
 
     def test_get_tutor_details_view(self):
-        url = reverse('tutor_details', kwargs={'tutor_id': self.tutor_user.id})
+        url = reverse('tutor_details', kwargs={'user_id': self.tutor_user.id})
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
         data = response.json()['tutor']
@@ -465,8 +480,21 @@ class test_tutor_details(TestCase):
         self.assertEqual(len(data['courses_passed']), 1)
         self.assertEqual(data['courses_passed'][0]['course_code'], 'CS 476')
 
+    def test_get_student_details_view(self):
+        student_profile = StudentProfile.objects.create(user=self.normal_user, major='CS', semester=3,average_rating=Decimal('4.50'),)
+        student_profile.courses.add(self.course_with_tutor)
+        url = reverse('student_details', kwargs={'user_id': self.normal_user.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()['student']
+        self.assertEqual(data['first_name'], 'Bob')
+        self.assertEqual(data['major'], 'CS')
+        self.assertEqual(data['semester'], 3)
+        self.assertEqual(data['average_rating'], '4.50')
+        self.assertEqual(len(data['courses']), 1)
+
     def test_get_tutor_details_error(self):
-        url = reverse('tutor_details', kwargs={'tutor_id': self.normal_user.id})
+        url = reverse('tutor_details', kwargs={'user_id': self.normal_user.id})
         response = self.client.get(url)
         self.assertEqual(response.status_code, 404)
 
