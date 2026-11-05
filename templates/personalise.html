@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Choose your courses · {{ site_name|default:"tUtoR" }}{% endblock %}
+
+{% block extra_head %}
+
+<link rel="stylesheet" href="{% static 'css/picker.css' %}">
+{% endblock %}
+
+{% block content %}
+<section class="picker-page">
+  <div class="container">
+
+    <header class="picker-head">
+      <p class="picker-kicker">Personalise your account</p>
+      {% if is_tutor %}
+      <h1>Which courses can you tutor?</h1>
+      <p>Pick the courses you have already passed and are happy to teach. You can skip this now and come back later.</p>
+      {% else %}
+      <h1>Which courses do you need help with?</h1>
+      <p>Search by course code or name and add up to {{ max_courses }} courses. You can skip this now and come back later.</p>
+      {% endif %}
+    </header>
+
+    <noscript>
+      <div class="alert alert-warning mt-3" role="alert">Turn on JavaScript to search and pick courses, or press Skip.</div>
+    </noscript>
+
+    
+    <form method="post" action="" id="course-picker" data-max="{{ max_courses|default_if_none:'' }}">
+      {% csrf_token %}
+      <div id="picker-inputs"></div>
+
+      <div class="picker-grid">
+
+        <section class="picker-panel" aria-labelledby="search-title">
+          <h2 id="search-title" class="picker-title">Find courses</h2>
+
+          <div class="picker-controls">
+            <div>
+              <label for="picker-search" class="visually-hidden">Search by course code or name</label>
+              <input type="search" id="picker-search" class="form-control" placeholder="Search by code or name, e.g. CS 110" autocomplete="off">
+            </div>
+            <div>
+              <label for="picker-faculty" class="visually-hidden">Faculty</label>
+              <select id="picker-faculty" class="form-select">
+                <option value="">All faculties</option>
+              </select>
+            </div>
+          </div>
+
+          <p id="picker-status" class="picker-status" role="status" aria-live="polite"></p>
+          <ul id="picker-results" class="course-list"></ul>
+          <button type="button" id="picker-more" class="btn-more" hidden>Show more results</button>
+
+          <a class="picker-jump d-lg-none" href="#selected-panel">View your courses (<span id="picker-jump-count">0</span>)</a>
+        </section>
+
+        <section class="picker-panel picker-selected-panel" id="selected-panel" aria-labelledby="selected-title">
+          <div class="picker-selected-head">
+            <h2 id="selected-title" class="picker-title">Your courses</h2>
+            <span id="picker-count" class="picker-count">0</span>
+          </div>
+
+          <p id="picker-empty" class="picker-empty">Nothing selected yet. Press Add on a course and it will show up here.</p>
+          <ul id="picker-selected" class="course-list"></ul>
+          {% if max_courses %}
+          <p id="picker-limit" class="picker-limit" hidden>You’ve reached the limit of {{ max_courses }} courses. Remove one to add another.</p>
+          {% endif %}
+
+          <div class="picker-actions">
+            <button type="submit" name="skip" value="1" class="btn btn-outline-green rounded-pill">Skip for now</button>
+            <button type="submit" id="picker-next" class="btn btn-green rounded-pill" disabled>Next</button>
+          </div>
+        </section>
+
+      </div>
+    </form>
+
+  </div>
+</section>
+
+
+{{ courses|json_script:"course-data" }}
+{{ selected_ids|json_script:"selected-data" }}
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/course-picker.js' %}"></script>
+{% endblock %}

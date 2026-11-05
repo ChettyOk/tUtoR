@@ -1,0 +1,169 @@
+[hidden] { display: none !important; }
+
+.picker-page { padding: 2.25rem 0 4rem; }
+
+
+.picker-kicker {
+  margin: 0 0 0.6rem;
+  color: var(--green);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 0.78rem;
+}
+.picker-head h1 { font-size: clamp(1.9rem, 3.6vw, 2.8rem); max-width: 22ch; margin-bottom: 0.6rem; }
+.picker-head p:last-child { color: var(--muted); max-width: 40rem; margin-bottom: 0; }
+
+
+.picker-grid { display: grid; gap: 1.5rem; margin-top: 1.75rem; }
+.picker-panel {
+  background: var(--paper);
+  border: 1px solid var(--bs-border-color);
+  border-radius: 1.125rem;
+  padding: 1.25rem;
+}
+.picker-title { font-size: 1.35rem; margin: 0 0 1rem; max-width: none; }
+
+.picker-panel .form-control:focus,
+.picker-panel .form-select:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 0.2rem rgba(255, 200, 46, 0.45);
+}
+.picker-controls { display: grid; gap: 0.75rem; }
+.picker-status { color: var(--muted); font-size: 0.92rem; margin: 0.9rem 0 0.6rem; min-height: 1.4em; }
+
+
+.course-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; }
+.course-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0.9rem;
+  background: #fff;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.9rem;
+}
+.course-card.is-selected { background: #e7f0ea; animation: picker-pop 0.2s ease-out; }
+.course-info { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+.course-code {
+  font-family: "Fraunces", Georgia, serif;
+  font-weight: 560;
+  font-size: 1.08rem;
+  letter-spacing: -0.01em;
+  color: var(--green-deep);
+}
+.course-name { line-height: 1.3; overflow-wrap: anywhere; }
+.course-faculty { color: var(--muted); font-size: 0.82rem; }
+
+.btn-add, .btn-more {
+  flex-shrink: 0;
+  padding: 0.4rem 1rem;
+  font-weight: 700;
+  color: var(--green);
+  background: transparent;
+  border: 2px solid var(--green);
+  border-radius: 999px;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.btn-add:hover:not(:disabled), .btn-more:hover { background: var(--green); color: var(--paper); }
+.btn-add:focus-visible, .btn-more:focus-visible, .btn-remove:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+.btn-add:disabled { color: var(--muted); border-color: var(--bs-border-color); background: #f1efe8; cursor: not-allowed; }
+.btn-more { margin-top: 0.9rem; }
+
+.btn-remove {
+  flex-shrink: 0;
+  width: 2.1rem;
+  height: 2.1rem;
+  font-size: 1.3rem;
+  line-height: 1;
+  color: var(--green-deep);
+  background: #fff;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 50%;
+}
+.btn-remove:hover { background: #fde8e8; border-color: #c0392b; color: #8a1f12; }
+
+.picker-jump { display: inline-block; margin-top: 1rem; font-weight: 600; color: var(--green); }
+
+
+.picker-selected-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+.picker-selected-head .picker-title { margin: 0; }
+.picker-count {
+  padding: 0.15rem 0.7rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--paper);
+  background: var(--green);
+  border-radius: 999px;
+}
+.picker-empty {
+  margin: 0;
+  padding: 1.1rem;
+  text-align: center;
+  color: var(--muted);
+  border: 2px dashed var(--bs-border-color);
+  border-radius: 0.9rem;
+}
+.picker-limit {
+  margin: 0.75rem 0 0;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.92rem;
+  color: #6b4e00;
+  background: #fff6d6;
+  border-radius: 0.6rem;
+}
+
+
+.picker-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1.25rem; }
+.picker-actions .btn { flex: 1 1 8rem; }
+.btn-outline-green {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 3.25rem;
+  padding: 0 1.35rem;
+  line-height: 1;
+  font-weight: 700;
+  border-width: 2px;
+  --bs-btn-color: var(--green);
+  --bs-btn-bg: transparent;
+  --bs-btn-border-color: var(--green);
+  --bs-btn-hover-color: var(--paper);
+  --bs-btn-hover-bg: var(--green);
+  --bs-btn-hover-border-color: var(--green);
+  --bs-btn-active-color: var(--paper);
+  --bs-btn-active-bg: var(--green-deep);
+  --bs-btn-active-border-color: var(--green-deep);
+}
+
+
+@keyframes picker-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes picker-pop {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: none; }
+}
+.picker-head { animation: picker-rise 0.45s ease-out both; }
+.picker-panel { animation: picker-rise 0.5s 0.1s ease-out both; }
+.picker-panel + .picker-panel { animation-delay: 0.18s; }
+
+@media (min-width: 576px) {
+  .picker-controls { grid-template-columns: 1fr 13rem; }
+}
+
+@media (min-width: 992px) {
+  .picker-panel { padding: 1.6rem; }
+  .picker-grid { grid-template-columns: 7fr 5fr; align-items: start; }
+  .picker-selected-panel { position: sticky; top: 6rem; }
+  #picker-results { max-height: 30rem; overflow-y: auto; padding-right: 0.25rem; }
+  #picker-selected { max-height: 22rem; overflow-y: auto; padding-right: 0.25rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .picker-head, .picker-panel, .course-card.is-selected { animation: none; }
+  .btn-add, .btn-more { transition: none; }
+}
