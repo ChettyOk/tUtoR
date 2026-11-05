@@ -29,7 +29,34 @@
             <div class="card-body p-4 p-md-5">
               <p class="kicker kicker-green">Students and tutors</p>
               <h1 class="h2">Sign in</h1>
-              <p class="card-text mt-3">This is where a student or a tutor will sign in. The form is not connected yet.</p>
+              <form method="post" action="{% url 'login' %}" class="mt-4">
+                {% csrf_token %}
+                <div class="mb-3">
+                  <label for="id_email" class="form-label">Email</label>
+                  <input
+                    type="email"
+                    id="id_email"
+                    name="email"
+                    class="form-control"
+                    autocomplete="email"
+                    required
+                  >
+                </div>
+                <div class="mb-3">
+                  <label for="id_password" class="form-label">Password</label>
+                  <input
+                    type="password"
+                    id="id_password"
+                    name="password"
+                    class="form-control"
+                    autocomplete="current-password"
+                    required
+                  >
+                </div>
+                <button type="submit" class="btn btn-green rounded-pill">
+                  Sign in
+                </button>
+              </form>
               <p class="mt-3 mb-0"><a href="{% url 'request_forgotten_password' %}">Forgot your password?</a></p>
               <a class="btn btn-green rounded-pill mt-4" href="{% url 'landing' %}">Back to tUtoR</a>
             </div>
