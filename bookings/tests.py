@@ -1,3 +1,4 @@
+from bookings.models import CancellationDeadlinePassedError
 from django.urls import reverse
 from django.test import TestCase
 from accounts.models import Course, User
@@ -11,11 +12,16 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from django.contrib.auth import get_user_model
 from bookings.models import Booking
+from django.utils import timezone
+
 
 from unittest.mock import MagicMock
 from bookings.services import create_booking_request, get_user_bookings, DoubleBookingError
 import threading
 from django.db import connection
+
+class Dummy_Slot: 
+    objects = MagicMock()
 
 class test_filter_courses_system(TestCase):
     
@@ -179,6 +185,14 @@ class test_booking_model(TestCase):
         self.assertEqual(booking.cancellation_reason, 'Fortnite')
         self.assertIsNotNone(booking.cancel_time)
 
+    def test_cancel_after_deadline(self): 
+        booking = self.create_booking()
+        slot = Dummy_Slot()
+        slot.start_time = timezone.now() + timedelta(hours=3)
+        booking.time_slot = slot
+        with self.assertRaises(CancellationDeadlinePassedError):
+            booking.cancel(cancelled_by='student', reason='Fortnite')
+
     def test_cancel_tutor(self):
         booking = self.create_booking()
         booking.cancel(cancelled_by='tutor', reason='kein bock')
@@ -224,8 +238,6 @@ class test_create_booking(TestCase):
         self.course2 = Course.create_course("CS 476", "SW-Project")
         self.course3 = Course.create_course("CS 477", "SW-Project2")
         # can be replaced with actual available_slot funciton once available
-        class Dummy_Slot: 
-            objects = MagicMock()
         self.mock_slot = Dummy_Slot()
         self.mock_slot.id = 1
         self.mock_slot.status = 'available'
@@ -300,3 +312,38 @@ class test_create_booking(TestCase):
 
     #     self.assertEqual(len(results), 1)
     #     self.assertEqual(len(errors), 1)
+
+class test_booking_views(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.student = User.objects.create_user(email="student@uregina.ca", password="676767jdUUh!")
+        self.tutor = User.objects.create_user(email="tutor@uregina.ca", password="6767ihihsIHGH!")
+        self.course = Course.create_course("CS 476", "SW dev")
+        self.booking = Booking.objects.create(
+            student=self.student,
+            tutor=self.tutor,
+            course=self.course,
+            session_price=Decimal('25.00'),
+            status=Booking.Status.CONFIRMED,
+        )
+
+    def test_get_bookings_no_login(self):
+        response = self.client.get(reverse('my_bookings'))
+        self.assertEqual(response.status_code, 401)
+
+    def test_get_bookings(self):
+        self.client.force_login(self.student)
+        response = self.client.get(reverse('my_bookings'))
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data['student_bookings']), 1)
+        self.assertEqual(data['student_bookings'][0]['id'], self.booking.id)
+
+    def test_cancel_booking_student(self):
+        self.client.force_login(self.student)
+        url = reverse('cancel_booking', kwargs={'booking_id': self.booking.id})
+        response = self.client.post(url, {'reason': 'Kein bock mehr auf leben'})
+        self.assertEqual(response.status_code, 200)
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.status, Booking.Status.CANCELLED_STUDENT)
+        self.assertEqual(self.booking.cancellation_reason, 'Kein bock mehr auf leben')
