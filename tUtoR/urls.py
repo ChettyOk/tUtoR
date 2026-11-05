@@ -60,6 +60,16 @@ urlpatterns = [
         account_views.switch_role,
         name='switch_role',
     ),
+    path(
+    "accounts/tutor-profile/",
+    account_views.get_tutor_profile,
+    name="get_tutor_profile",
+    ),
+    path(
+    "accounts/tutor-profile/update/",
+    account_views.update_tutor_profile,
+    name="update_tutor_profile",
+    ),
 ]
 
 

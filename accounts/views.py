@@ -14,6 +14,7 @@ from decimal import Decimal
 
 from .models import User, StudentProfile, TutorProfile
 from .forms import AccountProfileForm, StudentProfileForm, TutorProfileForm
+from bookings.pricing import calc_price_suggestion, custom_pricing
 
 # Create your views here.
 # functions that interact with the user
@@ -286,7 +287,84 @@ def _update_tutor_profile(request):
 #     update Tutor Profil()
 #     Switch Role()
 
+
 # Tutor Controller
-#     get Tutor Profile
-#     update Tutor Profile
+
+@require_http_methods(["GET"])
+def get_tutor_profile(request):
+    if not request.user.is_authenticated:
+        return JsonResponse(
+            {"error": "Authentication required."},
+            status=401,
+        )
+
+    profile = TutorProfile.objects.filter(user=request.user).first()
+
+    if profile is None:
+        return JsonResponse(
+            {"error": "Tutor profile not found."},
+            status=404,
+        )
+
+    standard_price = calc_price_suggestion(request.user)
+    current_price = profile.custom_price or standard_price
+
+    return JsonResponse({
+        "id": profile.id,
+        "bio": profile.bio,
+        "courses_passed": list(
+            profile.courses_passed.values_list("id", flat=True)
+        ),
+        "average_rating": (
+            str(profile.average_rating)
+            if profile.average_rating is not None
+            else None
+        ),
+        "price": str(current_price),
+        "standard_price": str(standard_price),
+        "uses_custom_price": profile.custom_price is not None,
+    })
+
+
+@require_http_methods(["POST", "PUT"])
+def update_tutor_profile(request):
+    if not request.user.is_authenticated:
+        return JsonResponse(
+            {"error": "Authentication required."},
+            status=401,
+        )
+
+    profile, _ = TutorProfile.objects.get_or_create(
+        user=request.user
+    )
+
+    bio = request.POST.get("bio")
+    price = request.POST.get("custom_price")
+
+    if bio is not None:
+        profile.bio = bio
+
+    if price == "":
+        profile.custom_price = None
+    elif price is not None:
+        try:
+            profile.custom_price = custom_pricing(price)
+        except ValueError as error:
+            return JsonResponse(
+                {"errors": {"custom_price": [str(error)]}},
+                status=400,
+            )
+
+    profile.save()
+
+    return JsonResponse({
+        "message": "Tutor profile updated.",
+        "price": str(
+            profile.custom_price
+            or calc_price_suggestion(request.user)
+        ),
+        "uses_custom_price": profile.custom_price is not None,
+    })
+
+
 #     get Tutor Dashboard
