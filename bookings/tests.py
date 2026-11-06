@@ -132,9 +132,17 @@ class Test_pricing(TestCase):
         price = calc_price_suggestion(self.grad_tutor)
         self.assertEqual(price, DEFAULT_PRICE_GRAD)
 
-    # def test_mean_calc(self):
-    #     price = calc_price_suggestion(self.undergrad_tutor)
-    #     self.assertEqual(price, Decimal('25.00'))
+    def test_mean_calc(self):
+        for days, price in ((2, '20.00'), (3, '30.00')):
+            start = timezone.now() + timedelta(days=days)
+            Available_Slots.create_slot(
+                tutor=self.undergrad_tutor,
+                start_time=start,
+                end_time=start + timedelta(hours=1),
+                price_per_hour=Decimal(price),
+            )
+        price = calc_price_suggestion(self.undergrad_tutor)
+        self.assertEqual(price, Decimal('25.00'))
 
     def test_min_price(self):
         with self.assertRaises(ValueError) as ctx:
