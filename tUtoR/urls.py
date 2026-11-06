@@ -32,7 +32,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include('bookings.urls')),
     path('', views.landing, name='landing'),
-    path('login/', views.login, name='login'),
+    path('login/', account_views.login_page, name='login'),
     path('logout/', logout, name='logout'),
     path('register/', account_views.register_page, name='register'),
     path('personalise/', account_views.personalise, name='personalise'),

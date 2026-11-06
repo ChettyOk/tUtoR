@@ -1,4 +1,4 @@
-from .models import Course
+from .models import Course, StudentProfile, TutorProfile
 from django.urls import reverse
 from django.db import IntegrityError, transaction
 from django.core import mail
@@ -17,6 +17,9 @@ from .views import _update_tutor_profile
 from accounts.models import TutorProfile
 from decimal import Decimal
 from django.core.exceptions import ValidationError
+
+#personalisation tests imports
+from django.contrib.auth import get_user_model
 
 # courses tests
 class test_course(TestCase):
@@ -333,48 +336,7 @@ class SuperuserCreationTests(TestCase):
 
         self.assertEqual(User.objects.count(), 1)
 
-# registration tests
-class RegisterViewTests(TestCase):
-    def test_register_creates_user(self):
-        response = self.client.post(reverse("register"), {
-            "email": "new@example.com",
-            "password": "testpass123",
-        })
 
-        self.assertEqual(response.status_code, 201)
-        user = User.objects.get(email="new@example.com")
-        self.assertTrue(user.check_password("testpass123"))
-
-    def test_register_rejects_invalid_email(self):
-        response = self.client.post(reverse("register"), {
-            "email": "not-an-email",
-            "password": "testpass123",
-        })
-
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("email", response.json()["errors"])
-
-    def test_register_rejects_short_password(self):
-        response = self.client.post(reverse("register"), {
-            "email": "new@example.com",
-            "password": "short",
-        })
-
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("password", response.json()["errors"])
-
-    def test_register_rejects_duplicate_email(self):
-        User.objects.create_user(
-            email="existing@example.com",
-            password="testpass123",
-        )
-
-        response = self.client.post(reverse("register"), {
-            "email": "EXISTING@example.com",
-            "password": "anotherpass123",
-        })
-
-        self.assertEqual(response.status_code, 409)
 
 class AuthenticationViewTests(TestCase):
     def setUp(self):
@@ -383,27 +345,6 @@ class AuthenticationViewTests(TestCase):
             email="test@example.com",
             password=self.password,
         )
-
-    def test_login_creates_authenticated_session(self):
-        response = self.client.post(reverse("login"), {
-            "email": "test@example.com",
-            "password": self.password,
-        })
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            self.client.session.get("_auth_user_id"),
-            str(self.user.pk),
-        )
-
-    def test_login_rejects_invalid_password(self):
-        response = self.client.post(reverse("login"), {
-            "email": "test@example.com",
-            "password": "wrongpass123",
-        })
-
-        self.assertEqual(response.status_code, 401)
-        self.assertNotIn("_auth_user_id", self.client.session)
 
     def test_logout_clears_authenticated_session(self):
         self.client.force_login(self.user)
@@ -2037,3 +1978,241 @@ class CrossProfileRegressionTests(TestCase):
         self.assert_account_unchanged()
         self.assert_student_profile_unchanged()
         self.assert_tutor_profile_unchanged()
+
+
+#***********************************************************************************************************************************************
+#------------------------------------------ Tests for personalise, updates made on register and login-------------------------------------------
+#----------------------------------------------------------------------------------Update if it causing troubles to other tests-----------------
+#***********************************************************************************************************************************************
+
+User = get_user_model()
+
+
+def make_courses(count=30):
+    return [
+        Course.create_course(f'CS {100 + i}', f'Sample course {i}')
+        for i in range(count)
+    ]
+
+
+class RegisterPageTests(TestCase):
+    good = {
+        'first_name': 'Ana',
+        'last_name': 'Bo',
+        'email': 'Ana@Example.com',
+        'password1': 'correct-horse-91',
+        'password2': 'correct-horse-91',
+        'role': 'tutor',
+    }
+
+    def test_get_shows_the_form(self):
+        response = self.client.get(reverse('register'))
+        self.assertContains(response, 'Create your account')
+
+    def test_valid_signup_creates_user_logs_in_and_goes_to_personalise(self):
+        response = self.client.post(reverse('register'), self.good)
+
+        self.assertRedirects(
+            response, reverse('personalise'), fetch_redirect_response=False,
+        )
+        user = User.objects.get(email='ana@example.com')   # stored lowercase
+        self.assertEqual(
+            (user.first_name, user.last_name, user.role),
+            ('Ana', 'Bo', 'tutor'),
+        )
+        self.assertEqual(int(self.client.session['_auth_user_id']), user.pk)
+
+    def test_password_is_hashed(self):
+        self.client.post(reverse('register'), self.good)
+        user = User.objects.get(email='ana@example.com')
+        self.assertNotEqual(user.password, self.good['password1'])
+        self.assertTrue(user.check_password(self.good['password1']))
+
+    def test_role_can_be_left_empty(self):
+        self.client.post(reverse('register'), {**self.good, 'role': ''})
+        self.assertEqual(User.objects.get().role, '')
+
+    def test_missing_required_fields(self):
+        response = self.client.post(reverse('register'), {})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(User.objects.count(), 0)
+        self.assertContains(response, 'is-invalid')
+
+    def test_mismatched_passwords(self):
+        data = {**self.good, 'password2': 'different-pass-91'}
+        response = self.client.post(reverse('register'), data)
+        self.assertContains(response, 'The two passwords do not match.')
+        self.assertEqual(User.objects.count(), 0)
+
+    def test_weak_password_is_rejected(self):
+        data = {**self.good, 'password1': '12345678', 'password2': '12345678'}
+        response = self.client.post(reverse('register'), data)
+        self.assertEqual(User.objects.count(), 0)
+        self.assertContains(response, 'is-invalid')
+
+    def test_duplicate_email_ignores_case(self):
+        User.objects.create_user(email='ana@example.com', password='whatever-123')
+        response = self.client.post(reverse('register'), self.good)
+        self.assertContains(response, 'An account with this email already exists.')
+        self.assertEqual(User.objects.count(), 1)
+
+    def test_form_keeps_what_was_typed_after_an_error(self):
+        data = {**self.good, 'password2': 'different-pass-91'}
+        response = self.client.post(reverse('register'), data)
+        self.assertContains(response, 'value="Ana"')
+        self.assertContains(response, 'value="tutor" checked')
+
+    def test_signed_in_user_is_sent_away_from_register(self):
+        user = User.objects.create_user(email='in@x.ca', password='pw-12345-xyz')
+        self.client.force_login(user)
+        response = self.client.get(reverse('register'))
+        self.assertRedirects(
+            response, reverse('student_home'), fetch_redirect_response=False,
+        )
+
+
+class PersonaliseTests(TestCase):
+    def setUp(self):
+        self.courses = make_courses(30)
+        self.ids = [course.pk for course in self.courses]
+
+    def sign_in(self, role):
+        user = User.objects.create_user(
+            email=f"{role or 'later'}@x.ca", password='pw-12345-xyz', role=role,
+        )
+        self.client.force_login(user)
+        return user
+
+    def test_anonymous_user_is_sent_to_login(self):
+        response = self.client.get(reverse('personalise'))
+        self.assertRedirects(
+            response,
+            f"{reverse('login')}?next={reverse('personalise')}",
+            fetch_redirect_response=False,
+        )
+
+    def test_student_page_has_the_limit_of_ten(self):
+        self.sign_in('student')
+        response = self.client.get(reverse('personalise'))
+        self.assertContains(response, 'data-max="10"')
+        self.assertContains(response, 'Which courses do you need help with?')
+
+    def test_tutor_page_has_no_limit(self):
+        self.sign_in('tutor')
+        response = self.client.get(reverse('personalise'))
+        self.assertContains(response, 'data-max=""')
+        self.assertContains(response, 'Which courses can you tutor?')
+
+    def test_decide_later_counts_as_student(self):
+        user = self.sign_in('')
+        response = self.client.get(reverse('personalise'))
+        self.assertContains(response, 'data-max="10"')
+        self.assertTrue(StudentProfile.objects.filter(user=user).exists())
+
+    def test_student_saves_ten_courses(self):
+        user = self.sign_in('student')
+        response = self.client.post(reverse('personalise'), {'courses': self.ids[:10]})
+        self.assertRedirects(response, reverse('student_home'), fetch_redirect_response=False)
+        self.assertEqual(user.student_profile.courses.count(), 10)
+
+    def test_student_cannot_save_eleven(self):
+        user = self.sign_in('student')
+        response = self.client.post(reverse('personalise'), {'courses': self.ids[:11]})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Please pick at most 10 courses.')
+        self.assertEqual(user.student_profile.courses.count(), 0)
+
+    def test_picks_survive_an_error(self):
+        self.sign_in('student')
+        response = self.client.post(reverse('personalise'), {'courses': self.ids[:11]})
+        self.assertEqual(response.context['selected_ids'], self.ids[:11])
+
+    def test_tutor_saves_more_than_ten_to_courses_passed(self):
+        user = self.sign_in('tutor')
+        response = self.client.post(reverse('personalise'), {'courses': self.ids[:25]})
+        self.assertRedirects(response, reverse('tutor_home'), fetch_redirect_response=False)
+        self.assertEqual(user.tutor_profile.courses_passed.count(), 25)
+
+    def test_unknown_course_id_is_rejected(self):
+        user = self.sign_in('student')
+        response = self.client.post(reverse('personalise'), {'courses': [self.ids[0], 99999]})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(user.student_profile.courses.count(), 0)
+
+    def test_skip_saves_nothing(self):
+        user = self.sign_in('student')
+        response = self.client.post(
+            reverse('personalise'), {'skip': '1', 'courses': self.ids[:3]},
+        )
+        self.assertRedirects(response, reverse('student_home'), fetch_redirect_response=False)
+        self.assertEqual(user.student_profile.courses.count(), 0)
+
+    def test_saving_replaces_the_old_choice(self):
+        user = self.sign_in('student')
+        self.client.post(reverse('personalise'), {'courses': self.ids[:3]})
+        self.client.post(reverse('personalise'), {'courses': self.ids[5:7]})
+        self.assertEqual(
+            sorted(user.student_profile.courses.values_list('pk', flat=True)),
+            self.ids[5:7],
+        )
+
+    def test_page_preselects_saved_courses(self):
+        self.sign_in('student')
+        self.client.post(reverse('personalise'), {'courses': self.ids[:2]})
+        response = self.client.get(reverse('personalise'))
+        self.assertEqual(response.context['selected_ids'], self.ids[:2])
+
+class LoginPageTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(email='ana@example.com', password='correct-horse-91')
+        self.url = reverse('login')
+
+    def test_get_renders_login_page(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'login.html')
+
+    def test_valid_login_redirects_to_student_home(self):
+        response = self.client.post(self.url, {'email': 'ana@example.com', 'password': 'correct-horse-91'})
+        self.assertRedirects(response, reverse('student_home'), fetch_redirect_response=False)
+        self.assertEqual(int(self.client.session['_auth_user_id']), self.user.pk)
+
+    def test_email_is_case_insensitive(self):
+        response = self.client.post(self.url, {'email': '  ANA@Example.com ', 'password': 'correct-horse-91'})
+        self.assertEqual(response.status_code, 302)
+
+    def test_wrong_password_shows_error_and_keeps_email(self):
+        response = self.client.post(self.url, {'email': 'ana@example.com', 'password': 'nope'})
+        self.assertEqual(response.status_code, 400)
+        self.assertContains(response, 'Invalid email address or password.', status_code=400)
+        self.assertContains(response, 'value="ana@example.com"', status_code=400)
+        self.assertNotIn('_auth_user_id', self.client.session)
+
+    def test_unknown_email_gets_same_error(self):
+        response = self.client.post(self.url, {'email': 'who@example.com', 'password': 'x'})
+        self.assertContains(response, 'Invalid email address or password.', status_code=400)
+
+    def test_inactive_user_cannot_log_in(self):
+        self.user.is_active = False
+        self.user.save()
+        response = self.client.post(self.url, {'email': 'ana@example.com', 'password': 'correct-horse-91'})
+        self.assertEqual(response.status_code, 400)
+
+    def test_next_is_followed_when_safe(self):
+        response = self.client.post(self.url + '?next=/personalise/',
+                                    {'email': 'ana@example.com', 'password': 'correct-horse-91'})
+        self.assertRedirects(response, '/personalise/', fetch_redirect_response=False)
+
+    def test_external_next_is_ignored(self):
+        response = self.client.post(self.url + '?next=https://evil.example/',
+                                    {'email': 'ana@example.com', 'password': 'correct-horse-91'})
+        self.assertRedirects(response, reverse('student_home'), fetch_redirect_response=False)
+
+    def test_signed_in_user_is_redirected_away(self):
+        self.client.force_login(self.user)
+        self.assertRedirects(self.client.get(self.url), reverse('student_home'), fetch_redirect_response=False)
+
+#************************************************************************************************************************************************
+#------------------------------------------END OF TESTS FOR PERSONALISE, UPDATED REGISTER AND LOGIN----------------------------------------------
+#************************************************************************************************************************************************
+
