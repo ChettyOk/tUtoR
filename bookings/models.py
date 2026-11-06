@@ -120,3 +120,31 @@ class Rating(models.Model):
 
     def __str__(self):
         return f"Rating #{self.id} ({self.rated_role}) | {self.rating_stars}/5"
+
+class Available_Slots(models.Model):
+    tutor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='available_slots')
+
+    start_time = models.DateTimeField()
+    end_time = models.DateTimeField()
+    price_per_hour = models.DecimalField(max_digits=6, decimal_places=2)
+
+    class LocationType(models.TextChoices):
+        ONLINE = 'online', 'Online'
+        IN_PERSON = 'in_person', 'In person'
+    location_type = models.CharField(max_length=10, choices=LocationType.choices, default=LocationType.ONLINE)
+
+    class Status(models.TextChoices):
+        AVAILABLE = 'available', 'Available'
+        BOOKED = 'booked', 'Booked'
+        CANCELLED = 'cancelled', 'Cancelled'
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.AVAILABLE)
+
+    class Meta:
+        ordering = ['start_time']
+        indexes = [
+            models.Index(fields=['tutor', 'start_time']),
+            models.Index(fields=['status']),
+        ]
+
+    def __str__(self):
+        return f"Slot #{self.id} | {self.tutor.email} | {self.start_time:%Y-%m-%d %H:%M} ({self.status})"
