@@ -5,6 +5,7 @@ from django.utils import timezone
 from accounts.models import Course
 from decimal import Decimal, ROUND_HALF_UP
 from django.core.validators import MinValueValidator, MaxValueValidator
+from django.core.exceptions import ValidationError
 
 from datetime import timedelta
 
@@ -148,3 +149,29 @@ class Available_Slots(models.Model):
 
     def __str__(self):
         return f"Slot #{self.id} | {self.tutor.email} | {self.start_time:%Y-%m-%d %H:%M} ({self.status})"
+
+    def _validate(self):
+        try:
+            self.full_clean()
+        except ValidationError as e:
+            messages = []
+            for field, errors in e.message_dict.items():
+                for error in errors:
+                    messages.append(error if field == '__all__' else f"{field}: {error}")
+            raise ValueError(" ".join(messages))
+
+    @classmethod
+    def create_slot(cls, tutor, start_time, end_time, price_per_hour, location_type=LocationType.ONLINE):
+        slot = cls(
+            tutor=tutor,
+            start_time=start_time,
+            end_time=end_time,
+            price_per_hour=price_per_hour,
+            location_type=location_type,
+        )
+        slot._validate()
+        slot.save()
+        return slot
+
+    def is_available(self):
+        return self.status == self.Status.AVAILABLE and self.start_time > timezone.now()
