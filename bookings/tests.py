@@ -20,7 +20,7 @@ from bookings.pricing import (
     calc_price_suggestion,
     custom_pricing,
 )
-from bookings.services import DoubleBookingError, create_booking_request, get_user_bookings
+from bookings.services import DoubleBookingError, create_booking_request, get_tutor_available_slots, get_user_bookings
 from tUtoR.views import custom_403, custom_500
 
 class Dummy_Slot: 
@@ -758,3 +758,82 @@ class test_available_slots_model(TestCase):
             slot.cancel_slot()
         slot.refresh_from_db()
         self.assertEqual(slot.status, Available_Slots.Status.BOOKED)
+
+class test_available_slots_interfaces(TestCase):
+    def setUp(self):
+        self.tutor = User.objects.create_user(email="tutor@uregina.ca", password="67676767jdUU!")
+        self.other_tutor = User.objects.create_user(email="tutor2@uregina.ca", password="67676767jdUU!")
+        self.student = User.objects.create_user(email="student@uregina.ca", password="67676767jdUU!")
+        TutorProfile.objects.create(user=self.tutor, bio='WoooW')
+
+    def create_slot(self, tutor=None, days=2, **kwargs):
+        start = timezone.now() + timedelta(days=days)
+        data = {
+            'tutor': tutor or self.tutor,
+            'start_time': start,
+            'end_time': start + timedelta(hours=1),
+            'price_per_hour': Decimal('20.00'),
+        }
+        data.update(kwargs)
+        return Available_Slots.create_slot(**data)
+
+    def test_status_values(self):
+        self.assertEqual(Available_Slots.Status.AVAILABLE, 'available')
+        self.assertEqual(Available_Slots.Status.BOOKED, 'booked')
+        self.assertEqual(Available_Slots.Status.CANCELLED, 'cancelled')
+
+    def test_tutor_related_name(self):
+        self.create_slot()
+        self.create_slot(days=3)
+        self.assertEqual(self.tutor.available_slots.count(), 2)
+        self.assertEqual(self.other_tutor.available_slots.count(), 0)
+
+    def test_get_tutor_available_slots(self):
+        later = self.create_slot(days=5)
+        sooner = self.create_slot(days=2)
+        later.refresh_from_db()
+        sooner.refresh_from_db()
+
+        slots = get_tutor_available_slots(self.tutor)
+
+        self.assertEqual(len(slots), 2)
+        self.assertEqual([slot['id'] for slot in slots], [sooner.id, later.id])
+        self.assertEqual(slots[0]['start_time'], sooner.start_time.isoformat())
+        self.assertEqual(slots[0]['end_time'], sooner.end_time.isoformat())
+        self.assertEqual(slots[0]['price_per_hour'], '20.00')
+        self.assertEqual(slots[0]['status'], 'available')
+
+    def test_get_tutor_available_slots_hides_booked_and_cancelled(self):
+        free = self.create_slot(days=2)
+        booked = self.create_slot(days=3)
+        cancelled = self.create_slot(days=4)
+        booked.status = Available_Slots.Status.BOOKED
+        booked.save()
+        cancelled.cancel_slot()
+
+        slots = get_tutor_available_slots(self.tutor)
+
+        self.assertEqual([slot['id'] for slot in slots], [free.id])
+
+    def test_get_tutor_available_slots_other_tutor(self):
+        self.create_slot(tutor=self.other_tutor)
+        self.assertEqual(get_tutor_available_slots(self.tutor), [])
+
+    def test_tutor_slots_view(self):
+        slot = self.create_slot()
+        response = self.client.get(reverse('tutor_slots', kwargs={'tutor_id': self.tutor.id}))
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data['tutor_id'], self.tutor.id)
+        self.assertEqual(len(data['available_slots']), 1)
+        self.assertEqual(data['available_slots'][0]['id'], slot.id)
+
+    def test_create_booking_request_with_real_slot(self):
+        slot = self.create_slot()
+        booking = create_booking_request(student=self.student, tutor=self.tutor, slot=slot)
+        slot.refresh_from_db()
+        self.assertEqual(booking.status, Booking.Status.CONFIRMED)
+        self.assertEqual(booking.session_price, Decimal('20.00'))
+        self.assertEqual(slot.status, Available_Slots.Status.BOOKED)
+        with self.assertRaises(DoubleBookingError):
+            create_booking_request(student=self.student, tutor=self.tutor, slot=slot)
