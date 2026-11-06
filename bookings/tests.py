@@ -798,6 +798,59 @@ class test_available_slots_model(TestCase):
         with self.assertRaises(ValueError):
             self.create_slot(end_time=None)
 
+    def test_overlap_same_time(self):
+        first = self.create_slot()
+        with self.assertRaises(ValueError) as ctx:
+            self.create_slot()
+        self.assertIn("overlaps with another of your slots", str(ctx.exception))
+        self.assertIn(timezone.localtime(first.start_time).strftime('%Y-%m-%d %H:%M'), str(ctx.exception))
+        self.assertEqual(Available_Slots.objects.count(), 1)
+
+    def test_overlap_new_slot_starts_inside(self):
+        self.create_slot()
+        with self.assertRaises(ValueError):
+            self.create_slot(start_time=self.start + timedelta(minutes=30), end_time=self.end + timedelta(minutes=30))
+
+    def test_overlap_new_slot_ends_inside(self):
+        self.create_slot()
+        with self.assertRaises(ValueError):
+            self.create_slot(start_time=self.start - timedelta(minutes=30), end_time=self.end - timedelta(minutes=30))
+
+    def test_overlap_new_slot_inside_existing(self):
+        self.create_slot()
+        with self.assertRaises(ValueError):
+            self.create_slot(start_time=self.start + timedelta(minutes=15), end_time=self.end - timedelta(minutes=15))
+
+    def test_overlap_new_slot_surrounds_existing(self):
+        self.create_slot()
+        with self.assertRaises(ValueError):
+            self.create_slot(start_time=self.start - timedelta(minutes=30), end_time=self.end + timedelta(minutes=30))
+
+    def test_adjacent_slots_allowed(self):
+        self.create_slot()
+        self.create_slot(start_time=self.end, end_time=self.end + timedelta(hours=1))
+        self.create_slot(start_time=self.start - timedelta(hours=1), end_time=self.start)
+        self.assertEqual(Available_Slots.objects.count(), 3)
+
+    def test_overlap_other_tutor_allowed(self):
+        other_tutor = User.objects.create_user(email="tutor2@uregina.ca", password="67676767jdUU!")
+        self.create_slot()
+        self.create_slot(tutor=other_tutor)
+        self.assertEqual(Available_Slots.objects.count(), 2)
+
+    def test_overlap_cancelled_slot_allowed(self):
+        slot = self.create_slot()
+        slot.cancel_slot()
+        self.create_slot()
+        self.assertEqual(Available_Slots.objects.count(), 2)
+
+    def test_overlap_booked_slot_blocks(self):
+        slot = self.create_slot()
+        slot.status = Available_Slots.Status.BOOKED
+        slot.save()
+        with self.assertRaises(ValueError):
+            self.create_slot()
+
 class test_available_slots_interfaces(TestCase):
     def setUp(self):
         self.tutor = User.objects.create_user(email="tutor@uregina.ca", password="67676767jdUU!")
