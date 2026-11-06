@@ -2,6 +2,7 @@ from django.shortcuts import render, get_object_or_404
 from django.db.models import Q
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET, require_POST
+from decimal import Decimal
 
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET
@@ -18,6 +19,16 @@ from django.shortcuts import get_object_or_404
 from .models import Booking, CancellationDeadlinePassedError
 from .services import create_booking_request, get_user_bookings, DoubleBookingError
 
+from accounts.models import Course, User
+from accounts.constants import FACULTIES
+from .models import Booking
+from .services import (
+    create_booking_request,
+    get_user_bookings,
+    DoubleBookingError,
+    create_session_request,
+    get_session_requests,
+)
 
 def filter_courses(request):
     search_query = request.GET.get('q', '').strip()
@@ -60,6 +71,30 @@ def filter_courses(request):
     
 
 @require_POST
+def create_session_request_view(request):
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'Log in to make a request.'}, status=401)
+
+    tutor_id = request.POST.get('tutor_id')
+    course_id = request.POST.get('course_id')
+    student_note = request.POST.get('student_note', '').strip()
+    session_price = request.POST.get('session_price')
+
+    if not tutor_id:
+        return JsonResponse({'error': 'tutor_id required.'}, status=400)
+
+    tutor = get_object_or_404(User, id=tutor_id)
+    course = Course.objects.filter(id=course_id).first() if course_id else None
+    price = Decimal(str(session_price)) if session_price else None
+
+    try:
+        booking = create_session_request(
+            student=request.user,
+            tutor=tutor,
+            course=course,
+            student_note=student_note,
+            session_price=price,
+        )
 def submit_rating_view(request, booking_id):
     if not request.user.is_authenticated:
         return JsonResponse({'error': 'You have to be logged in to submit a rating.'}, status=401)
@@ -81,6 +116,54 @@ def submit_rating_view(request, booking_id):
         return JsonResponse({'error': str(e)}, status=400)
 
     return JsonResponse({
+        'message': 'Session request submitted.',
+        'booking_id': booking.id,
+        'status': booking.status,
+    }, status=201)
+
+
+@require_GET
+def get_session_request_view(request):
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'Log in to view your session requests.'}, status=401)
+
+    open_requests = get_session_requests(request.user)
+
+    data = [
+        {
+            'id': booking.id,
+            'student_id': booking.student.id,
+            'student_email': booking.student.email,
+            'course': str(booking.course) if booking.course else None,
+            'student_note': booking.student_note,
+            'session_price': str(booking.session_price),
+            'status': booking.status,
+            'request_time': booking.request_time.isoformat() if booking.request_time else None,
+        }
+        for booking in open_requests
+    ]
+
+    return JsonResponse({'open_requests': data})
+
+
+@require_POST
+def accept_session_request_view(request, booking_id):
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'Please log in.'}, status=401)
+
+    booking = get_object_or_404(Booking, id=booking_id)
+
+    if request.user != booking.tutor:
+        return JsonResponse({'error': 'Not your request, only the requested tutor can accept.'}, status=403)
+
+    try:
+        booking.confirm()
+    except ValueError as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+    return JsonResponse({
+        'message': 'Request accepted.',
+        'status': booking.status,
         'message': 'Rating submitted successfully.',
         'rating_id': rating.id,
         'stars': rating.rating_stars,
@@ -176,6 +259,20 @@ def get_bookings(request):
 
 
 @require_POST
+def decline_session_request_view(request, booking_id):
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'Please log in.'}, status=401)
+
+    booking = get_object_or_404(Booking, id=booking_id)
+
+    if request.user != booking.tutor:
+        return JsonResponse({'error': 'Not your request, only the requested tutor can accept.'}, status=403)
+
+    reason = request.POST.get('reason', 'Tutor declined').strip()
+
+    try:
+        booking.cancel(cancelled_by='tutor', reason=reason)
+        
 def cancel_booking_view(request, booking_id):
     if not request.user.is_authenticated:
         return JsonResponse({'error': 'Log in to cancel booking.'}, status=401)

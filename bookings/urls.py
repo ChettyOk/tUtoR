@@ -4,6 +4,10 @@ from accounts import views as account_views
 
 urlpatterns = [
     path('search/', views.filter_courses, name='search'),
+    path('requests/create/', views.create_session_request_view, name='create_request'),
+    path('requests/', views.get_session_request_view, name='incoming_requests'),
+    path('requests/<int:booking_id>/accept/', views.accept_session_request_view, name='accept_request'),
+    path('requests/<int:booking_id>/decline/', views.decline_session_request_view, name='decline_request'),
     path('bookings/<int:booking_id>/rate/', views.submit_rating_view, name='submit_rating'),
     path('tutors/<int:user_id>/ratings/', views.get_ratings_view, {'rated_role': 'tutor'}, name='tutor_ratings'),
     path('students/<int:user_id>/ratings/', views.get_ratings_view, {'rated_role': 'student'}, name='student_ratings'),
