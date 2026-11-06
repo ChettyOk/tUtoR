@@ -5,6 +5,7 @@ from django.utils import timezone
 from accounts.models import Course
 from decimal import Decimal, ROUND_HALF_UP
 from django.core.validators import MinValueValidator, MaxValueValidator
+from django.core.exceptions import ValidationError
 
 from datetime import timedelta
 
@@ -120,3 +121,89 @@ class Rating(models.Model):
 
     def __str__(self):
         return f"Rating #{self.id} ({self.rated_role}) | {self.rating_stars}/5"
+
+class Available_Slots(models.Model):
+    tutor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='available_slots')
+
+    start_time = models.DateTimeField()
+    end_time = models.DateTimeField()
+    price_per_hour = models.DecimalField(max_digits=6, decimal_places=2)
+
+    UPDATABLE_FIELDS = ('start_time', 'end_time', 'price_per_hour', 'location_type')
+
+    class LocationType(models.TextChoices):
+        ONLINE = 'online', 'Online'
+        IN_PERSON = 'in_person', 'In person'
+    location_type = models.CharField(max_length=10, choices=LocationType.choices, default=LocationType.ONLINE)
+
+    class Status(models.TextChoices):
+        AVAILABLE = 'available', 'Available'
+        BOOKED = 'booked', 'Booked'
+        CANCELLED = 'cancelled', 'Cancelled'
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.AVAILABLE)
+
+    class Meta:
+        ordering = ['start_time']
+        indexes = [
+            models.Index(fields=['tutor', 'start_time']),
+            models.Index(fields=['status']),
+        ]
+
+    def __str__(self):
+        return f"Slot #{self.id} | {self.tutor.email} | {self.start_time:%Y-%m-%d %H:%M} ({self.status})"
+
+    def _validate(self):
+        try:
+            self.full_clean()
+        except ValidationError as e:
+            messages = []
+            for field, errors in e.message_dict.items():
+                for error in errors:
+                    messages.append(error if field == '__all__' else f"{field}: {error}")
+            raise ValueError(" ".join(messages))
+
+    @classmethod
+    def create_slot(cls, tutor, start_time, end_time, price_per_hour, location_type=LocationType.ONLINE):
+        slot = cls(
+            tutor=tutor,
+            start_time=start_time,
+            end_time=end_time,
+            price_per_hour=price_per_hour,
+            location_type=location_type,
+        )
+        slot._validate()
+        slot.save()
+        return slot
+
+    def is_available(self):
+        return self.status == self.Status.AVAILABLE and self.start_time > timezone.now()
+
+    def update_slot(self, **fields):
+        if self.status != self.Status.AVAILABLE:
+            raise ValueError(f"Slot cannot be updated (Status: '{self.status}').")
+
+        unknown_fields = set(fields) - set(self.UPDATABLE_FIELDS)
+        if unknown_fields:
+            raise ValueError(f"Slot field(s) cannot be updated: {', '.join(sorted(unknown_fields))}.")
+
+        old_values = {name: getattr(self, name) for name in fields}
+        for name, value in fields.items():
+            setattr(self, name, value)
+
+        try:
+            self._validate()
+        except ValueError:
+            for name, value in old_values.items():
+                setattr(self, name, value)
+            raise
+
+        self.save()
+
+    def cancel_slot(self):
+        if self.status == self.Status.CANCELLED:
+            raise ValueError("Slot was already cancelled.")
+        if self.status == self.Status.BOOKED:
+            raise ValueError("Slot is already booked, cancel the booking instead.")
+
+        self.status = self.Status.CANCELLED
+        self.save()

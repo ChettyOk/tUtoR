@@ -13,7 +13,7 @@ def calc_price_suggestion(tutor):
 
     try:
         from bookings.models import Available_Slots
-        existing_prices = Available_Slots.objects.values_list('session_price', flat=True)
+        existing_prices = Available_Slots.objects.values_list('price_per_hour', flat=True)
         valid_prices = [Decimal(str(p)) for p in existing_prices if p is not None]
     except Exception:
         valid_prices = None
