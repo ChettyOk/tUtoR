@@ -1,31 +1,27 @@
-from bookings.models import CancellationDeadlinePassedError
-from django.urls import reverse
-from django.test import TestCase
-from accounts.models import Course, User, TutorProfile, StudentProfile
-from django.test import Client
-from django.test import Client, override_settings
-from django.urls import reverse
-from bookings.pricing import (calc_price_suggestion, DEFAULT_PRICE_UNDERGRAD, DEFAULT_PRICE_GRAD, MAX_PRICE, MIN_PRICE, custom_pricing)
-from decimal import Decimal
+import threading
 import time
-
 from datetime import datetime, timedelta
 from decimal import Decimal
+from unittest.mock import MagicMock
+
 from django.contrib.auth import get_user_model
-from bookings.models import Booking, Rating
+from django.db import connection
+from django.test import Client, TestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
 
-
-from unittest.mock import MagicMock
-from bookings.services import create_booking_request, get_user_bookings, DoubleBookingError
-import threading
-from django.db import connection
-
-
+from accounts.models import Course, StudentProfile, TutorProfile, User
+from bookings.models import Available_Slots, Booking, CancellationDeadlinePassedError, Rating
+from bookings.pricing import (
+    DEFAULT_PRICE_GRAD,
+    DEFAULT_PRICE_UNDERGRAD,
+    MAX_PRICE,
+    MIN_PRICE,
+    calc_price_suggestion,
+    custom_pricing,
+)
+from bookings.services import DoubleBookingError, create_booking_request, get_user_bookings
 from tUtoR.views import custom_403, custom_500
-
-
-from accounts.models import Course, User, TutorProfile
 
 class Dummy_Slot: 
     objects = MagicMock()
@@ -638,3 +634,60 @@ class test_booking_views(TestCase):
         self.booking.refresh_from_db()
         self.assertEqual(self.booking.status, Booking.Status.CANCELLED_STUDENT)
         self.assertEqual(self.booking.cancellation_reason, 'Kein bock mehr auf leben')
+
+class test_available_slots_model(TestCase):
+    def setUp(self):
+        self.tutor = User.objects.create_user(email="tutor@uregina.ca", password="67676767jdUU!")
+        self.start = timezone.now() + timedelta(days=2)
+        self.end = self.start + timedelta(hours=1)
+
+    def create_slot(self, **kwargs):
+        data = {
+            'tutor': self.tutor,
+            'start_time': self.start,
+            'end_time': self.end,
+            'price_per_hour': Decimal('20.00'),
+        }
+        data.update(kwargs)
+        return Available_Slots.create_slot(**data)
+
+    def test_create_slot(self):
+        slot = self.create_slot()
+        self.assertEqual(slot.status, Available_Slots.Status.AVAILABLE)
+        self.assertEqual(slot.location_type, Available_Slots.LocationType.ONLINE)
+        self.assertEqual(slot.price_per_hour, Decimal('20.00'))
+        self.assertEqual(Available_Slots.objects.count(), 1)
+
+    def test_create_slot_in_person(self):
+        slot = self.create_slot(location_type=Available_Slots.LocationType.IN_PERSON)
+        self.assertEqual(slot.location_type, 'in_person')
+
+    def test_create_slot_invalid_location(self):
+        with self.assertRaises(ValueError):
+            self.create_slot(location_type='mars')
+        self.assertEqual(Available_Slots.objects.count(), 0)
+
+    def test_create_slot_missing_price(self):
+        with self.assertRaises(ValueError):
+            self.create_slot(price_per_hour=None)
+
+    def test_is_available(self):
+        slot = self.create_slot()
+        self.assertTrue(slot.is_available())
+
+    def test_is_available_booked(self):
+        slot = self.create_slot()
+        slot.status = Available_Slots.Status.BOOKED
+        self.assertFalse(slot.is_available())
+
+    def test_is_available_cancelled(self):
+        slot = self.create_slot()
+        slot.status = Available_Slots.Status.CANCELLED
+        self.assertFalse(slot.is_available())
+
+    def test_is_available_started(self):
+        slot = self.create_slot(
+            start_time=timezone.now() - timedelta(hours=2),
+            end_time=timezone.now() - timedelta(hours=1),
+        )
+        self.assertFalse(slot.is_available())
