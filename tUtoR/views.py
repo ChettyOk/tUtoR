@@ -1,6 +1,14 @@
 import json
 
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.forms import PasswordChangeForm
+from django.contrib.auth import update_session_auth_hash
 from django.shortcuts import render
+
+from accounts.views import get_my_profile, switch_role as api_switch_role
+
+from django.http import JsonResponse
+
 
 def register(request):
     """Show the sign-up page. POST still creates the account."""
@@ -65,6 +73,142 @@ def login(request):
     })
 
 
+
+def _account_context(request, **extra):
+    user = request.user
+    context = {
+        "site_name": "tUtoR",
+        "campus": "University of Regina",
+        "account": {
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "email": user.email,
+            "phone": user.phone,
+            "role": user.role,
+        },
+        "field_errors": {},
+        "form_error": "",
+        "success_message": "",
+        "active_section": "personal",
+    }
+    context.update(extra)
+    return context
+
+
+def _field_errors_from_response(response):
+    try:
+        payload = json.loads(response.content)
+    except json.JSONDecodeError:
+        return {}, "Something went wrong. Please try again."
+
+    if "error" in payload:
+        return {}, payload["error"]
+
+    raw_errors = payload.get("errors") or {}
+    field_errors = {}
+    for field, entries in raw_errors.items():
+        if not entries:
+            continue
+        first = entries[0]
+        if isinstance(first, dict):
+            field_errors[field] = first.get("message") or "This field is invalid."
+        else:
+            field_errors[field] = str(first)
+    return field_errors, ""
+
+
+@login_required
+def account_profile(request):
+    """Personal info page backed by get_my_profile."""
+    context = _account_context(request, active_section="personal")
+
+    if request.method != "POST":
+        return render(request, "profile/personal_info.html", context)
+
+    response = get_my_profile(request)
+    context["account"].update({
+        "first_name": request.POST.get("first_name", "").strip(),
+        "last_name": request.POST.get("last_name", "").strip(),
+        "phone": request.POST.get("phone", "").strip(),
+    })
+
+    if response.status_code == 200:
+        request.user.refresh_from_db()
+        context = _account_context(
+            request,
+            active_section="personal",
+            success_message="Your personal info was saved.",
+        )
+        return render(request, "profile/personal_info.html", context)
+
+    field_errors, form_error = _field_errors_from_response(response)
+    context["field_errors"] = field_errors
+    context["form_error"] = form_error
+    return render(
+        request,
+        "profile/personal_info.html",
+        context,
+        status=response.status_code,
+    )
+
+
+@login_required
+def account_password(request):
+    """Change-password page for signed-in users."""
+    form = PasswordChangeForm(user=request.user)
+    context = _account_context(
+        request,
+        active_section="password",
+        form=form,
+    )
+
+    if request.method != "POST":
+        return render(request, "profile/change_password.html", context)
+
+    form = PasswordChangeForm(user=request.user, data=request.POST)
+    context["form"] = form
+    if form.is_valid():
+        user = form.save()
+        update_session_auth_hash(request, user)
+        context["success_message"] = "Your password was changed."
+        context["form"] = PasswordChangeForm(user=request.user)
+        return render(request, "profile/change_password.html", context)
+
+    return render(request, "profile/change_password.html", context, status=400)
+
+
+@login_required
+def account_role(request):
+    """Role switch page backed by switch_role."""
+    context = _account_context(request, active_section="role")
+
+    if request.method != "POST":
+        return render(request, "profile/role_switch.html", context)
+
+    response = api_switch_role(request)
+    selected_role = request.POST.get("role", "")
+
+    if response.status_code == 200:
+        request.user.refresh_from_db()
+        context = _account_context(
+            request,
+            active_section="role",
+            success_message="Your active role was updated.",
+        )
+        return render(request, "profile/role_switch.html", context)
+
+    field_errors, form_error = _field_errors_from_response(response)
+    context["field_errors"] = field_errors
+    context["form_error"] = form_error
+    context["account"]["role"] = selected_role or context["account"]["role"]
+    return render(
+        request,
+        "profile/role_switch.html",
+        context,
+        status=response.status_code,
+    )
+
+
 def landing(request):
     """Public landing page. No accounts or bookings are read here."""
     return render(request, "landing.html", {
@@ -102,3 +246,14 @@ def landing(request):
             },
         ],
     })
+
+
+def custom_403(request, exception=None):
+    return JsonResponse({'error': '403 Forbidden: You have no permission to access this.'}, status=403)
+
+
+def custom_404(request, exception=None):
+    return JsonResponse({'error': '404 Not Found: The page or resource you want to visit does not exist (yet).'}, status=404)
+
+def custom_500(request):
+    return JsonResponse({'error': '500 Internal Server Error: We made a mistake. The problem is on our end'}, status=500)

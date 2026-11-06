@@ -1,7 +1,9 @@
+from bookings.models import CancellationDeadlinePassedError
 from django.urls import reverse
 from django.test import TestCase
-from accounts.models import Course, User
+from accounts.models import Course, User, TutorProfile, StudentProfile
 from django.test import Client
+from django.test import Client, override_settings
 from django.urls import reverse
 from bookings.pricing import (calc_price_suggestion, DEFAULT_PRICE_UNDERGRAD, DEFAULT_PRICE_GRAD, MAX_PRICE, MIN_PRICE, custom_pricing)
 from decimal import Decimal
@@ -10,12 +12,23 @@ import time
 from datetime import datetime, timedelta
 from decimal import Decimal
 from django.contrib.auth import get_user_model
-from bookings.models import Booking
+from bookings.models import Booking, Rating
+from django.utils import timezone
+
 
 from unittest.mock import MagicMock
 from bookings.services import create_booking_request, get_user_bookings, DoubleBookingError
 import threading
 from django.db import connection
+
+
+from tUtoR.views import custom_403, custom_500
+
+
+from accounts.models import Course, User, TutorProfile
+
+class Dummy_Slot: 
+    objects = MagicMock()
 
 class test_filter_courses_system(TestCase):
     
@@ -104,8 +117,6 @@ class Latency_tests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertLess(response_time, 1.0)
 
-
-
 class Test_pricing(TestCase):
     def setUp(self):
         self.undergrad_tutor = User.objects.create_user(email="ugrad@uregina.ca",password="67676AjdA!"
@@ -179,6 +190,14 @@ class test_booking_model(TestCase):
         self.assertEqual(booking.cancellation_reason, 'Fortnite')
         self.assertIsNotNone(booking.cancel_time)
 
+    def test_cancel_after_deadline(self): 
+        booking = self.create_booking()
+        slot = Dummy_Slot()
+        slot.start_time = timezone.now() + timedelta(hours=3)
+        booking.time_slot = slot
+        with self.assertRaises(CancellationDeadlinePassedError):
+            booking.cancel(cancelled_by='student', reason='Fortnite')
+
     def test_cancel_tutor(self):
         booking = self.create_booking()
         booking.cancel(cancelled_by='tutor', reason='kein bock')
@@ -224,8 +243,6 @@ class test_create_booking(TestCase):
         self.course2 = Course.create_course("CS 476", "SW-Project")
         self.course3 = Course.create_course("CS 477", "SW-Project2")
         # can be replaced with actual available_slot funciton once available
-        class Dummy_Slot: 
-            objects = MagicMock()
         self.mock_slot = Dummy_Slot()
         self.mock_slot.id = 1
         self.mock_slot.status = 'available'
@@ -327,6 +344,41 @@ class test_session_request(TestCase):
             tutor=self.tutor,
             course=self.course,
             student_note='bitte helfen sie mir ich bin in gefahr',
+class test_ratings_system(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(
+            email='student@uregina.ca',
+            password='676767hhG!',
+            first_name='Tim',
+            last_name='Peter',
+        )
+        self.tutor = User.objects.create_user(
+            email='tutor@uregina.ca',
+            password='676767hhG!',
+            first_name='Sara',
+            last_name='kkdfjh',
+        )
+        self.other_user = User.objects.create_user(
+            email='stranger@uregina.ca',
+            password='676767hhG!',
+        )
+        self.tutor_profile = TutorProfile.objects.create(
+            user=self.tutor,
+            bio='jaaaaa',
+        )
+        self.course = Course.create_course('CS 476', 'sw dev Project')
+
+        self.completed_booking = Booking.objects.create(
+            student=self.student,
+            tutor=self.tutor,
+            course=self.course,
+            session_price=Decimal('25.00'),
+            status=Booking.Status.COMPLETED,
+        )
+        self.pending_booking = Booking.objects.create(
+            student=self.student,
+            tutor=self.tutor,
+            course=self.course,
             session_price=Decimal('25.00'),
             status=Booking.Status.PENDING,
         )
@@ -387,3 +439,192 @@ class test_session_request(TestCase):
         url = reverse('accept_request', kwargs={'booking_id': self.booking.id})
         response = self.client.post(url)
         self.assertEqual(response.status_code, 403)
+    def test_submit_rating(self):
+        self.client.force_login(self.student)
+        url = reverse('submit_rating', kwargs={'booking_id': self.completed_booking.id})
+        response = self.client.post(url, {'stars': 5, 'comment': 'tolllllll!'})
+        self.assertEqual(response.status_code, 201)
+
+        booking2 = Booking.objects.create(
+class test_booking_views(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.student = User.objects.create_user(email="student@uregina.ca", password="676767jdUUh!")
+        self.tutor = User.objects.create_user(email="tutor@uregina.ca", password="6767ihihsIHGH!")
+        self.course = Course.create_course("CS 476", "SW dev")
+        self.booking = Booking.objects.create(
+            student=self.student,
+            tutor=self.tutor,
+            course=self.course,
+            session_price=Decimal('25.00'),
+            status=Booking.Status.COMPLETED,
+        )
+        url2 = reverse('submit_rating', kwargs={'booking_id': booking2.id})
+        self.client.post(url2, {'stars': 4, 'comment': 'Sehr gut'})
+
+        self.tutor_profile.refresh_from_db()
+        self.assertEqual(self.tutor_profile.average_rating, Decimal('4.50'))
+
+        list_url = reverse('tutor_ratings', kwargs={'user_id': self.tutor.id})
+        list_res = self.client.get(list_url)
+        self.assertEqual(list_res.status_code, 200)
+        data = list_res.json()
+        self.assertEqual(data['average_rating'], '4.50')
+        self.assertEqual(len(data['ratings']), 2)
+
+    def test_rate_incomplete_booking(self):
+        self.client.force_login(self.student)
+        url = reverse('submit_rating', kwargs={'booking_id': self.pending_booking.id})
+        response = self.client.post(url, {'stars': 5})
+        self.assertEqual(response.status_code, 400)
+
+    def test_rate_twice(self):
+        self.client.force_login(self.student)
+        url = reverse('submit_rating', kwargs={'booking_id': self.completed_booking.id})
+        self.client.post(url, {'stars': 5})
+        response_second = self.client.post(url, {'stars': 3})
+        self.assertEqual(response_second.status_code, 400)
+
+    def test_stars_onetofive(self):
+        self.client.force_login(self.student)
+        url = reverse('submit_rating', kwargs={'booking_id': self.completed_booking.id})
+        response = self.client.post(url, {'stars': 6})
+        self.assertEqual(response.status_code, 400)
+
+    def test_stranger_rateiong(self):
+        self.client.force_login(self.other_user)
+        url = reverse('submit_rating', kwargs={'booking_id': self.completed_booking.id})
+        response = self.client.post(url, {'stars': 1})
+        self.assertEqual(response.status_code, 403)
+
+    def test_rate_student(self):
+        student_profile = StudentProfile.objects.create(user=self.student)
+        self.client.force_login(self.tutor)
+        url = reverse('submit_rating', kwargs={'booking_id': self.completed_booking.id})
+        response = self.client.post(url, {'stars': 5, 'comment': 'Subba student!'})
+        self.assertEqual(response.status_code, 201)
+
+        student_profile.refresh_from_db()
+        self.assertEqual(student_profile.average_rating, Decimal('5.00'))
+
+        list_url = reverse('student_ratings', kwargs={'user_id': self.student.id})
+        list_res = self.client.get(list_url)
+        self.assertEqual(list_res.status_code, 200)
+        self.assertEqual(list_res.json()['average_rating'], '5.00')
+        self.assertEqual(len(list_res.json()['ratings']), 1)
+
+@override_settings(DEBUG=False, ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
+class test_custom_error_handler(TestCase):
+    def test_404_html(self):
+        response = self.client.get('/this-url-does-not-exist-12345/')
+        self.assertEqual(response.status_code, 404)
+        self.assertIn(b'404', response.content)
+
+    def test_404_json(self):
+        response = self.client.get(
+            '/this-url-does-not-exist-12345/',
+            HTTP_ACCEPT='application/json',
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertIn('error', response.json())
+
+    def test_403_json(self):
+        response = custom_403(None)
+        self.assertEqual(response.status_code, 403)
+        self.assertIn(b'403', response.content)
+
+    def test_500_json(self):
+        response = custom_500(None)
+        self.assertEqual(response.status_code, 500)
+        self.assertIn(b'500', response.content)
+
+class test_tutor_details(TestCase):
+    def setUp(self):
+        self.tutor_user = User.objects.create_user(
+            email='tutor@uregina.ca',
+            password='676767hhH""!',
+            first_name='Dieter',
+            last_name='Smith',
+        )
+        self.normal_user = User.objects.create_user(
+            email='student@uregina.ca',
+            password='Password1d23!',
+            first_name='Bob',
+            last_name='Maier',
+        )
+        self.course_with_tutor = Course.create_course('CS 476', 'Software Development Project')
+        self.course_without_tutor = Course.create_course('Ener 258', 'energie I')
+
+        self.tutor_profile = TutorProfile.objects.create(
+            user=self.tutor_user,
+            bio='Wat is Elektrotechnik',
+            average_rating=Decimal('1.00'),
+        )
+        self.tutor_profile.courses_passed.add(self.course_with_tutor)
+
+    def test_filter_courses_with_tutor(self):
+        response = self.client.get(reverse('search'), {'has_tutor': 'true'})
+        self.assertEqual(response.status_code, 200)
+        courses = list(response.context['courses'])
+        self.assertEqual(len(courses), 1)
+        self.assertEqual(courses[0].course_code, 'CS 476')
+
+    def test_get_tutor_details_view(self):
+        url = reverse('tutor_details', kwargs={'user_id': self.tutor_user.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()['tutor']
+        self.assertEqual(data['first_name'], 'Dieter')
+        self.assertEqual(data['bio'], 'Wat is Elektrotechnik')
+        self.assertEqual(data['average_rating'], '1.00')
+        self.assertEqual(len(data['courses_passed']), 1)
+        self.assertEqual(data['courses_passed'][0]['course_code'], 'CS 476')
+
+    def test_get_student_details_view(self):
+        student_profile = StudentProfile.objects.create(user=self.normal_user, major='CS', semester=3,average_rating=Decimal('4.50'),)
+        student_profile.courses.add(self.course_with_tutor)
+        url = reverse('student_details', kwargs={'user_id': self.normal_user.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()['student']
+        self.assertEqual(data['first_name'], 'Bob')
+        self.assertEqual(data['major'], 'CS')
+        self.assertEqual(data['semester'], 3)
+        self.assertEqual(data['average_rating'], '4.50')
+        self.assertEqual(len(data['courses']), 1)
+
+    def test_get_tutor_details_error(self):
+        url = reverse('tutor_details', kwargs={'user_id': self.normal_user.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 404)
+
+    def test_get_tutor_slots_view(self):
+        url = reverse('tutor_slots', kwargs={'tutor_id': self.tutor_user.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data['tutor_id'], self.tutor_user.id)
+        self.assertEqual(data['available_slots'], [])
+            status=Booking.Status.CONFIRMED,
+        )
+
+    def test_get_bookings_no_login(self):
+        response = self.client.get(reverse('my_bookings'))
+        self.assertEqual(response.status_code, 401)
+
+    def test_get_bookings(self):
+        self.client.force_login(self.student)
+        response = self.client.get(reverse('my_bookings'))
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data['student_bookings']), 1)
+        self.assertEqual(data['student_bookings'][0]['id'], self.booking.id)
+
+    def test_cancel_booking_student(self):
+        self.client.force_login(self.student)
+        url = reverse('cancel_booking', kwargs={'booking_id': self.booking.id})
+        response = self.client.post(url, {'reason': 'Kein bock mehr auf leben'})
+        self.assertEqual(response.status_code, 200)
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.status, Booking.Status.CANCELLED_STUDENT)
+        self.assertEqual(self.booking.cancellation_reason, 'Kein bock mehr auf leben')

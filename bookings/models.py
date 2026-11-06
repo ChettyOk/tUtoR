@@ -4,6 +4,12 @@ from django.conf import settings
 from django.utils import timezone
 from accounts.models import Course
 from decimal import Decimal, ROUND_HALF_UP
+from django.core.validators import MinValueValidator, MaxValueValidator
+
+from datetime import timedelta
+
+class CancellationDeadlinePassedError(Exception):
+    pass
 
 class Booking(models.Model):
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='student_bookings')
@@ -43,14 +49,23 @@ class Booking(models.Model):
         self.status = self.Status.CONFIRMED
         self.save()
 
+    CANCEL_DEADLINE = 4 #hours
+    def cancel(self, cancelled_by, reason='', cancel_deadline=CANCEL_DEADLINE):
+        
 
-    def cancel(self, cancelled_by, reason=''):
         if self.status in [self.Status.CANCELLED_STUDENT, self.Status.CANCELLED_TUTOR]:
             raise ValueError(f"Booking cannot be cancelled because it was already'{self.status}'.")
         if self.status == self.Status.COMPLETED:
             raise ValueError(f"Booking cannot be cancelled because it was already completed.")
         
         if cancelled_by == 'student':
+            start_time = self.time_slot.start_time if hasattr(self, 'time_slot') and self.time_slot else None
+            if start_time is not None:
+                time_to_session = start_time - timezone.now()
+                if time_to_session < timedelta(hours=cancel_deadline):
+                    raise CancellationDeadlinePassedError(
+                        f"Cancellation deadline has passed. Sessions can only be cancelled at least {cancel_deadline} hours in advance."
+                    )
             self.status = self.Status.CANCELLED_STUDENT
         elif cancelled_by == 'tutor':
             self.status = self.Status.CANCELLED_TUTOR
@@ -87,3 +102,21 @@ class Booking(models.Model):
         if hasattr(self, 'time_slot') and self.time_slot:
             self.time_slot.status = 'available'
             self.time_slot.save()
+
+class Rating(models.Model):
+    booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name='rating',)
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,related_name='ratings_given',)
+    tutor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='ratings_received',)
+    class RatedRole(models.TextChoices):
+        TUTOR = 'tutor', 'Tutor'
+        STUDENT = 'student', 'Student'
+    rated_role = models.CharField(max_length=10, choices=RatedRole.choices)
+    
+    rating_stars = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(5)])
+
+    rating_comment = models.TextField(blank=True, default='')
+    rating_created_time = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Rating #{self.id} ({self.rated_role}) | {self.rating_stars}/5"

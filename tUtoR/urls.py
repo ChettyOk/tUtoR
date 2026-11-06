@@ -51,6 +51,9 @@ urlpatterns = [
         ),
         name='password_reset_complete',
     ),
+    path('account/', views.account_profile, name='account_profile'),
+    path('account/password/', views.account_password, name='account_password'),
+    path('account/role/', views.account_role, name='account_role'),
     path('accounts/profile/', account_views.get_my_profile, name='profile'),
     path(
         'accounts/role/switch/',
@@ -59,5 +62,6 @@ urlpatterns = [
     ),
 ]
 
-
-
+handler403 = 'tUtoR.views.custom_403'
+handler404 = 'tUtoR.views.custom_404'
+handler500 = 'tUtoR.views.custom_500'
