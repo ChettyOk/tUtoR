@@ -344,41 +344,6 @@ class test_session_request(TestCase):
             tutor=self.tutor,
             course=self.course,
             student_note='bitte helfen sie mir ich bin in gefahr',
-class test_ratings_system(TestCase):
-    def setUp(self):
-        self.student = User.objects.create_user(
-            email='student@uregina.ca',
-            password='676767hhG!',
-            first_name='Tim',
-            last_name='Peter',
-        )
-        self.tutor = User.objects.create_user(
-            email='tutor@uregina.ca',
-            password='676767hhG!',
-            first_name='Sara',
-            last_name='kkdfjh',
-        )
-        self.other_user = User.objects.create_user(
-            email='stranger@uregina.ca',
-            password='676767hhG!',
-        )
-        self.tutor_profile = TutorProfile.objects.create(
-            user=self.tutor,
-            bio='jaaaaa',
-        )
-        self.course = Course.create_course('CS 476', 'sw dev Project')
-
-        self.completed_booking = Booking.objects.create(
-            student=self.student,
-            tutor=self.tutor,
-            course=self.course,
-            session_price=Decimal('25.00'),
-            status=Booking.Status.COMPLETED,
-        )
-        self.pending_booking = Booking.objects.create(
-            student=self.student,
-            tutor=self.tutor,
-            course=self.course,
             session_price=Decimal('25.00'),
             status=Booking.Status.PENDING,
         )
@@ -439,6 +404,46 @@ class test_ratings_system(TestCase):
         url = reverse('accept_request', kwargs={'booking_id': self.booking.id})
         response = self.client.post(url)
         self.assertEqual(response.status_code, 403)
+
+class test_ratings_system(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(
+            email='student@uregina.ca',
+            password='676767hhG!',
+            first_name='Tim',
+            last_name='Peter',
+        )
+        self.tutor = User.objects.create_user(
+            email='tutor@uregina.ca',
+            password='676767hhG!',
+            first_name='Sara',
+            last_name='kkdfjh',
+        )
+        self.other_user = User.objects.create_user(
+            email='stranger@uregina.ca',
+            password='676767hhG!',
+        )
+        self.tutor_profile = TutorProfile.objects.create(
+            user=self.tutor,
+            bio='jaaaaa',
+        )
+        self.course = Course.create_course('CS 476', 'sw dev Project')
+
+        self.completed_booking = Booking.objects.create(
+            student=self.student,
+            tutor=self.tutor,
+            course=self.course,
+            session_price=Decimal('25.00'),
+            status=Booking.Status.COMPLETED,
+        )
+        self.pending_booking = Booking.objects.create(
+            student=self.student,
+            tutor=self.tutor,
+            course=self.course,
+            session_price=Decimal('25.00'),
+            status=Booking.Status.PENDING,
+        )
+
     def test_submit_rating(self):
         self.client.force_login(self.student)
         url = reverse('submit_rating', kwargs={'booking_id': self.completed_booking.id})
@@ -446,13 +451,6 @@ class test_ratings_system(TestCase):
         self.assertEqual(response.status_code, 201)
 
         booking2 = Booking.objects.create(
-class test_booking_views(TestCase):
-    def setUp(self):
-        self.client = Client()
-        self.student = User.objects.create_user(email="student@uregina.ca", password="676767jdUUh!")
-        self.tutor = User.objects.create_user(email="tutor@uregina.ca", password="6767ihihsIHGH!")
-        self.course = Course.create_course("CS 476", "SW dev")
-        self.booking = Booking.objects.create(
             student=self.student,
             tutor=self.tutor,
             course=self.course,
@@ -605,6 +603,18 @@ class test_tutor_details(TestCase):
         data = response.json()
         self.assertEqual(data['tutor_id'], self.tutor_user.id)
         self.assertEqual(data['available_slots'], [])
+
+class test_booking_views(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.student = User.objects.create_user(email="student@uregina.ca", password="676767jdUUh!")
+        self.tutor = User.objects.create_user(email="tutor@uregina.ca", password="6767ihihsIHGH!")
+        self.course = Course.create_course("CS 476", "SW dev")
+        self.booking = Booking.objects.create(
+            student=self.student,
+            tutor=self.tutor,
+            course=self.course,
+            session_price=Decimal('25.00'),
             status=Booking.Status.CONFIRMED,
         )
 

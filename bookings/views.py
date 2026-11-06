@@ -95,6 +95,17 @@ def create_session_request_view(request):
             student_note=student_note,
             session_price=price,
         )
+    except ValueError as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+    return JsonResponse({
+        'message': 'Session request submitted.',
+        'booking_id': booking.id,
+        'status': booking.status,
+    }, status=201)
+
+
+@require_POST
 def submit_rating_view(request, booking_id):
     if not request.user.is_authenticated:
         return JsonResponse({'error': 'You have to be logged in to submit a rating.'}, status=401)
@@ -116,9 +127,10 @@ def submit_rating_view(request, booking_id):
         return JsonResponse({'error': str(e)}, status=400)
 
     return JsonResponse({
-        'message': 'Session request submitted.',
-        'booking_id': booking.id,
-        'status': booking.status,
+        'message': 'Rating submitted successfully.',
+        'rating_id': rating.id,
+        'stars': rating.rating_stars,
+        'comment': rating.rating_comment,
     }, status=201)
 
 
@@ -164,11 +176,8 @@ def accept_session_request_view(request, booking_id):
     return JsonResponse({
         'message': 'Request accepted.',
         'status': booking.status,
-        'message': 'Rating submitted successfully.',
-        'rating_id': rating.id,
-        'stars': rating.rating_stars,
-        'comment': rating.rating_comment,
-    }, status=201)
+    })
+
 
 @require_GET
 def get_ratings_view(request, user_id, rated_role):
@@ -272,7 +281,16 @@ def decline_session_request_view(request, booking_id):
 
     try:
         booking.cancel(cancelled_by='tutor', reason=reason)
-        
+    except ValueError as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+    return JsonResponse({
+        'message': 'Request declined.',
+        'status': booking.status,
+    })
+
+
+@require_POST
 def cancel_booking_view(request, booking_id):
     if not request.user.is_authenticated:
         return JsonResponse({'error': 'Log in to cancel booking.'}, status=401)
