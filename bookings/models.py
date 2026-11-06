@@ -7,7 +7,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 class CancellationDeadlinePassedError(Exception):
     pass
@@ -151,6 +151,23 @@ class Available_Slots(models.Model):
 
     def __str__(self):
         return f"Slot #{self.id} | {self.tutor.email} | {self.start_time:%Y-%m-%d %H:%M} ({self.status})"
+
+    def clean(self):
+        if not isinstance(self.start_time, datetime) or not isinstance(self.end_time, datetime):
+            return
+
+        if timezone.is_naive(self.start_time):
+            self.start_time = timezone.make_aware(self.start_time)
+        if timezone.is_naive(self.end_time):
+            self.end_time = timezone.make_aware(self.end_time)
+
+        self.check_start_end_time()
+
+    def check_start_end_time(self):
+        if self.end_time <= self.start_time:
+            raise ValidationError("End time must be after start time.")
+        if self.start_time <= timezone.now():
+            raise ValidationError("Start time must be in the future.")
 
     def _validate(self):
         try:

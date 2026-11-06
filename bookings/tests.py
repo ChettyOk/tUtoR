@@ -694,10 +694,9 @@ class test_available_slots_model(TestCase):
         self.assertFalse(slot.is_available())
 
     def test_is_available_started(self):
-        slot = self.create_slot(
-            start_time=timezone.now() - timedelta(hours=2),
-            end_time=timezone.now() - timedelta(hours=1),
-        )
+        slot = self.create_slot()
+        slot.start_time = timezone.now() - timedelta(hours=2)
+        slot.end_time = timezone.now() - timedelta(hours=1)
         self.assertFalse(slot.is_available())
 
     def test_update_slot(self):
@@ -766,6 +765,38 @@ class test_available_slots_model(TestCase):
             slot.cancel_slot()
         slot.refresh_from_db()
         self.assertEqual(slot.status, Available_Slots.Status.BOOKED)
+
+    def test_create_slot_end_before_start(self):
+        with self.assertRaises(ValueError) as ctx:
+            self.create_slot(end_time=self.start - timedelta(hours=1))
+        self.assertIn("End time must be after start time.", str(ctx.exception))
+        self.assertEqual(Available_Slots.objects.count(), 0)
+
+    def test_create_slot_end_equals_start(self):
+        with self.assertRaises(ValueError) as ctx:
+            self.create_slot(end_time=self.start)
+        self.assertIn("End time must be after start time.", str(ctx.exception))
+
+    def test_create_slot_start_in_past(self):
+        start = timezone.now() - timedelta(hours=2)
+        with self.assertRaises(ValueError) as ctx:
+            self.create_slot(start_time=start, end_time=start + timedelta(hours=1))
+        self.assertIn("Start time must be in the future.", str(ctx.exception))
+        self.assertEqual(Available_Slots.objects.count(), 0)
+
+    def test_create_slot_naive_datetimes(self):
+        start = timezone.make_naive(timezone.now() + timedelta(days=2))
+        slot = self.create_slot(start_time=start, end_time=start + timedelta(hours=1))
+        self.assertTrue(timezone.is_aware(slot.start_time))
+        self.assertTrue(timezone.is_aware(slot.end_time))
+
+    def test_create_slot_invalid_start_time(self):
+        with self.assertRaises(ValueError):
+            self.create_slot(start_time='not a date')
+
+    def test_create_slot_missing_end_time(self):
+        with self.assertRaises(ValueError):
+            self.create_slot(end_time=None)
 
 class test_available_slots_interfaces(TestCase):
     def setUp(self):
