@@ -2,6 +2,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
 from django.db import IntegrityError, transaction
+from django.utils.http import url_has_allowed_host_and_scheme
 
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
@@ -366,6 +367,31 @@ def personalise(request):
         ),
         'selected_ids': selected_ids,
     })
+
+
+def login_page(request):
+    if request.user.is_authenticated:
+        return redirect('landing')
+
+    next_url = request.POST.get('next') or request.GET.get('next') or ''
+    context = {'site_name': 'tUtoR', 'campus': 'University of Regina', 'email': '', 'error': ''}
+
+    if request.method == 'POST':
+        email = request.POST.get('email', '').strip().lower()
+        password = request.POST.get('password', '')
+        user = authenticate(request, username=email, password=password)
+
+        if user is not None:
+            auth_login(request, user)
+            safe = url_has_allowed_host_and_scheme(
+                next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure())
+            return redirect(next_url if safe else 'landing')   # later: student / tutor home
+
+        context['email'] = email
+        context['error'] = 'Invalid email address or password.'
+        return render(request, 'login.html', context, status=400)
+
+    return render(request, 'login.html', context)
 
 
 #     get My Profile()
