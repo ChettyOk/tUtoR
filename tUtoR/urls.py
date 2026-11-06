@@ -65,5 +65,6 @@ urlpatterns = [
     path('tutor-home/', account_views.tutor_home, name='tutor_home'),
 ]
 
-
-
+handler403 = 'tUtoR.views.custom_403'
+handler404 = 'tUtoR.views.custom_404'
+handler500 = 'tUtoR.views.custom_500'

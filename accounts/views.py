@@ -26,16 +26,13 @@ from .forms import (
     TutorProfileForm,
 )
 
-# Create your views here.
-# functions that interact with the user
+from django.shortcuts import render, get_object_or_404
+from django.db.models import Q
+from django.http import JsonResponse
+from django.views.decorators.http import require_GET, require_POST
 
-# ==========================================
-# VON MIR (DJANGO DEFAULTS)
-# ==========================================
-
-# ==========================================
-# VON EUCH (AUS DEM PDF - CONTROLLER)
-# ==========================================
+from accounts.models import Course, User, StudentProfile, TutorProfile
+from accounts.constants import FACULTIES
 
 # Auth Controller
 @require_POST
@@ -292,6 +289,64 @@ def _update_tutor_profile(request):
         {'message': 'Tutor profile updated.'},
         status=200,
     )
+
+
+@require_POST
+def favorite_tutor_view(request, tutor_id):
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'Log in to add or remove favorite tutors.'}, status=401)
+
+    tutor = get_object_or_404(User, id=tutor_id)
+    tutor_profile = TutorProfile.objects.filter(user=tutor).first()
+    if not tutor_profile:
+        return JsonResponse({'error': 'No tutor profile found for this user ask them to create one first.'}, status=400)
+
+    student_profile = StudentProfile.objects.filter(user=request.user).first()
+
+    if not student_profile:
+        return JsonResponse({'error': 'This User does not have an Student Profile, please create one first.'}, status=400)
+
+    if student_profile.favorite_tutors.filter(id=tutor.id).exists():
+        student_profile.remove_favorite_tutor(tutor)
+        is_favorite = False
+        message = 'Tutor successfully removed from favorites.'
+    else:
+        student_profile.add_favorite_tutor(tutor)
+        is_favorite = True
+        message = 'Tutor added to favorites.'
+
+    return JsonResponse({
+        'message': message,
+        'tutor_id': tutor.id,
+        'is_favorite': is_favorite,
+    })
+
+
+@require_GET
+def get_favorite_tutors_view(request):
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'Log in to see your favorite tutors.'}, status=401)
+
+    student_profile = StudentProfile.objects.filter(user=request.user).first()
+    if not student_profile:
+        return JsonResponse({'error': 'This User does not have an Student Profile, please create one first.'}, status=400)
+
+    favorites = student_profile.get_favorite_tutors().order_by('id')
+    data = []
+
+    for tutor in favorites:
+        tutor_profile = TutorProfile.objects.filter(user=tutor).first()
+        data.append({
+            'id': tutor.id,
+            'first_name': tutor.first_name,
+            'last_name': tutor.last_name,
+            'email': tutor.email,
+            'bio': tutor_profile.bio if tutor_profile else '',
+            'average_rating': tutor_profile.display_tutor_rating,
+        })
+
+    return JsonResponse({'favorite_tutors': data})
+
 
 MAX_STUDENT_COURSES = 10
 

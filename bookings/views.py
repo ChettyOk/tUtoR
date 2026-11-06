@@ -1,7 +1,17 @@
-from django.shortcuts import render
+from django.shortcuts import render, get_object_or_404
 from django.db.models import Q
-from accounts.models import Course
+from django.http import JsonResponse
+from django.views.decorators.http import require_GET, require_POST
+from decimal import Decimal
+
+from django.http import JsonResponse
+from django.views.decorators.http import require_GET
+
+from accounts.models import Course, User, TutorProfile, User, TutorProfile, StudentProfile
 from accounts.constants import FACULTIES
+from .models import Booking, Rating
+from .services import create_rating, get_ratings
+from .services import get_user_details, get_tutor_available_slots
 
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET, require_POST, require_http_methods
@@ -9,6 +19,16 @@ from django.shortcuts import get_object_or_404
 from .models import Booking, CancellationDeadlinePassedError
 from .services import create_booking_request, get_user_bookings, DoubleBookingError
 
+from accounts.models import Course, User
+from accounts.constants import FACULTIES
+from .models import Booking
+from .services import (
+    create_booking_request,
+    get_user_bookings,
+    DoubleBookingError,
+    create_session_request,
+    get_session_requests,
+)
 
 def filter_courses(request):
     search_query = request.GET.get('q', '').strip()
@@ -29,8 +49,8 @@ def filter_courses(request):
         
     
     if has_tutor_offering: 
-        # To be added once available slots are implemented
-        pass
+        courses = courses.filter(tutor_profiles__isnull=False).distinct()
+        
 
     if search_query:
         courses = courses.filter(Q(course_code__icontains = search_query) | Q(course_name__icontains = search_query))
@@ -50,6 +70,165 @@ def filter_courses(request):
     return render(request, 'bookings/search_results.html', context)
     
 
+@require_POST
+def create_session_request_view(request):
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'Log in to make a request.'}, status=401)
+
+    tutor_id = request.POST.get('tutor_id')
+    course_id = request.POST.get('course_id')
+    student_note = request.POST.get('student_note', '').strip()
+    session_price = request.POST.get('session_price')
+
+    if not tutor_id:
+        return JsonResponse({'error': 'tutor_id required.'}, status=400)
+
+    tutor = get_object_or_404(User, id=tutor_id)
+    course = Course.objects.filter(id=course_id).first() if course_id else None
+    price = Decimal(str(session_price)) if session_price else None
+
+    try:
+        booking = create_session_request(
+            student=request.user,
+            tutor=tutor,
+            course=course,
+            student_note=student_note,
+            session_price=price,
+        )
+def submit_rating_view(request, booking_id):
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'You have to be logged in to submit a rating.'}, status=401)
+
+    booking = get_object_or_404(Booking, id=booking_id)
+    rating_stars = request.POST.get('stars')
+    rating_comment = request.POST.get('comment', '')
+
+    try:
+        rating = create_rating(
+            user=request.user,
+            booking=booking,
+            rating_stars=rating_stars,
+            rating_comment=rating_comment,
+        )
+    except PermissionError as e:
+        return JsonResponse({'error': str(e)}, status=403)
+    except ValueError as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+    return JsonResponse({
+        'message': 'Session request submitted.',
+        'booking_id': booking.id,
+        'status': booking.status,
+    }, status=201)
+
+
+@require_GET
+def get_session_request_view(request):
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'Log in to view your session requests.'}, status=401)
+
+    open_requests = get_session_requests(request.user)
+
+    data = [
+        {
+            'id': booking.id,
+            'student_id': booking.student.id,
+            'student_email': booking.student.email,
+            'course': str(booking.course) if booking.course else None,
+            'student_note': booking.student_note,
+            'session_price': str(booking.session_price),
+            'status': booking.status,
+            'request_time': booking.request_time.isoformat() if booking.request_time else None,
+        }
+        for booking in open_requests
+    ]
+
+    return JsonResponse({'open_requests': data})
+
+
+@require_POST
+def accept_session_request_view(request, booking_id):
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'Please log in.'}, status=401)
+
+    booking = get_object_or_404(Booking, id=booking_id)
+
+    if request.user != booking.tutor:
+        return JsonResponse({'error': 'Not your request, only the requested tutor can accept.'}, status=403)
+
+    try:
+        booking.confirm()
+    except ValueError as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+    return JsonResponse({
+        'message': 'Request accepted.',
+        'status': booking.status,
+        'message': 'Rating submitted successfully.',
+        'rating_id': rating.id,
+        'stars': rating.rating_stars,
+        'comment': rating.rating_comment,
+    }, status=201)
+
+@require_GET
+def get_ratings_view(request, user_id, rated_role):
+    user = get_object_or_404(User, id=user_id)
+
+    try:
+        ratings = get_ratings(user, rated_role)
+    except ValueError as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+    if rated_role == Rating.RatedRole.TUTOR:
+        profile = TutorProfile.objects.filter(user=user).first()
+        avg_rating = profile.display_tutor_rating if profile else 'No rating yet'
+    else:
+        profile = StudentProfile.objects.filter(user=user).first()
+        avg_rating = profile.display_student_rating if profile else 'No rating yet'
+
+    data = [
+        {
+            'id': rating.id,
+            'student_email': rating.student.email,
+            'tutor_email': rating.tutor.email,
+            'stars': rating.rating_stars,
+            'comment': rating.rating_comment,
+            'created_at': rating.rating_created_time.isoformat() if rating.rating_created_time else None,
+        }
+        for rating in ratings
+    ]
+
+    return JsonResponse({
+        'user_id': user.id,
+        'rated_role': rated_role,
+        'average_rating': avg_rating,
+        'ratings': data,
+    })
+
+@require_GET
+def get_user_details_view(request, user_id, role):
+    user = get_object_or_404(User, id=user_id)
+
+    try:
+        details = get_user_details(user, role)
+    except ValueError as e:
+        return JsonResponse({'error': str(e)}, status=404)
+
+    return JsonResponse({role: details})
+
+
+@require_GET
+def get_tutor_slots_view(request, tutor_id):
+    tutor = get_object_or_404(User, id=tutor_id)
+
+    if not TutorProfile.objects.filter(user=tutor).exists():
+        return JsonResponse({'error': 'No tutor Profile found for this user.'}, status=404)
+
+    slots = get_tutor_available_slots(tutor)
+    return JsonResponse({
+        'tutor_id': tutor.id,
+        'available_slots': slots,
+    })  
 @require_GET
 def get_bookings(request):
     if not request.user.is_authenticated:
@@ -80,6 +259,20 @@ def get_bookings(request):
 
 
 @require_POST
+def decline_session_request_view(request, booking_id):
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'Please log in.'}, status=401)
+
+    booking = get_object_or_404(Booking, id=booking_id)
+
+    if request.user != booking.tutor:
+        return JsonResponse({'error': 'Not your request, only the requested tutor can accept.'}, status=403)
+
+    reason = request.POST.get('reason', 'Tutor declined').strip()
+
+    try:
+        booking.cancel(cancelled_by='tutor', reason=reason)
+        
 def cancel_booking_view(request, booking_id):
     if not request.user.is_authenticated:
         return JsonResponse({'error': 'Log in to cancel booking.'}, status=401)
