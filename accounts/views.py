@@ -295,9 +295,13 @@ def _update_tutor_profile(request):
 
 MAX_STUDENT_COURSES = 10
 
+def home_for(user):
+    """Name of the home page for this user. 'Decide later' users count as student."""
+    return 'tutor_home' if user.has_role('tutor') else 'student_home'
+
 def register_page(request):
     if request.user.is_authenticated:
-        return redirect('landing')
+        return redirect(home_for(request.user))
 
     if request.method == 'POST':
         form = RegisterForm(request.POST)
@@ -345,12 +349,12 @@ def personalise(request):
 
     if request.method == 'POST':
         if 'skip' in request.POST:
-            return redirect('landing')   # later: student / tutor home
+            return redirect(home_for(request.user))   
 
         form = CoursePickForm(request.POST, max_courses=max_courses)
         if form.is_valid():
             saved_courses.set(form.cleaned_data['courses'])
-            return redirect('landing')
+            return redirect(home_for(request.user))
 
         for error in form.errors.get('courses', []):
             messages.error(request, error)
@@ -371,7 +375,7 @@ def personalise(request):
 
 def login_page(request):
     if request.user.is_authenticated:
-        return redirect('landing')
+        return redirect(home_for(request.user))
 
     next_url = request.POST.get('next') or request.GET.get('next') or ''
     context = {'site_name': 'tUtoR', 'campus': 'University of Regina', 'email': '', 'error': ''}
@@ -385,7 +389,7 @@ def login_page(request):
             auth_login(request, user)
             safe = url_has_allowed_host_and_scheme(
                 next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure())
-            return redirect(next_url if safe else 'landing')   # later: student / tutor home
+            return redirect(next_url if safe else home_for(request.user))   
 
         context['email'] = email
         context['error'] = 'Invalid email address or password.'

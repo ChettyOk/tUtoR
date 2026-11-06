@@ -61,6 +61,8 @@ urlpatterns = [
         account_views.switch_role,
         name='switch_role',
     ),
+    path('student-home/', account_views.student_home, name='student_home'),
+    path('tutor-home/', account_views.tutor_home, name='tutor_home'),
 ]
 
 
