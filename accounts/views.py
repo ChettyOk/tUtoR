@@ -397,6 +397,25 @@ def login_page(request):
 
     return render(request, 'login.html', context)
 
+#Home page/dashboard basic controllers set up for redirection from signup and login
+@login_required
+def student_home(request):
+    if request.user.has_role('tutor'):
+        return redirect('tutor_home')
+    profile = StudentProfile.objects.filter(user=request.user).first()
+    courses = profile.courses.order_by('course_code') if profile else []
+    return render(request, 'student_home.html', {
+        'site_name': 'tUtoR', 'campus': 'University of Regina', 'courses': courses})
+
+
+@login_required
+def tutor_home(request):
+    if not request.user.has_role('tutor'):
+        return redirect('student_home')
+    profile = TutorProfile.objects.filter(user=request.user).first()
+    courses = profile.courses_passed.order_by('course_code') if profile else []
+    return render(request, 'tutor_home.html', {
+        'site_name': 'tUtoR', 'campus': 'University of Regina', 'courses': courses})
 
 #     get My Profile()
 #     update Student Profil()
