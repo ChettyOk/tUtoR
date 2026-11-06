@@ -11,4 +11,6 @@ urlpatterns = [
     path('students/<int:user_id>/', views.get_user_details_view, {'role': 'student'}, name='student_details'),    path('tutors/<int:tutor_id>/slots/', views.get_tutor_slots_view, name='tutor_slots'),
     path('favorites/', account_views.get_favorite_tutors_view, name='favorite_tutors'),
     path('favorites/<int:tutor_id>/toggle/', account_views.favorite_tutor_view, name='toggle_favorite_tutor'),
+    path('bookings/', views.get_bookings, name='my_bookings'),
+    path('bookings/<int:booking_id>/cancel/', views.cancel_booking_view, name='cancel_booking'),
 ]

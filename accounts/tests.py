@@ -134,8 +134,6 @@ class user_role_tests(SimpleTestCase):
         self.assertFalse(user.is_staff)
         self.assertFalse(user.is_superuser)
 
-
-
 class user_email_normalization_tests(SimpleTestCase):
     def test_normalizes_email_case_and_outer_spaces(self):
         email = UserManager.normalize_email("  Marie@EXAMPLE.COM  ")
@@ -150,8 +148,6 @@ class user_email_normalization_tests(SimpleTestCase):
     def test_create_user_rejects_whitespace_only_email(self):
         with self.assertRaises(ValueError):
             User.objects.create_user(email="   ", password="TestPassword")
-
-
 
 class UserDatabaseTests(TestCase):
     def test_create_user_saves_normalized_email_and_password(self):
@@ -265,6 +261,77 @@ class test_Student_Profile(TestCase):
         with self.assertRaises(ValueError):
             self.profile.update_profile(major="ENER", semester=-1)
 
+class SuperuserCreationTests(TestCase):
+    def test_create_superuser_sets_admin_flags_and_normalizes_email(self):
+        password = "LocalTestPassword-42"
+
+        admin = User.objects.create_superuser(
+            email="  Admin@Example.com  ",
+            password=password,
+        )
+
+        saved_admin = User.objects.get(pk=admin.pk)
+
+        self.assertEqual(saved_admin.email, "admin@example.com")
+        self.assertTrue(saved_admin.is_staff)
+        self.assertTrue(saved_admin.is_superuser)
+        self.assertTrue(saved_admin.is_active)
+        self.assertNotEqual(saved_admin.password, password)
+        self.assertTrue(saved_admin.check_password(password))
+
+    def test_superuser_has_no_student_or_tutor_role(self):
+        admin = User.objects.create_superuser(
+            email="admin@example.com",
+            password="LocalTestPassword-42",
+        )
+
+        self.assertEqual(admin.role, "")
+        self.assertFalse(admin.has_role(User.Role.STUDENT))
+        self.assertFalse(admin.has_role(User.Role.TUTOR))
+
+    def test_create_superuser_rejects_is_staff_false(self):
+        with self.assertRaises(ValueError):
+            User.objects.create_superuser(
+                email="admin@example.com",
+                password="LocalTestPassword-42",
+                is_staff=False,
+            )
+
+        self.assertEqual(User.objects.count(), 0)
+
+    def test_create_superuser_rejects_is_superuser_false(self):
+        with self.assertRaises(ValueError):
+            User.objects.create_superuser(
+                email="admin@example.com",
+                password="LocalTestPassword-42",
+                is_superuser=False,
+            )
+
+        self.assertEqual(User.objects.count(), 0)
+
+    def test_create_user_does_not_create_admin(self):
+        user = User.objects.create_user(
+            email="marie@example.com",
+            password="LocalTestPassword-42",
+        )
+
+        self.assertFalse(user.is_staff)
+        self.assertFalse(user.is_superuser)
+
+    def test_duplicate_superuser_email_is_rejected(self):
+        User.objects.create_superuser(
+            email="admin@example.com",
+            password="LocalTestPassword-42",
+        )
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                User.objects.create_superuser(
+                    email="ADMIN@example.com",
+                    password="AnotherTestPassword-42",
+                )
+
+        self.assertEqual(User.objects.count(), 1)
 
 # registration tests
 class RegisterViewTests(TestCase):

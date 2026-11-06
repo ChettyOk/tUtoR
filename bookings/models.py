@@ -6,6 +6,10 @@ from accounts.models import Course
 from decimal import Decimal, ROUND_HALF_UP
 from django.core.validators import MinValueValidator, MaxValueValidator
 
+from datetime import timedelta
+
+class CancellationDeadlinePassedError(Exception):
+    pass
 
 class Booking(models.Model):
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='student_bookings')
@@ -45,14 +49,23 @@ class Booking(models.Model):
         self.status = self.Status.CONFIRMED
         self.save()
 
+    CANCEL_DEADLINE = 4 #hours
+    def cancel(self, cancelled_by, reason='', cancel_deadline=CANCEL_DEADLINE):
+        
 
-    def cancel(self, cancelled_by, reason=''):
         if self.status in [self.Status.CANCELLED_STUDENT, self.Status.CANCELLED_TUTOR]:
             raise ValueError(f"Booking cannot be cancelled because it was already'{self.status}'.")
         if self.status == self.Status.COMPLETED:
             raise ValueError(f"Booking cannot be cancelled because it was already completed.")
         
         if cancelled_by == 'student':
+            start_time = self.time_slot.start_time if hasattr(self, 'time_slot') and self.time_slot else None
+            if start_time is not None:
+                time_to_session = start_time - timezone.now()
+                if time_to_session < timedelta(hours=cancel_deadline):
+                    raise CancellationDeadlinePassedError(
+                        f"Cancellation deadline has passed. Sessions can only be cancelled at least {cancel_deadline} hours in advance."
+                    )
             self.status = self.Status.CANCELLED_STUDENT
         elif cancelled_by == 'tutor':
             self.status = self.Status.CANCELLED_TUTOR
