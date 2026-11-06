@@ -129,6 +129,8 @@ class Available_Slots(models.Model):
     end_time = models.DateTimeField()
     price_per_hour = models.DecimalField(max_digits=6, decimal_places=2)
 
+    UPDATABLE_FIELDS = ('start_time', 'end_time', 'price_per_hour', 'location_type')
+
     class LocationType(models.TextChoices):
         ONLINE = 'online', 'Online'
         IN_PERSON = 'in_person', 'In person'
@@ -175,3 +177,24 @@ class Available_Slots(models.Model):
 
     def is_available(self):
         return self.status == self.Status.AVAILABLE and self.start_time > timezone.now()
+
+    def update_slot(self, **fields):
+        if self.status != self.Status.AVAILABLE:
+            raise ValueError(f"Slot cannot be updated (Status: '{self.status}').")
+
+        unknown_fields = set(fields) - set(self.UPDATABLE_FIELDS)
+        if unknown_fields:
+            raise ValueError(f"Slot field(s) cannot be updated: {', '.join(sorted(unknown_fields))}.")
+
+        old_values = {name: getattr(self, name) for name in fields}
+        for name, value in fields.items():
+            setattr(self, name, value)
+
+        try:
+            self._validate()
+        except ValueError:
+            for name, value in old_values.items():
+                setattr(self, name, value)
+            raise
+
+        self.save()

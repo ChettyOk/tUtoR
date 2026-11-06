@@ -691,3 +691,48 @@ class test_available_slots_model(TestCase):
             end_time=timezone.now() - timedelta(hours=1),
         )
         self.assertFalse(slot.is_available())
+
+    def test_update_slot(self):
+        slot = self.create_slot()
+        new_end = self.end + timedelta(hours=1)
+        slot.update_slot(end_time=new_end, price_per_hour=Decimal('25.00'))
+        slot.refresh_from_db()
+        self.assertEqual(slot.end_time, new_end)
+        self.assertEqual(slot.price_per_hour, Decimal('25.00'))
+
+    def test_update_slot_location(self):
+        slot = self.create_slot()
+        slot.update_slot(location_type=Available_Slots.LocationType.IN_PERSON)
+        slot.refresh_from_db()
+        self.assertEqual(slot.location_type, Available_Slots.LocationType.IN_PERSON)
+
+    def test_update_slot_booked(self):
+        slot = self.create_slot()
+        slot.status = Available_Slots.Status.BOOKED
+        slot.save()
+        with self.assertRaises(ValueError):
+            slot.update_slot(price_per_hour=Decimal('30.00'))
+        slot.refresh_from_db()
+        self.assertEqual(slot.price_per_hour, Decimal('20.00'))
+
+    def test_update_slot_cancelled(self):
+        slot = self.create_slot()
+        slot.status = Available_Slots.Status.CANCELLED
+        slot.save()
+        with self.assertRaises(ValueError):
+            slot.update_slot(price_per_hour=Decimal('30.00'))
+
+    def test_update_slot_status_not_allowed(self):
+        slot = self.create_slot()
+        with self.assertRaises(ValueError):
+            slot.update_slot(status=Available_Slots.Status.BOOKED)
+        slot.refresh_from_db()
+        self.assertEqual(slot.status, Available_Slots.Status.AVAILABLE)
+
+    def test_update_slot_invalid_value_keeps_old_values(self):
+        slot = self.create_slot()
+        with self.assertRaises(ValueError):
+            slot.update_slot(location_type='mars')
+        self.assertEqual(slot.location_type, Available_Slots.LocationType.ONLINE)
+        slot.refresh_from_db()
+        self.assertEqual(slot.location_type, Available_Slots.LocationType.ONLINE)
