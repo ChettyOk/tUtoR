@@ -1,4 +1,4 @@
-from .models import Course, StudentProfile, TutorProfile
+from .models import Course, StudentProfile, TutorProfile, User
 from django.urls import reverse
 from django.db import IntegrityError, transaction
 from django.core import mail
@@ -2216,3 +2216,73 @@ class LoginPageTests(TestCase):
 #------------------------------------------END OF TESTS FOR PERSONALISE, UPDATED REGISTER AND LOGIN----------------------------------------------
 #************************************************************************************************************************************************
 
+
+#************************************************************************************************************************************************
+#-------------------------------------------TESTS FOR HOME/DASHBOARD PAGES-----------------------------------------------------------------------
+#************************************************************************************************************************************************
+
+class HomePageTests(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(
+            email='s@example.com', password='pw-12345-xyz', first_name='Sam', role='student')
+        self.tutor = User.objects.create_user(
+            email='t@example.com', password='pw-12345-xyz', first_name='Tess', role='tutor')
+        self.undecided = User.objects.create_user(email='u@example.com', password='pw-12345-xyz')
+        self.course = Course.create_course('CS 110', 'Intro to Computer Science')
+
+    def test_anonymous_users_are_sent_to_login(self):
+        for name in ('student_home', 'tutor_home'):
+            with self.subTest(page=name):
+                response = self.client.get(reverse(name))
+                self.assertRedirects(response, f"{reverse('login')}?next={reverse(name)}",
+                                     fetch_redirect_response=False)
+
+    def test_student_sees_student_home_with_courses(self):
+        StudentProfile.objects.create(user=self.student).courses.add(self.course)
+        self.client.force_login(self.student)
+        response = self.client.get(reverse('student_home'))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'student_home.html')
+        self.assertContains(response, 'Welcome, Sam')
+        self.assertContains(response, 'CS 110')
+
+    def test_student_without_courses_is_offered_the_picker(self):
+        self.client.force_login(self.student)
+        response = self.client.get(reverse('student_home'))
+        self.assertContains(response, reverse('personalise'))
+
+    def test_tutor_sees_tutor_home_with_courses(self):
+        TutorProfile.objects.create(user=self.tutor).courses_passed.add(self.course)
+        self.client.force_login(self.tutor)
+        response = self.client.get(reverse('tutor_home'))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'tutor_home.html')
+        self.assertContains(response, 'CS 110')
+
+    def test_tutor_is_redirected_away_from_student_home(self):
+        self.client.force_login(self.tutor)
+        self.assertRedirects(self.client.get(reverse('student_home')),
+                             reverse('tutor_home'), fetch_redirect_response=False)
+
+    def test_student_is_redirected_away_from_tutor_home(self):
+        self.client.force_login(self.student)
+        self.assertRedirects(self.client.get(reverse('tutor_home')),
+                             reverse('student_home'), fetch_redirect_response=False)
+
+    def test_decide_later_user_gets_student_home(self):
+        self.client.force_login(self.undecided)
+        self.assertEqual(self.client.get(reverse('student_home')).status_code, 200)
+        self.assertRedirects(self.client.get(reverse('tutor_home')),
+                             reverse('student_home'), fetch_redirect_response=False)
+
+    def test_login_sends_each_role_to_its_own_home(self):
+        for user, name in ((self.student, 'student_home'), (self.tutor, 'tutor_home')):
+            with self.subTest(role=user.role):
+                self.client.logout()
+                response = self.client.post(reverse('login'),
+                                            {'email': user.email, 'password': 'pw-12345-xyz'})
+                self.assertRedirects(response, reverse(name), fetch_redirect_response=False)
+
+#************************************************************************************************************************************************
+#------------------------------------------------------- END OF HOME TESTS ----------------------------------------------------------------------
+#************************************************************************************************************************************************
