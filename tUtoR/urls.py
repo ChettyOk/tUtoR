@@ -34,7 +34,8 @@ urlpatterns = [
     path('', views.landing, name='landing'),
     path('login/', views.login, name='login'),
     path('logout/', logout, name='logout'),
-    path('register/', views.register, name='register'),
+    path('register/', account_views.register_page, name='register'),
+    path('personalise/', account_views.personalise, name='personalise'),
     path('password-reset/', views.forgot_password, name='request_forgotten_password'),
     path(
         'password-reset/confirm/<uidb64>/<token>/',
