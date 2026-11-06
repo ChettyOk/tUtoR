@@ -1,4 +1,8 @@
-from django.shortcuts import render
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import redirect, render
+from django.db import IntegrityError, transaction
+
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.http import JsonResponse
@@ -12,8 +16,14 @@ from django.contrib.auth.forms import PasswordResetForm
 from django.db import transaction
 from decimal import Decimal
 
-from .models import User, StudentProfile, TutorProfile
-from .forms import AccountProfileForm, StudentProfileForm, TutorProfileForm
+from .models import Course, User, StudentProfile, TutorProfile
+from .forms import (
+    AccountProfileForm,
+    CoursePickForm,
+    RegisterForm,
+    StudentProfileForm,
+    TutorProfileForm,
+)
 
 # Create your views here.
 # functions that interact with the user
@@ -281,6 +291,83 @@ def _update_tutor_profile(request):
         {'message': 'Tutor profile updated.'},
         status=200,
     )
+
+MAX_STUDENT_COURSES = 10
+
+def register_page(request):
+    if request.user.is_authenticated:
+        return redirect('landing')
+
+    if request.method == 'POST':
+        form = RegisterForm(request.POST)
+        if form.is_valid():
+            data = form.cleaned_data
+            try:
+                with transaction.atomic():
+                    user = User.objects.create_user(
+                        email=data['email'],
+                        password=data['password1'],
+                        first_name=data['first_name'],
+                        last_name=data['last_name'],
+                        role=data['role'],
+                    )
+            except IntegrityError:
+                form.add_error('email', 'An account with this email already exists.')
+            else:
+                auth_login(request, user)
+                messages.success(request, 'Your account has been created.')
+                return redirect('personalise')
+    else:
+        form = RegisterForm()
+
+    return render(request, 'register.html', {
+        'form': form,
+        'site_name': 'tUtoR',
+        'campus': 'University of Regina',
+    })
+
+
+@login_required
+def personalise(request):
+    user = request.user
+
+    if user.has_role('tutor'):
+        profile, _ = TutorProfile.objects.get_or_create(user=user)
+        saved_courses = profile.courses_passed
+        max_courses = None
+    else:  # students, and "decide later" users, are treated as students
+        profile, _ = StudentProfile.objects.get_or_create(user=user)
+        saved_courses = profile.courses
+        max_courses = MAX_STUDENT_COURSES
+
+    selected_ids = list(saved_courses.values_list('pk', flat=True))
+
+    if request.method == 'POST':
+        if 'skip' in request.POST:
+            return redirect('landing')   # later: student / tutor home
+
+        form = CoursePickForm(request.POST, max_courses=max_courses)
+        if form.is_valid():
+            saved_courses.set(form.cleaned_data['courses'])
+            return redirect('landing')
+
+        for error in form.errors.get('courses', []):
+            messages.error(request, error)
+        selected_ids = [int(v) for v in request.POST.getlist('courses') if v.isdigit()]
+
+    return render(request, 'personalise.html', {
+        'site_name': 'tUtoR',
+        'campus': 'University of Regina',
+        'is_tutor': user.has_role('tutor'),
+        'max_courses': max_courses,
+        'courses': list(
+            Course.objects.order_by('course_code')
+            .values('id', 'course_code', 'course_name', 'course_faculty')
+        ),
+        'selected_ids': selected_ids,
+    })
+
+
 #     get My Profile()
 #     update Student Profil()
 #     update Tutor Profil()
