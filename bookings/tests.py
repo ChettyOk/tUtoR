@@ -736,3 +736,25 @@ class test_available_slots_model(TestCase):
         self.assertEqual(slot.location_type, Available_Slots.LocationType.ONLINE)
         slot.refresh_from_db()
         self.assertEqual(slot.location_type, Available_Slots.LocationType.ONLINE)
+
+    def test_cancel_slot(self):
+        slot = self.create_slot()
+        slot.cancel_slot()
+        slot.refresh_from_db()
+        self.assertEqual(slot.status, Available_Slots.Status.CANCELLED)
+        self.assertFalse(slot.is_available())
+
+    def test_cancel_slot_twice(self):
+        slot = self.create_slot()
+        slot.cancel_slot()
+        with self.assertRaises(ValueError):
+            slot.cancel_slot()
+
+    def test_cancel_slot_booked(self):
+        slot = self.create_slot()
+        slot.status = Available_Slots.Status.BOOKED
+        slot.save()
+        with self.assertRaises(ValueError):
+            slot.cancel_slot()
+        slot.refresh_from_db()
+        self.assertEqual(slot.status, Available_Slots.Status.BOOKED)

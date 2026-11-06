@@ -198,3 +198,12 @@ class Available_Slots(models.Model):
             raise
 
         self.save()
+
+    def cancel_slot(self):
+        if self.status == self.Status.CANCELLED:
+            raise ValueError("Slot was already cancelled.")
+        if self.status == self.Status.BOOKED:
+            raise ValueError("Slot is already booked, cancel the booking instead.")
+
+        self.status = self.Status.CANCELLED
+        self.save()
