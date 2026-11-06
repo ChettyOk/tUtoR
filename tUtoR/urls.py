@@ -62,5 +62,6 @@ urlpatterns = [
     ),
 ]
 
-
-
+handler403 = 'tUtoR.views.custom_403'
+handler404 = 'tUtoR.views.custom_404'
+handler500 = 'tUtoR.views.custom_500'
