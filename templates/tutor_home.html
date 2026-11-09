@@ -28,13 +28,13 @@
 
   <div class="card">
     <div class="card-body">
-      <h2 class="h6">Hourly rate</h2>
+      <h2 class="h6">Slot offer</h2>
       <p class="text-muted mb-3">
         Suggested rate for you:
         <strong>${{ suggested_price }}/hour</strong>
       </p>
 
-      <form method="post" action="{% url 'tutor_home' %}" class="row g-3 align-items-end">
+      <form method="post" action="{% url 'tutor_home' %}" class="row g-3">
         {% csrf_token %}
         <div class="col-sm-6 col-md-4">
           <label for="id_price_per_hour" class="form-label">Price per hour (CAD)</label>
@@ -59,7 +59,27 @@
             Allowed range: ${{ min_price }} to ${{ max_price }} per hour.
           </div>
         </div>
-        <div class="col-sm-6 col-md-8 d-flex flex-wrap gap-2">
+
+        <div class="col-sm-6 col-md-4">
+          <label for="id_location_type" class="form-label">Location</label>
+          <select
+            id="id_location_type"
+            name="location_type"
+            class="form-select{% if location_error %} is-invalid{% endif %}"
+            required
+          >
+            {% for value, label in location_choices %}
+            <option value="{{ value }}"{% if location_value == value %} selected{% endif %}>
+              {{ label }}
+            </option>
+            {% endfor %}
+          </select>
+          <div class="invalid-feedback">
+            {{ location_error|default:"Choose a location." }}
+          </div>
+        </div>
+
+        <div class="col-12 d-flex flex-wrap gap-2">
           <button
             type="button"
             class="btn btn-outline-secondary rounded-pill"
@@ -68,7 +88,7 @@
           >
             Use suggestion
           </button>
-          <button type="submit" class="btn btn-green rounded-pill">Save rate</button>
+          <button type="submit" class="btn btn-green rounded-pill">Save slot details</button>
         </div>
       </form>
     </div>
