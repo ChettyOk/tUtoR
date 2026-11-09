@@ -1216,3 +1216,232 @@ class test_tutor_schedule_view(TestCase):
 
         self.assertEqual(response.status_code, 405)
         self.assertEqual(response.headers['Allow'], 'GET')
+
+class test_create_slot_view(TestCase):
+    def setUp(self):
+        self.tutor = User.objects.create_user(
+            email='create-slot-tutor@uregina.ca',
+            password='CreateSlotPassword123!',
+            role=User.Role.TUTOR,
+        )
+        self.other_tutor = User.objects.create_user(
+            email='other-create-slot-tutor@uregina.ca',
+            password='CreateSlotPassword123!',
+            role=User.Role.TUTOR,
+        )
+        self.url = reverse('create_slot')
+        self.start = timezone.now() + timedelta(days=2)
+        self.end = self.start + timedelta(hours=1)
+        self.data = {
+            'start_time': self.start.isoformat(),
+            'end_time': self.end.isoformat(),
+            'price_per_hour': '25.50',
+            'location_type': Available_Slots.LocationType.IN_PERSON,
+        }
+        self.client.force_login(self.tutor)
+
+    def test_get_returns_form_metadata(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(
+            data['suggested_price'],
+            str(calc_price_suggestion(self.tutor)),
+        )
+        self.assertEqual(data['min_price'], str(MIN_PRICE))
+        self.assertEqual(data['max_price'], str(MAX_PRICE))
+        self.assertEqual(
+            data['location_types'],
+            [
+                {'value': value, 'label': label}
+                for value, label in Available_Slots.LocationType.choices
+            ],
+        )
+        self.assertEqual(
+            data['timezone'],
+            timezone.get_current_timezone_name(),
+        )
+        self.assertEqual(Available_Slots.objects.count(), 0)
+
+    def test_create_slot(self):
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, 201)
+        slot = Available_Slots.objects.get()
+        self.assertEqual(slot.tutor, self.tutor)
+        self.assertEqual(slot.start_time, self.start)
+        self.assertEqual(slot.end_time, self.end)
+        self.assertEqual(slot.price_per_hour, Decimal('25.50'))
+        self.assertEqual(
+            slot.location_type,
+            Available_Slots.LocationType.IN_PERSON,
+        )
+        self.assertEqual(slot.status, Available_Slots.Status.AVAILABLE)
+        self.assertEqual(response.json()['slot']['id'], slot.id)
+
+    def test_create_slot_defaults_to_online(self):
+        data = self.data.copy()
+        del data['location_type']
+
+        response = self.client.post(self.url, data)
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(
+            Available_Slots.objects.get().location_type,
+            Available_Slots.LocationType.ONLINE,
+        )
+
+    def test_missing_required_fields(self):
+        for field in ('start_time', 'end_time', 'price_per_hour'):
+            with self.subTest(field=field):
+                data = self.data.copy()
+                del data[field]
+
+                response = self.client.post(self.url, data)
+
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(field, response.json()['error'])
+                self.assertEqual(Available_Slots.objects.count(), 0)
+
+    def test_empty_fields(self):
+        for field in self.data:
+            with self.subTest(field=field):
+                data = {**self.data, field: ' '}
+
+                response = self.client.post(self.url, data)
+
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(field, response.json()['error'])
+                self.assertEqual(Available_Slots.objects.count(), 0)
+
+    def test_invalid_datetime(self):
+        for value in ('not-a-date', '2026-02-30T12:00'):
+            with self.subTest(value=value):
+                data = {**self.data, 'start_time': value}
+
+                response = self.client.post(self.url, data)
+
+                self.assertEqual(response.status_code, 400)
+                self.assertIn('start_time', response.json()['error'])
+                self.assertEqual(Available_Slots.objects.count(), 0)
+
+    def test_invalid_prices(self):
+        for value in ('abc', 'NaN', 'Infinity', '1.00', '151.00'):
+            with self.subTest(value=value):
+                data = {**self.data, 'price_per_hour': value}
+
+                response = self.client.post(self.url, data)
+
+                self.assertEqual(response.status_code, 400)
+                self.assertIn('error', response.json())
+                self.assertEqual(Available_Slots.objects.count(), 0)
+
+    def test_invalid_location_type(self):
+        data = {**self.data, 'location_type': 'somewhere'}
+
+        response = self.client.post(self.url, data)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('location_type', response.json()['error'])
+        self.assertEqual(Available_Slots.objects.count(), 0)
+
+    def test_invalid_time_rules(self):
+        cases = (
+            {
+                'end_time': (self.start - timedelta(minutes=1)).isoformat(),
+            },
+            {
+                'start_time': (
+                    timezone.now() - timedelta(hours=1)
+                ).isoformat(),
+            },
+        )
+
+        for changes in cases:
+            with self.subTest(changes=changes):
+                response = self.client.post(
+                    self.url,
+                    {**self.data, **changes},
+                )
+
+                self.assertEqual(response.status_code, 400)
+                self.assertIn('error', response.json())
+                self.assertEqual(Available_Slots.objects.count(), 0)
+
+    def test_overlapping_slot_rejected(self):
+        Available_Slots.create_slot(
+            tutor=self.tutor,
+            start_time=self.start,
+            end_time=self.end,
+            price_per_hour=Decimal('25.50'),
+        )
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('overlaps', response.json()['error'])
+        self.assertEqual(Available_Slots.objects.count(), 1)
+
+    def test_naive_times_use_current_timezone(self):
+        naive_start = timezone.make_naive(self.start)
+        naive_end = timezone.make_naive(self.end)
+        data = {
+            **self.data,
+            'start_time': naive_start.isoformat(),
+            'end_time': naive_end.isoformat(),
+        }
+
+        response = self.client.post(self.url, data)
+
+        self.assertEqual(response.status_code, 201)
+        slot = Available_Slots.objects.get()
+        self.assertEqual(slot.start_time, self.start)
+        self.assertEqual(slot.end_time, self.end)
+
+    def test_client_cannot_set_owner_or_status(self):
+        data = {
+            **self.data,
+            'tutor_id': self.other_tutor.id,
+            'tutor': self.other_tutor.id,
+            'status': Available_Slots.Status.BOOKED,
+        }
+
+        response = self.client.post(self.url, data)
+
+        self.assertEqual(response.status_code, 201)
+        slot = Available_Slots.objects.get()
+        self.assertEqual(slot.tutor, self.tutor)
+        self.assertEqual(slot.status, Available_Slots.Status.AVAILABLE)
+
+    def test_requires_login(self):
+        self.client.logout()
+
+        for method in ('get', 'post'):
+            with self.subTest(method=method):
+                response = getattr(self.client, method)(self.url, self.data)
+
+                self.assertEqual(response.status_code, 401)
+
+        self.assertEqual(Available_Slots.objects.count(), 0)
+
+    def test_requires_tutor_role(self):
+        for role in (User.Role.STUDENT, ''):
+            self.tutor.role = role
+            self.tutor.save(update_fields=['role'])
+
+            for method in ('get', 'post'):
+                with self.subTest(role=role, method=method):
+                    response = getattr(self.client, method)(
+                        self.url,
+                        self.data,
+                    )
+
+                    self.assertEqual(response.status_code, 403)
+
+        self.assertEqual(Available_Slots.objects.count(), 0)
+
+    def test_delete_method_not_allowed(self):
+        response = self.client.delete(self.url)
+
+        self.assertEqual(response.status_code, 405)

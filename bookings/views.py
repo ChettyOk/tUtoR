@@ -3,12 +3,29 @@ from decimal import Decimal
 from django.db.models import Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
-from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.http import (
+    require_GET,
+    require_POST,
+    require_http_methods,
+)
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from accounts.constants import FACULTIES
 from accounts.models import Course, StudentProfile, TutorProfile, User
 
-from .models import Booking, CancellationDeadlinePassedError, Rating
+from .models import (
+    Available_Slots,
+    Booking,
+    CancellationDeadlinePassedError,
+    Rating,
+)
+from .pricing import (
+    MAX_PRICE,
+    MIN_PRICE,
+    calc_price_suggestion,
+    custom_pricing,
+)
 from .services import (
     create_rating,
     create_session_request,
@@ -326,3 +343,88 @@ def get_tutor_schedule_view(request):
     return JsonResponse({
         'slots': [serialize_slot(slot) for slot in slots],
     })
+
+def _parse_slot_input(data, *, partial=False):
+    fields = {}
+
+    for name in ('start_time', 'end_time', 'price_per_hour'):
+        if name not in data:
+            if partial:
+                continue
+            raise ValueError(f"{name} is required.")
+
+        value = data.get(name, '').strip()
+        if not value:
+            raise ValueError(f"{name} must not be empty.")
+
+        if name == 'price_per_hour':
+            try:
+                price = Decimal(value)
+            except ArithmeticError:
+                raise ValueError("Price must be a valid number.")
+
+            if not price.is_finite():
+                raise ValueError("Price must be a valid number.")
+
+            fields[name] = custom_pricing(price)
+        else:
+            try:
+                parsed_time = parse_datetime(value)
+            except (ValueError, OverflowError):
+                parsed_time = None
+
+            if parsed_time is None:
+                raise ValueError(f"{name} must be a valid ISO date and time.")
+
+            fields[name] = parsed_time
+
+    if 'location_type' in data:
+        location_type = data.get('location_type', '').strip()
+        if not location_type:
+            raise ValueError("location_type must not be empty.")
+        fields['location_type'] = location_type
+
+    return fields
+
+@require_http_methods(['GET', 'POST'])
+def create_slot_view(request):
+    if not request.user.is_authenticated:
+        return JsonResponse(
+            {'error': 'Authentication required.'},
+            status=401,
+        )
+
+    if not request.user.has_role(User.Role.TUTOR):
+        return JsonResponse(
+            {'error': 'Your active role does not allow this action.'},
+            status=403,
+        )
+
+    if request.method == 'GET':
+        return JsonResponse({
+            'suggested_price': str(calc_price_suggestion(request.user)),
+            'min_price': str(MIN_PRICE),
+            'max_price': str(MAX_PRICE),
+            'location_types': [
+                {'value': value, 'label': label}
+                for value, label in Available_Slots.LocationType.choices
+            ],
+            'timezone': timezone.get_current_timezone_name(),
+        })
+
+    try:
+        fields = _parse_slot_input(request.POST)
+        slot = Available_Slots.create_slot(
+            tutor=request.user,
+            **fields,
+        )
+    except ValueError as error:
+        return JsonResponse(
+            {'error': str(error)},
+            status=400,
+        )
+
+    return JsonResponse({
+        'message': 'Slot created successfully.',
+        'slot': serialize_slot(slot),
+    }, status=201)
