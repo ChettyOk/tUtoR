@@ -467,10 +467,45 @@ def student_home(request):
 def tutor_home(request):
     if not request.user.has_role('tutor'):
         return redirect('student_home')
+
+    from bookings.pricing import (
+        MIN_PRICE,
+        MAX_PRICE,
+        calc_price_suggestion,
+        custom_pricing,
+    )
+
     profile = TutorProfile.objects.filter(user=request.user).first()
     courses = profile.courses_passed.order_by('course_code') if profile else []
+    suggested_price = calc_price_suggestion(request.user)
+
+    price_value = request.session.get('tutor_hourly_price', str(suggested_price))
+    price_error = ''
+    success_message = ''
+
+    if request.method == 'POST':
+        raw_price = request.POST.get('price_per_hour', '').strip()
+        try:
+            saved_price = custom_pricing(raw_price)
+        except ValueError as error:
+            price_error = str(error)
+            price_value = raw_price
+        else:
+            price_value = str(saved_price)
+            request.session['tutor_hourly_price'] = price_value
+            success_message = f'Hourly rate set to ${saved_price}/hour.'
+
     return render(request, 'tutor_home.html', {
-        'site_name': 'tUtoR', 'campus': 'University of Regina', 'courses': courses})
+        'site_name': 'tUtoR',
+        'campus': 'University of Regina',
+        'courses': courses,
+        'suggested_price': suggested_price,
+        'price_value': price_value,
+        'price_error': price_error,
+        'success_message': success_message,
+        'min_price': MIN_PRICE,
+        'max_price': MAX_PRICE,
+    })
 
 #     get My Profile()
 #     update Student Profil()

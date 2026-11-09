@@ -7,7 +7,11 @@
   <h1 class="h3 mb-1">Welcome{% if user.first_name %}, {{ user.first_name }}{% endif %}</h1>
   <p class="text-muted">Tutor home. This is a placeholder until the real dashboard is built.</p>
 
-  <div class="card">
+  {% if success_message %}
+  <div class="alert alert-success" role="status">{{ success_message }}</div>
+  {% endif %}
+
+  <div class="card mb-4">
     <div class="card-body">
       <h2 class="h6">Your courses</h2>
       {% if courses %}
@@ -21,5 +25,68 @@
       {% endif %}
     </div>
   </div>
+
+  <div class="card">
+    <div class="card-body">
+      <h2 class="h6">Hourly rate</h2>
+      <p class="text-muted mb-3">
+        Suggested rate for you:
+        <strong>${{ suggested_price }}/hour</strong>
+      </p>
+
+      <form method="post" action="{% url 'tutor_home' %}" class="row g-3 align-items-end">
+        {% csrf_token %}
+        <div class="col-sm-6 col-md-4">
+          <label for="id_price_per_hour" class="form-label">Price per hour (CAD)</label>
+          <div class="input-group has-validation">
+            <span class="input-group-text">$</span>
+            <input
+              type="number"
+              step="0.01"
+              min="{{ min_price }}"
+              max="{{ max_price }}"
+              id="id_price_per_hour"
+              name="price_per_hour"
+              class="form-control{% if price_error %} is-invalid{% endif %}"
+              value="{{ price_value }}"
+              required
+            />
+            <div class="invalid-feedback">
+              {{ price_error|default:"Enter a valid hourly rate." }}
+            </div>
+          </div>
+          <div class="form-text">
+            Allowed range: ${{ min_price }} to ${{ max_price }} per hour.
+          </div>
+        </div>
+        <div class="col-sm-6 col-md-8 d-flex flex-wrap gap-2">
+          <button
+            type="button"
+            class="btn btn-outline-secondary rounded-pill"
+            id="use-suggested-price"
+            data-suggested="{{ suggested_price }}"
+          >
+            Use suggestion
+          </button>
+          <button type="submit" class="btn btn-green rounded-pill">Save rate</button>
+        </div>
+      </form>
+    </div>
+  </div>
 </main>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  (function () {
+    var button = document.getElementById("use-suggested-price");
+    var input = document.getElementById("id_price_per_hour");
+    if (!button || !input) return;
+    button.addEventListener("click", function () {
+      input.value = button.getAttribute("data-suggested");
+      input.classList.remove("is-invalid");
+      input.focus();
+    });
+  })();
+</script>
 {% endblock %}
