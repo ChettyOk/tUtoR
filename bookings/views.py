@@ -1,33 +1,24 @@
-from django.shortcuts import render, get_object_or_404
-from django.db.models import Q
-from django.http import JsonResponse
-from django.views.decorators.http import require_GET, require_POST
 from decimal import Decimal
 
+from django.db.models import Q
 from django.http import JsonResponse
-from django.views.decorators.http import require_GET
+from django.shortcuts import get_object_or_404, render
+from django.views.decorators.http import require_GET, require_POST
 
-from accounts.models import Course, User, TutorProfile, User, TutorProfile, StudentProfile
 from accounts.constants import FACULTIES
-from .models import Booking, Rating
-from .services import create_rating, get_ratings
-from .services import get_user_details, get_tutor_available_slots
+from accounts.models import Course, StudentProfile, TutorProfile, User
 
-from django.http import JsonResponse
-from django.views.decorators.http import require_GET, require_POST, require_http_methods
-from django.shortcuts import get_object_or_404
-from .models import Booking, CancellationDeadlinePassedError
-from .services import create_booking_request, get_user_bookings, DoubleBookingError
-
-from accounts.models import Course, User
-from accounts.constants import FACULTIES
-from .models import Booking
+from .models import Booking, CancellationDeadlinePassedError, Rating
 from .services import (
-    create_booking_request,
-    get_user_bookings,
-    DoubleBookingError,
+    create_rating,
     create_session_request,
+    get_ratings,
     get_session_requests,
+    get_tutor_available_slots,
+    get_tutor_schedule,
+    get_user_bookings,
+    get_user_details,
+    serialize_slot,
 )
 
 def filter_courses(request):
@@ -314,4 +305,24 @@ def cancel_booking_view(request, booking_id):
         'message': 'Booking cancelled!',
         'status': booking.status,
         'cancel_time': booking.cancel_time.isoformat() if booking.cancel_time else None,
+    })
+
+@require_GET
+def get_tutor_schedule_view(request):
+    if not request.user.is_authenticated:
+        return JsonResponse(
+            {'error': 'Authentication required.'},
+            status=401,
+        )
+
+    if not request.user.has_role(User.Role.TUTOR):
+        return JsonResponse(
+            {'error': 'Your active role does not allow this action.'},
+            status=403,
+        )
+
+    slots = get_tutor_schedule(request.user)
+
+    return JsonResponse({
+        'slots': [serialize_slot(slot) for slot in slots],
     })

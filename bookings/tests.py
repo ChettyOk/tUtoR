@@ -1094,3 +1094,125 @@ class test_tutor_schedule_services(TestCase):
             list(slots),
             [cancelled_slot, available_slot],
         )
+
+class test_tutor_schedule_view(TestCase):
+    def setUp(self):
+        self.tutor = User.objects.create_user(
+            email='schedule-view-tutor@uregina.ca',
+            password='ScheduleViewPassword123!',
+            role=User.Role.TUTOR,
+        )
+        self.other_tutor = User.objects.create_user(
+            email='other-schedule-view-tutor@uregina.ca',
+            password='ScheduleViewPassword123!',
+            role=User.Role.TUTOR,
+        )
+        self.student = User.objects.create_user(
+            email='schedule-view-student@uregina.ca',
+            password='ScheduleViewPassword123!',
+            role=User.Role.STUDENT,
+        )
+        self.url = reverse('tutor_schedule')
+        self.start = timezone.now() + timedelta(days=2)
+
+    def create_slot(self, **kwargs):
+        data = {
+            'tutor': self.tutor,
+            'start_time': self.start,
+            'end_time': self.start + timedelta(hours=1),
+            'price_per_hour': Decimal('25.50'),
+            'location_type': Available_Slots.LocationType.ONLINE,
+        }
+        data.update(kwargs)
+        return Available_Slots.create_slot(**data)
+
+    def test_get_schedule_requires_login(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(
+            response.json(),
+            {'error': 'Authentication required.'},
+        )
+
+    def test_student_cannot_get_schedule(self):
+        self.client.force_login(self.student)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.json(),
+            {'error': 'Your active role does not allow this action.'},
+        )
+
+    def test_user_without_role_cannot_get_schedule(self):
+        self.tutor.role = ''
+        self.tutor.save(update_fields=['role'])
+        self.client.force_login(self.tutor)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn('error', response.json())
+
+    def test_get_schedule_returns_own_slots(self):
+        own_slot = self.create_slot()
+        self.create_slot(tutor=self.other_tutor)
+        self.client.force_login(self.tutor)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        slots = response.json()['slots']
+        self.assertEqual(len(slots), 1)
+        self.assertEqual(slots[0]['id'], own_slot.id)
+        self.assertEqual(slots[0]['price_per_hour'], '25.50')
+        self.assertEqual(
+            slots[0]['location_type'],
+            Available_Slots.LocationType.ONLINE,
+        )
+        self.assertEqual(
+            slots[0]['status'],
+            Available_Slots.Status.AVAILABLE,
+        )
+        self.assertEqual(
+            datetime.fromisoformat(slots[0]['start_time']),
+            own_slot.start_time,
+        )
+        self.assertEqual(
+            datetime.fromisoformat(slots[0]['end_time']),
+            own_slot.end_time,
+        )
+
+    def test_get_schedule_empty_without_tutor_profile(self):
+        self.client.force_login(self.tutor)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'slots': []})
+
+    def test_get_schedule_ignores_tutor_id_parameter(self):
+        own_slot = self.create_slot()
+        self.create_slot(tutor=self.other_tutor)
+        self.client.force_login(self.tutor)
+
+        response = self.client.get(
+            self.url,
+            {'tutor_id': self.other_tutor.id},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [slot['id'] for slot in response.json()['slots']],
+            [own_slot.id],
+        )
+
+    def test_post_schedule_not_allowed(self):
+        self.client.force_login(self.tutor)
+
+        response = self.client.post(self.url)
+
+        self.assertEqual(response.status_code, 405)
+        self.assertEqual(response.headers['Allow'], 'GET')
