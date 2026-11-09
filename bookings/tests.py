@@ -20,7 +20,7 @@ from bookings.pricing import (
     calc_price_suggestion,
     custom_pricing,
 )
-from bookings.services import DoubleBookingError, create_booking_request, get_tutor_available_slots, get_user_bookings
+from bookings.services import DoubleBookingError, create_booking_request, get_tutor_available_slots, get_user_bookings, get_tutor_schedule, serialize_slot
 from tUtoR.views import custom_403, custom_500
 
 class Dummy_Slot: 
@@ -983,3 +983,114 @@ class test_available_slots_interfaces(TestCase):
         self.assertEqual(slot.status, Available_Slots.Status.BOOKED)
         with self.assertRaises(DoubleBookingError):
             create_booking_request(student=self.student, tutor=self.tutor, slot=slot)
+
+class test_tutor_schedule_services(TestCase):
+    def setUp(self):
+        self.tutor = User.objects.create_user(
+            email='schedule-tutor@uregina.ca',
+            password='ScheduleTestPassword123!',
+            role=User.Role.TUTOR,
+        )
+        self.other_tutor = User.objects.create_user(
+            email='other-schedule-tutor@uregina.ca',
+            password='ScheduleTestPassword123!',
+            role=User.Role.TUTOR,
+        )
+        self.start = timezone.now() + timedelta(days=2)
+
+    def create_slot(self, **kwargs):
+        data = {
+            'tutor': self.tutor,
+            'start_time': self.start,
+            'end_time': self.start + timedelta(hours=1),
+            'price_per_hour': Decimal('25.50'),
+            'location_type': Available_Slots.LocationType.IN_PERSON,
+        }
+        data.update(kwargs)
+        return Available_Slots.create_slot(**data)
+
+    def test_serialize_slot(self):
+        slot = self.create_slot()
+        slot.refresh_from_db()
+
+        data = serialize_slot(slot)
+
+        self.assertEqual(data, {
+            'id': slot.id,
+            'start_time': slot.start_time.isoformat(),
+            'end_time': slot.end_time.isoformat(),
+            'price_per_hour': '25.50',
+            'location_type': Available_Slots.LocationType.IN_PERSON,
+            'status': Available_Slots.Status.AVAILABLE,
+        })
+
+    def test_serialize_slot_preserves_timezone_information(self):
+        slot = self.create_slot()
+
+        data = serialize_slot(slot)
+        parsed_start = datetime.fromisoformat(data['start_time'])
+        parsed_end = datetime.fromisoformat(data['end_time'])
+
+        self.assertTrue(timezone.is_aware(parsed_start))
+        self.assertTrue(timezone.is_aware(parsed_end))
+        self.assertEqual(parsed_start, slot.start_time)
+        self.assertEqual(parsed_end, slot.end_time)
+
+    def test_get_tutor_schedule_empty(self):
+        slots = get_tutor_schedule(self.tutor)
+
+        self.assertEqual(list(slots), [])
+
+    def test_get_tutor_schedule_only_own_slots(self):
+        own_slot = self.create_slot()
+        self.create_slot(tutor=self.other_tutor)
+
+        slots = get_tutor_schedule(self.tutor)
+
+        self.assertEqual(list(slots), [own_slot])
+
+    def test_get_tutor_schedule_ordered_by_start_time(self):
+        later_slot = self.create_slot(
+            start_time=self.start + timedelta(days=1),
+            end_time=self.start + timedelta(days=1, hours=1),
+        )
+        earlier_slot = self.create_slot()
+
+        slots = get_tutor_schedule(self.tutor)
+
+        self.assertEqual(list(slots), [earlier_slot, later_slot])
+
+    def test_get_tutor_schedule_includes_all_statuses(self):
+        available_slot = self.create_slot()
+
+        booked_slot = self.create_slot(
+            start_time=self.start + timedelta(hours=2),
+            end_time=self.start + timedelta(hours=3),
+        )
+        booked_slot.status = Available_Slots.Status.BOOKED
+        booked_slot.save(update_fields=['status'])
+
+        cancelled_slot = self.create_slot(
+            start_time=self.start + timedelta(hours=4),
+            end_time=self.start + timedelta(hours=5),
+        )
+        cancelled_slot.cancel_slot()
+
+        slots = get_tutor_schedule(self.tutor)
+
+        self.assertEqual(
+            list(slots),
+            [available_slot, booked_slot, cancelled_slot],
+        )
+
+    def test_get_tutor_schedule_same_start_ordered_by_id(self):
+        cancelled_slot = self.create_slot()
+        cancelled_slot.cancel_slot()
+        available_slot = self.create_slot()
+
+        slots = get_tutor_schedule(self.tutor)
+
+        self.assertEqual(
+            list(slots),
+            [cancelled_slot, available_slot],
+        )
