@@ -1,4 +1,9 @@
-from django.shortcuts import render
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import redirect, render
+from django.db import IntegrityError, transaction
+from django.utils.http import url_has_allowed_host_and_scheme
+
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.http import JsonResponse
@@ -12,8 +17,14 @@ from django.contrib.auth.forms import PasswordResetForm
 from django.db import transaction
 from decimal import Decimal
 
-from .models import User, StudentProfile, TutorProfile
-from .forms import AccountProfileForm, StudentProfileForm, TutorProfileForm
+from .models import Course, User, StudentProfile, TutorProfile
+from .forms import (
+    AccountProfileForm,
+    CoursePickForm,
+    RegisterForm,
+    StudentProfileForm,
+    TutorProfileForm,
+)
 
 from django.shortcuts import render, get_object_or_404
 from django.db.models import Q
@@ -335,6 +346,131 @@ def get_favorite_tutors_view(request):
         })
 
     return JsonResponse({'favorite_tutors': data})
+
+
+MAX_STUDENT_COURSES = 10
+
+def home_for(user):
+    """Name of the home page for this user. 'Decide later' users count as student."""
+    return 'tutor_home' if user.has_role('tutor') else 'student_home'
+
+def register_page(request):
+    if request.user.is_authenticated:
+        return redirect(home_for(request.user))
+
+    if request.method == 'POST':
+        form = RegisterForm(request.POST)
+        if form.is_valid():
+            data = form.cleaned_data
+            try:
+                with transaction.atomic():
+                    user = User.objects.create_user(
+                        email=data['email'],
+                        password=data['password1'],
+                        first_name=data['first_name'],
+                        last_name=data['last_name'],
+                        role=data['role'],
+                    )
+            except IntegrityError:
+                form.add_error('email', 'An account with this email already exists.')
+            else:
+                auth_login(request, user)
+                messages.success(request, 'Your account has been created.')
+                return redirect('personalise')
+    else:
+        form = RegisterForm()
+
+    return render(request, 'register.html', {
+        'form': form,
+        'site_name': 'tUtoR',
+        'campus': 'University of Regina',
+    })
+
+
+@login_required
+def personalise(request):
+    user = request.user
+
+    if user.has_role('tutor'):
+        profile, _ = TutorProfile.objects.get_or_create(user=user)
+        saved_courses = profile.courses_passed
+        max_courses = None
+    else:  # students, and "decide later" users, are treated as students
+        profile, _ = StudentProfile.objects.get_or_create(user=user)
+        saved_courses = profile.courses
+        max_courses = MAX_STUDENT_COURSES
+
+    selected_ids = list(saved_courses.values_list('pk', flat=True))
+
+    if request.method == 'POST':
+        if 'skip' in request.POST:
+            return redirect(home_for(request.user))   
+
+        form = CoursePickForm(request.POST, max_courses=max_courses)
+        if form.is_valid():
+            saved_courses.set(form.cleaned_data['courses'])
+            return redirect(home_for(request.user))
+
+        for error in form.errors.get('courses', []):
+            messages.error(request, error)
+        selected_ids = [int(v) for v in request.POST.getlist('courses') if v.isdigit()]
+
+    return render(request, 'personalise.html', {
+        'site_name': 'tUtoR',
+        'campus': 'University of Regina',
+        'is_tutor': user.has_role('tutor'),
+        'max_courses': max_courses,
+        'courses': list(
+            Course.objects.order_by('course_code')
+            .values('id', 'course_code', 'course_name', 'course_faculty')
+        ),
+        'selected_ids': selected_ids,
+    })
+
+
+def login_page(request):
+    if request.user.is_authenticated:
+        return redirect(home_for(request.user))
+
+    next_url = request.POST.get('next') or request.GET.get('next') or ''
+    context = {'site_name': 'tUtoR', 'campus': 'University of Regina', 'email': '', 'error': ''}
+
+    if request.method == 'POST':
+        email = request.POST.get('email', '').strip().lower()
+        password = request.POST.get('password', '')
+        user = authenticate(request, username=email, password=password)
+
+        if user is not None:
+            auth_login(request, user)
+            safe = url_has_allowed_host_and_scheme(
+                next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure())
+            return redirect(next_url if safe else home_for(request.user))   
+
+        context['email'] = email
+        context['error'] = 'Invalid email address or password.'
+        return render(request, 'login.html', context, status=400)
+
+    return render(request, 'login.html', context)
+
+#Home page/dashboard basic controllers set up for redirection from signup and login
+@login_required
+def student_home(request):
+    if request.user.has_role('tutor'):
+        return redirect('tutor_home')
+    profile = StudentProfile.objects.filter(user=request.user).first()
+    courses = profile.courses.order_by('course_code') if profile else []
+    return render(request, 'student_home.html', {
+        'site_name': 'tUtoR', 'campus': 'University of Regina', 'courses': courses})
+
+
+@login_required
+def tutor_home(request):
+    if not request.user.has_role('tutor'):
+        return redirect('student_home')
+    profile = TutorProfile.objects.filter(user=request.user).first()
+    courses = profile.courses_passed.order_by('course_code') if profile else []
+    return render(request, 'tutor_home.html', {
+        'site_name': 'tUtoR', 'campus': 'University of Regina', 'courses': courses})
 
 #     get My Profile()
 #     update Student Profil()
