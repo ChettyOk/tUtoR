@@ -6,9 +6,10 @@ from unittest.mock import MagicMock
 
 from django.contrib.auth import get_user_model
 from django.db import connection
-from django.test import Client, TestCase, override_settings
+from django.test import Client, TestCase, override_settings, RequestFactory
 from django.urls import reverse
 from django.utils import timezone
+from django.middleware.csrf import get_token
 
 from accounts.models import Course, StudentProfile, TutorProfile, User
 from bookings.models import Available_Slots, Booking, CancellationDeadlinePassedError, Rating
@@ -1931,3 +1932,205 @@ class test_delete_slot_view(TestCase):
             other_slot.status,
             Available_Slots.Status.AVAILABLE,
         )
+
+class test_slot_management_workflow(TestCase):
+    def setUp(self):
+        self.tutor = User.objects.create_user(
+            email='slot-workflow-tutor@uregina.ca',
+            password='SlotWorkflowPassword123!',
+            role=User.Role.TUTOR,
+        )
+        self.start = timezone.now() + timedelta(days=2)
+        self.end = self.start + timedelta(hours=1)
+        self.client.force_login(self.tutor)
+
+    def test_create_list_update_and_cancel_slot(self):
+        create_response = self.client.post(
+            reverse('create_slot'),
+            {
+                'start_time': self.start.isoformat(),
+                'end_time': self.end.isoformat(),
+                'price_per_hour': '25.50',
+                'location_type': Available_Slots.LocationType.ONLINE,
+            },
+        )
+
+        self.assertEqual(create_response.status_code, 201)
+        slot_id = create_response.json()['slot']['id']
+
+        schedule_response = self.client.get(reverse('tutor_schedule'))
+
+        self.assertEqual(schedule_response.status_code, 200)
+        slots = schedule_response.json()['slots']
+        self.assertEqual(len(slots), 1)
+        self.assertEqual(slots[0]['id'], slot_id)
+        self.assertEqual(
+            slots[0]['status'],
+            Available_Slots.Status.AVAILABLE,
+        )
+
+        new_start = self.start + timedelta(days=1)
+        new_end = new_start + timedelta(hours=1)
+
+        update_response = self.client.post(
+            reverse('update_slot', kwargs={'slot_id': slot_id}),
+            {
+                'start_time': new_start.isoformat(),
+                'end_time': new_end.isoformat(),
+                'price_per_hour': '30.00',
+            },
+        )
+
+        self.assertEqual(update_response.status_code, 200)
+        updated_slot = update_response.json()['slot']
+        self.assertEqual(
+            datetime.fromisoformat(updated_slot['start_time']),
+            new_start,
+        )
+        self.assertEqual(
+            datetime.fromisoformat(updated_slot['end_time']),
+            new_end,
+        )
+        self.assertEqual(updated_slot['price_per_hour'], '30.00')
+        self.assertEqual(
+            updated_slot['location_type'],
+            Available_Slots.LocationType.ONLINE,
+        )
+
+        cancel_response = self.client.post(
+            reverse('delete_slot', kwargs={'slot_id': slot_id}),
+        )
+
+        self.assertEqual(cancel_response.status_code, 200)
+        self.assertEqual(
+            cancel_response.json()['slot']['status'],
+            Available_Slots.Status.CANCELLED,
+        )
+
+        final_response = self.client.get(reverse('tutor_schedule'))
+
+        self.assertEqual(final_response.status_code, 200)
+        final_slots = final_response.json()['slots']
+        self.assertEqual(len(final_slots), 1)
+        self.assertEqual(final_slots[0]['id'], slot_id)
+        self.assertEqual(
+            final_slots[0]['status'],
+            Available_Slots.Status.CANCELLED,
+        )
+        self.assertEqual(final_slots[0]['price_per_hour'], '30.00')
+
+        slot = Available_Slots.objects.get(pk=slot_id)
+        self.assertEqual(slot.tutor_id, self.tutor.id)
+        self.assertEqual(slot.start_time, new_start)
+        self.assertEqual(slot.end_time, new_end)
+        self.assertEqual(slot.status, Available_Slots.Status.CANCELLED)
+
+@override_settings(
+    CSRF_USE_SESSIONS=False,
+    CSRF_COOKIE_NAME='csrftoken',
+    CSRF_HEADER_NAME='HTTP_X_CSRFTOKEN',
+)
+class test_slot_management_csrf(TestCase):
+    def setUp(self):
+        self.tutor = User.objects.create_user(
+            email='slot-csrf-tutor@uregina.ca',
+            password='SlotCsrfPassword123!',
+            role=User.Role.TUTOR,
+        )
+        self.start = timezone.now() + timedelta(days=2)
+        self.end = self.start + timedelta(hours=1)
+
+        self.slot = Available_Slots.create_slot(
+            tutor=self.tutor,
+            start_time=self.start,
+            end_time=self.end,
+            price_per_hour=Decimal('25.50'),
+        )
+
+        self.client = Client(enforce_csrf_checks=True)
+        self.client.force_login(self.tutor)
+
+        self.create_data = {
+            'start_time': (
+                self.start + timedelta(days=1)
+            ).isoformat(),
+            'end_time': (
+                self.end + timedelta(days=1)
+            ).isoformat(),
+            'price_per_hour': '30.00',
+        }
+
+    def add_csrf_cookie(self):
+        request = RequestFactory().get('/')
+        token = get_token(request)
+        self.client.cookies['csrftoken'] = request.META['CSRF_COOKIE']
+        return token
+
+    def test_post_without_token_rejected(self):
+        self.add_csrf_cookie()
+
+        requests = (
+            (reverse('create_slot'), self.create_data),
+            (
+                reverse(
+                    'update_slot',
+                    kwargs={'slot_id': self.slot.id},
+                ),
+                {'price_per_hour': '30.00'},
+            ),
+            (
+                reverse(
+                    'delete_slot',
+                    kwargs={'slot_id': self.slot.id},
+                ),
+                {},
+            ),
+        )
+
+        for url, data in requests:
+            with self.subTest(url=url):
+                response = self.client.post(url, data)
+
+                self.assertEqual(response.status_code, 403)
+
+        self.slot.refresh_from_db()
+        self.assertEqual(Available_Slots.objects.count(), 1)
+        self.assertEqual(self.slot.price_per_hour, Decimal('25.50'))
+        self.assertEqual(self.slot.status, Available_Slots.Status.AVAILABLE)
+
+    def test_create_with_csrf_header_allowed(self):
+        token = self.add_csrf_cookie()
+
+        response = self.client.post(
+            reverse('create_slot'),
+            self.create_data,
+            HTTP_X_CSRFTOKEN=token,
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Available_Slots.objects.count(), 2)
+
+    def test_update_with_csrf_header_allowed(self):
+        token = self.add_csrf_cookie()
+
+        response = self.client.post(
+            reverse('update_slot', kwargs={'slot_id': self.slot.id}),
+            {'price_per_hour': '30.00'},
+            HTTP_X_CSRFTOKEN=token,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.slot.refresh_from_db()
+        self.assertEqual(self.slot.price_per_hour, Decimal('30.00'))
+
+    def test_cancel_with_csrf_form_field_allowed(self):
+        token = self.add_csrf_cookie()
+
+        response = self.client.post(
+            reverse('delete_slot', kwargs={'slot_id': self.slot.id}),
+            {'csrfmiddlewaretoken': token},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.slot.refresh_from_db()
+        self.assertEqual(self.slot.status, Available_Slots.Status.CANCELLED)
