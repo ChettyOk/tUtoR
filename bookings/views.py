@@ -428,3 +428,61 @@ def create_slot_view(request):
         'message': 'Slot created successfully.',
         'slot': serialize_slot(slot),
     }, status=201)
+
+@require_http_methods(['GET', 'POST'])
+def update_slot_view(request, slot_id):
+    if not request.user.is_authenticated:
+        return JsonResponse(
+            {'error': 'Authentication required.'},
+            status=401,
+        )
+
+    if not request.user.has_role(User.Role.TUTOR):
+        return JsonResponse(
+            {'error': 'Your active role does not allow this action.'},
+            status=403,
+        )
+
+    try:
+        slot = Available_Slots.objects.get(pk=slot_id)
+    except Available_Slots.DoesNotExist:
+        return JsonResponse(
+            {'error': 'Slot not found.'},
+            status=404,
+        )
+
+    if slot.tutor_id != request.user.id:
+        return JsonResponse(
+            {'error': 'You can only update your own slots.'},
+            status=403,
+        )
+
+    if request.method == 'GET':
+        return JsonResponse({
+            'slot': serialize_slot(slot),
+            'min_price': str(MIN_PRICE),
+            'max_price': str(MAX_PRICE),
+            'location_types': [
+                {'value': value, 'label': label}
+                for value, label in Available_Slots.LocationType.choices
+            ],
+            'timezone': timezone.get_current_timezone_name(),
+        })
+
+    try:
+        fields = _parse_slot_input(request.POST, partial=True)
+
+        if not fields:
+            raise ValueError("Provide at least one slot field to update.")
+
+        slot.update_slot(**fields)
+    except ValueError as error:
+        return JsonResponse(
+            {'error': str(error)},
+            status=400,
+        )
+
+    return JsonResponse({
+        'message': 'Slot updated successfully.',
+        'slot': serialize_slot(slot),
+    })
