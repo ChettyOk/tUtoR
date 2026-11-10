@@ -82,6 +82,9 @@ def login(request):
 @require_POST
 def logout(request):
     auth_logout(request)
+    # Browser account menu posts with ui=1; API clients still get JSON.
+    if request.POST.get("ui") == "1":
+        return redirect("landing")
     return JsonResponse({"message": "Logout successful."}, status=200)
 
 

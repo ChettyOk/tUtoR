@@ -40,7 +40,10 @@
     {% block header %}
     <header class="navbar navbar-expand-lg sticky-top site-header">
       <div class="container">
-        <a class="navbar-brand py-0" href="{% url 'landing' %}">
+        <a
+          class="navbar-brand py-0"
+          href="{% if user.is_authenticated %}{% if user.role == 'tutor' %}{% url 'tutor_home' %}{% else %}{% url 'student_home' %}{% endif %}{% else %}{% url 'landing' %}{% endif %}"
+        >
           <img
             src="{% static 'img/tutor-logo.svg' %}"
             alt="{{ site_name|default:'tUtoR' }}"
@@ -48,8 +51,65 @@
             height="46"
           />
         </a>
+        {% block nav_actions %}
+        {% if user.is_authenticated %}
+        <div class="account-menu dropdown order-lg-last ms-auto ms-lg-3">
+          <button
+            class="account-avatar-btn dropdown-toggle"
+            type="button"
+            id="account-menu"
+            data-bs-toggle="dropdown"
+            data-bs-display="static"
+            aria-expanded="false"
+            aria-label="Account menu"
+          >
+            <span class="account-avatar" aria-hidden="true">
+              {% if user.first_name or user.last_name %}
+                {{ user.first_name|default:user.email|slice:":1"|upper }}{{ user.last_name|default:""|slice:":1"|upper }}
+              {% else %}
+                {{ user.email|slice:":1"|upper }}
+              {% endif %}
+            </span>
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end account-menu-panel" aria-labelledby="account-menu">
+            <li class="account-menu-header px-3 py-2">
+              <p class="account-menu-name mb-0">
+                {% if user.first_name or user.last_name %}
+                  {{ user.first_name }} {{ user.last_name }}
+                {% else %}
+                  {{ user.email }}
+                {% endif %}
+              </p>
+              <p class="account-menu-meta mb-0">
+                {% if user.role == 'tutor' %}Tutor{% elif user.role == 'student' %}Student{% else %}Account{% endif %}
+                · {{ user.email }}
+              </p>
+            </li>
+            <li><hr class="dropdown-divider" /></li>
+            <li>
+              <a class="dropdown-item" href="{% url 'account_profile' %}">Profile &amp; settings</a>
+            </li>
+            <li>
+              <a class="dropdown-item" href="{% if user.role == 'tutor' %}{% url 'tutor_home' %}{% else %}{% url 'student_home' %}{% endif %}">
+                {% if user.role == 'tutor' %}Tutor home{% else %}Student home{% endif %}
+              </a>
+            </li>
+            <li><hr class="dropdown-divider" /></li>
+            <li>
+              <form method="post" action="{% url 'logout' %}" class="px-3 pb-2">
+                {% csrf_token %}
+                <input type="hidden" name="ui" value="1" />
+                <button type="submit" class="btn btn-outline-secondary rounded-pill w-100">
+                  Sign out
+                </button>
+              </form>
+            </li>
+          </ul>
+        </div>
+        {% endif %}
+        {% endblock %}
         <button
-          class="navbar-toggler"
+          class="navbar-toggler{% if user.is_authenticated %} ms-2{% else %} ms-auto{% endif %}"
           type="button"
           data-bs-toggle="collapse"
           data-bs-target="#site-nav"
@@ -60,10 +120,9 @@
           <span class="navbar-toggler-icon"></span>
         </button>
         <nav class="collapse navbar-collapse" id="site-nav" aria-label="Page">
-          <ul class="navbar-nav ms-lg-auto">
+          <ul class="navbar-nav ms-lg-auto align-items-lg-center gap-lg-1">
             {% block nav_links %}{% endblock %}
           </ul>
-          {% block nav_actions %} {% endblock %}
         </nav>
       </div>
     </header>
