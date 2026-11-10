@@ -1747,3 +1747,187 @@ class test_update_slot_view(TestCase):
 
         self.assertEqual(response.status_code, 405)
         self.assert_slot_unchanged()
+
+class test_delete_slot_view(TestCase):
+    def setUp(self):
+        self.tutor = User.objects.create_user(
+            email='delete-slot-tutor@uregina.ca',
+            password='DeleteSlotPassword123!',
+            role=User.Role.TUTOR,
+        )
+        self.other_tutor = User.objects.create_user(
+            email='other-delete-slot-tutor@uregina.ca',
+            password='DeleteSlotPassword123!',
+            role=User.Role.TUTOR,
+        )
+        self.start = timezone.now() + timedelta(days=2)
+        self.end = self.start + timedelta(hours=1)
+
+        self.slot = Available_Slots.create_slot(
+            tutor=self.tutor,
+            start_time=self.start,
+            end_time=self.end,
+            price_per_hour=Decimal('25.50'),
+            location_type=Available_Slots.LocationType.ONLINE,
+        )
+        self.url = reverse(
+            'delete_slot',
+            kwargs={'slot_id': self.slot.id},
+        )
+        self.client.force_login(self.tutor)
+
+    def assert_slot_status(self, expected_status):
+        self.slot.refresh_from_db()
+        self.assertEqual(self.slot.status, expected_status)
+
+    def test_cancel_available_slot(self):
+        response = self.client.post(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()['message'],
+            'Slot cancelled successfully.',
+        )
+        self.assertEqual(
+            response.json()['slot']['id'],
+            self.slot.id,
+        )
+        self.assertEqual(
+            response.json()['slot']['status'],
+            Available_Slots.Status.CANCELLED,
+        )
+
+        self.assert_slot_status(Available_Slots.Status.CANCELLED)
+        self.assertEqual(Available_Slots.objects.count(), 1)
+        self.assertEqual(self.slot.tutor_id, self.tutor.id)
+        self.assertEqual(self.slot.start_time, self.start)
+        self.assertEqual(self.slot.end_time, self.end)
+        self.assertEqual(self.slot.price_per_hour, Decimal('25.50'))
+        self.assertEqual(
+            self.slot.location_type,
+            Available_Slots.LocationType.ONLINE,
+        )
+
+    def test_booked_slot_cannot_be_cancelled(self):
+        self.slot.status = Available_Slots.Status.BOOKED
+        self.slot.save(update_fields=['status'])
+
+        response = self.client.post(self.url)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(
+            'cancel the booking instead',
+            response.json()['error'],
+        )
+        self.assert_slot_status(Available_Slots.Status.BOOKED)
+        self.assertEqual(Available_Slots.objects.count(), 1)
+
+    def test_already_cancelled_slot_rejected(self):
+        self.slot.cancel_slot()
+
+        response = self.client.post(self.url)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(
+            'already cancelled',
+            response.json()['error'],
+        )
+        self.assert_slot_status(Available_Slots.Status.CANCELLED)
+        self.assertEqual(Available_Slots.objects.count(), 1)
+
+    def test_other_tutor_cannot_cancel_slot(self):
+        self.client.force_login(self.other_tutor)
+
+        response = self.client.post(self.url)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.json(),
+            {'error': 'You can only cancel your own slots.'},
+        )
+        self.assert_slot_status(Available_Slots.Status.AVAILABLE)
+
+    def test_unknown_slot_returns_json_404(self):
+        missing_id = self.slot.id
+        self.slot.delete()
+        url = reverse(
+            'delete_slot',
+            kwargs={'slot_id': missing_id},
+        )
+
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            response.json(),
+            {'error': 'Slot not found.'},
+        )
+
+    def test_requires_login(self):
+        self.client.logout()
+
+        response = self.client.post(self.url)
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(
+            response.json(),
+            {'error': 'Authentication required.'},
+        )
+        self.assert_slot_status(Available_Slots.Status.AVAILABLE)
+
+    def test_requires_tutor_role(self):
+        for role in (User.Role.STUDENT, ''):
+            self.tutor.role = role
+            self.tutor.save(update_fields=['role'])
+
+            with self.subTest(role=role):
+                response = self.client.post(self.url)
+
+                self.assertEqual(response.status_code, 403)
+                self.assertEqual(
+                    response.json(),
+                    {
+                        'error': (
+                            'Your active role does not allow this action.'
+                        ),
+                    },
+                )
+                self.assert_slot_status(
+                    Available_Slots.Status.AVAILABLE,
+                )
+
+    def test_other_http_methods_not_allowed(self):
+        for method in ('get', 'put', 'patch', 'delete'):
+            with self.subTest(method=method):
+                response = getattr(self.client, method)(self.url)
+
+                self.assertEqual(response.status_code, 405)
+                self.assertEqual(
+                    response.headers['Allow'],
+                    'POST',
+                )
+                self.assert_slot_status(
+                    Available_Slots.Status.AVAILABLE,
+                )
+
+    def test_request_data_cannot_redirect_cancellation(self):
+        other_slot = Available_Slots.create_slot(
+            tutor=self.other_tutor,
+            start_time=self.start,
+            end_time=self.end,
+            price_per_hour=Decimal('30.00'),
+        )
+
+        response = self.client.post(self.url, {
+            'slot_id': other_slot.id,
+            'tutor_id': self.other_tutor.id,
+            'status': Available_Slots.Status.AVAILABLE,
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assert_slot_status(Available_Slots.Status.CANCELLED)
+        other_slot.refresh_from_db()
+        self.assertEqual(
+            other_slot.status,
+            Available_Slots.Status.AVAILABLE,
+        )

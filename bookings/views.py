@@ -486,3 +486,44 @@ def update_slot_view(request, slot_id):
         'message': 'Slot updated successfully.',
         'slot': serialize_slot(slot),
     })
+
+@require_POST
+def delete_slot_view(request, slot_id):
+    if not request.user.is_authenticated:
+        return JsonResponse(
+            {'error': 'Authentication required.'},
+            status=401,
+        )
+
+    if not request.user.has_role(User.Role.TUTOR):
+        return JsonResponse(
+            {'error': 'Your active role does not allow this action.'},
+            status=403,
+        )
+
+    try:
+        slot = Available_Slots.objects.get(pk=slot_id)
+    except Available_Slots.DoesNotExist:
+        return JsonResponse(
+            {'error': 'Slot not found.'},
+            status=404,
+        )
+
+    if slot.tutor_id != request.user.id:
+        return JsonResponse(
+            {'error': 'You can only cancel your own slots.'},
+            status=403,
+        )
+
+    try:
+        slot.cancel_slot()
+    except ValueError as error:
+        return JsonResponse(
+            {'error': str(error)},
+            status=400,
+        )
+
+    return JsonResponse({
+        'message': 'Slot cancelled successfully.',
+        'slot': serialize_slot(slot),
+    })

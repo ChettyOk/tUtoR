@@ -20,4 +20,5 @@ urlpatterns = [
     path('tutor/slots/', views.get_tutor_schedule_view, name='tutor_schedule',),
     path('tutor/slots/create/', views.create_slot_view, name='create_slot',),
     path('tutor/slots/<int:slot_id>/update/', views.update_slot_view, name='update_slot',),
+    path('tutor/slots/<int:slot_id>/delete/', views.delete_slot_view, name='delete_slot',),
 ]
