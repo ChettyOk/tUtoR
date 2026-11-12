@@ -32,9 +32,10 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include('bookings.urls')),
     path('', views.landing, name='landing'),
-    path('login/', views.login, name='login'),
+    path('login/', account_views.login_page, name='login'),
     path('logout/', logout, name='logout'),
-    path('register/', views.register, name='register'),
+    path('register/', account_views.register_page, name='register'),
+    path('personalise/', account_views.personalise, name='personalise'),
     path('password-reset/', views.forgot_password, name='request_forgotten_password'),
     path(
         'password-reset/confirm/<uidb64>/<token>/',
@@ -60,7 +61,10 @@ urlpatterns = [
         account_views.switch_role,
         name='switch_role',
     ),
+    path('student-home/', account_views.student_home, name='student_home'),
+    path('tutor-home/', account_views.tutor_home, name='tutor_home'),
 ]
 
-
-
+handler403 = 'tUtoR.views.custom_403'
+handler404 = 'tUtoR.views.custom_404'
+handler500 = 'tUtoR.views.custom_500'

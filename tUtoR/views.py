@@ -7,6 +7,8 @@ from django.shortcuts import render
 
 from accounts.views import get_my_profile, switch_role as api_switch_role
 
+from django.http import JsonResponse
+
 
 def register(request):
     """Show the sign-up page. POST still creates the account."""
@@ -244,3 +246,14 @@ def landing(request):
             },
         ],
     })
+
+
+def custom_403(request, exception=None):
+    return JsonResponse({'error': '403 Forbidden: You have no permission to access this.'}, status=403)
+
+
+def custom_404(request, exception=None):
+    return JsonResponse({'error': '404 Not Found: The page or resource you want to visit does not exist (yet).'}, status=404)
+
+def custom_500(request):
+    return JsonResponse({'error': '500 Internal Server Error: We made a mistake. The problem is on our end'}, status=500)

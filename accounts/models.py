@@ -112,6 +112,15 @@ class UserManager(BaseUserManager):
         email = self.normalize_email(email)
         return self.get(email__iexact=email)
 
+    def create_superuser(self, email, password=None, **extra_fields):
+        extra_fields.setdefault("is_staff", True)
+        extra_fields.setdefault("is_superuser", True)
+        if extra_fields.get("is_staff") is not True:
+            raise ValueError("Superuser must have is_staff=True.")
+        if extra_fields.get("is_superuser") is not True:
+            raise ValueError("Superuser must have is_superuser=True.")
+        return self.create_user(email, password, **extra_fields)
+
 # shared account model for students and tutors
 class User(AbstractUser):
 
@@ -179,6 +188,7 @@ class StudentProfile(models.Model):
     semester = models.PositiveSmallIntegerField(default=1)
     average_rating = models.DecimalField(max_digits=3, decimal_places=2, null=True, blank=True, default=None)
     courses = models.ManyToManyField(Course, blank=True, related_name='students_enrolled') 
+    favorite_tutors = models.ManyToManyField(User, blank=True, related_name='favorited_by_students')
 
     def __str__(self):
         return f"StudentProfile: {self.user.email}"
@@ -191,6 +201,15 @@ class StudentProfile(models.Model):
 
     def get_enrolled_courses(self):
         return self.courses.all()
+
+    def add_favorite_tutor(self, tutor):
+        self.favorite_tutors.add(tutor)
+
+    def remove_favorite_tutor(self, tutor):
+        self.favorite_tutors.remove(tutor)
+
+    def get_favorite_tutors(self):
+        return self.favorite_tutors.all()
 
     def update_profile(self, major=None, semester=None):
         if major is not None:
