@@ -10,7 +10,8 @@ from django.test import SimpleTestCase, TestCase, RequestFactory
 from accounts.models import User, UserManager, StudentProfile
 from .forms import AccountProfileForm, StudentProfileForm, TutorProfileForm
 import json
-from .views import _update_tutor_profile
+from .views import _update_tutor_profile, check_role_access
+from django.contrib.auth.models import AnonymousUser
 
 
 # tutor profile tests
@@ -1013,6 +1014,8 @@ class StudentProfileControllerTests(TestCase):
             password='StudentTestPassword123!',
             first_name='Marie',
             phone='123456',
+            role=User.Role.STUDENT,
+
         )
         self.course = Course.create_course(
             'CS 476',
@@ -1442,7 +1445,7 @@ class TutorProfileUpdateTests(TestCase):
     def submit(self, data):
         request = self.factory.post('/', data=data)
         request.user = self.user
-        return _update_tutor_profile(request)
+        return _update_tutor_profile(request.user, request.POST)
 
     def test_valid_request_creates_profile(self):
         response = self.submit({
@@ -1754,7 +1757,7 @@ class CrossProfileRegressionTests(TestCase):
         self.profile_url = reverse('profile')
         self.role_url = reverse('switch_role')
 
-    def assert_account_unchanged(self):
+    def assert_account_unchanged(self, expected_role=User.Role.STUDENT):
         self.user.refresh_from_db()
 
         self.assertEqual(self.user.first_name, 'Marie')
@@ -1764,7 +1767,7 @@ class CrossProfileRegressionTests(TestCase):
             self.user.email,
             'cross-profile@example.com',
         )
-        self.assertEqual(self.user.role, User.Role.STUDENT)
+        self.assertEqual(self.user.role, expected_role)
         self.assertFalse(self.user.is_staff)
         self.assertFalse(self.user.is_superuser)
 
@@ -1847,6 +1850,9 @@ class CrossProfileRegressionTests(TestCase):
                 )
 
     def test_tutor_post_updates_only_tutor_fields(self):
+        self.user.switch_role(User.Role.TUTOR)
+        self.user.save(update_fields=['role'])
+
         self.client.force_login(self.user)
 
         response = self.client.post(
@@ -1861,7 +1867,7 @@ class CrossProfileRegressionTests(TestCase):
                 'semester': '9',
                 'courses': [str(self.new_course.pk)],
                 'average_rating': '1.00',
-                'role': User.Role.TUTOR,
+                'role': User.Role.STUDENT,
             },
         )
 
@@ -1894,7 +1900,7 @@ class CrossProfileRegressionTests(TestCase):
             1,
         )
 
-        self.assert_account_unchanged()
+        self.assert_account_unchanged(expected_role=User.Role.TUTOR)
         self.assert_student_profile_unchanged()
 
     def test_student_post_preserves_account_and_tutor_profile(self):
@@ -1938,6 +1944,8 @@ class CrossProfileRegressionTests(TestCase):
         self.assert_tutor_profile_unchanged()
 
     def test_invalid_tutor_post_preserves_all_profile_data(self):
+        self.user.switch_role(User.Role.TUTOR)
+        self.user.save(update_fields=['role'])
         self.client.force_login(self.user)
 
         response = self.client.post(
@@ -1958,7 +1966,7 @@ class CrossProfileRegressionTests(TestCase):
             response.json()['errors'],
         )
 
-        self.assert_account_unchanged()
+        self.assert_account_unchanged(expected_role=User.Role.TUTOR)
         self.assert_student_profile_unchanged()
         self.assert_tutor_profile_unchanged()
 
@@ -1979,6 +1987,328 @@ class CrossProfileRegressionTests(TestCase):
         self.assert_student_profile_unchanged()
         self.assert_tutor_profile_unchanged()
 
+    def test_student_cannot_change_existing_tutor_profile(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.profile_url,
+            {
+                'profile_type': 'tutor',
+                'bio': 'Must not be saved.',
+                'courses_passed': [str(self.new_course.pk)],
+                'role': User.Role.TUTOR,
+            },
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn('error', response.json())
+
+        self.assert_account_unchanged()
+        self.assert_student_profile_unchanged()
+        self.assert_tutor_profile_unchanged()
+
+    def test_user_without_role_cannot_change_role_specific_profiles(self):
+        self.user.role = ''
+        self.user.save(update_fields=['role'])
+        self.client.force_login(self.user)
+
+        payloads = (
+            {
+                'profile_type': 'student',
+                'major': 'ENER',
+                'semester': '3',
+                'courses': [str(self.new_course.pk)],
+            },
+            {
+                'profile_type': 'tutor',
+                'bio': 'Must not be saved.',
+                'courses_passed': [str(self.new_course.pk)],
+            },
+        )
+
+        for data in payloads:
+            with self.subTest(profile_type=data['profile_type']):
+                response = self.client.post(self.profile_url, data)
+
+                self.assertEqual(response.status_code, 403)
+                self.assertIn('error', response.json())
+
+                self.assert_account_unchanged(expected_role='')
+                self.assert_student_profile_unchanged()
+                self.assert_tutor_profile_unchanged()
+
+    def test_tutor_update_is_allowed_after_switching_active_role(self):
+        self.client.force_login(self.user)
+
+        data = {
+            'profile_type': 'tutor',
+            'bio': 'Updated after role switch.',
+            'courses_passed': [str(self.new_course.pk)],
+        }
+
+        response = self.client.post(self.profile_url, data)
+
+        self.assertEqual(response.status_code, 403)
+        self.assert_account_unchanged()
+        self.assert_student_profile_unchanged()
+        self.assert_tutor_profile_unchanged()
+
+        response = self.client.post(
+            self.role_url,
+            {'role': User.Role.TUTOR},
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.role, User.Role.TUTOR)
+        self.assert_student_profile_unchanged()
+        self.assert_tutor_profile_unchanged()
+
+        response = self.client.post(self.profile_url, data)
+
+        self.assertEqual(response.status_code, 200)
+
+        self.tutor_profile.refresh_from_db()
+        self.assertEqual(
+            self.tutor_profile.bio,
+            'Updated after role switch.',
+        )
+        self.assertEqual(
+            set(
+                self.tutor_profile.courses_passed.values_list(
+                    'pk',
+                    flat=True,
+                )
+            ),
+            {self.new_course.pk},
+        )
+        self.assertEqual(
+            self.tutor_profile.average_rating,
+            Decimal('4.25'),
+        )
+
+        self.assert_account_unchanged(
+            expected_role=User.Role.TUTOR,
+        )
+        self.assert_student_profile_unchanged()
+
+# role access tests
+class RoleAccessCheckTests(SimpleTestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def make_request(self, user):
+        request = self.factory.post('/accounts/profile/')
+        request.user = user
+        return request
+
+    def test_anonymous_user_receives_401(self):
+        request = self.make_request(AnonymousUser())
+
+        response = check_role_access(request, User.Role.TUTOR)
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(
+            json.loads(response.content),
+            {'error': 'Authentication required.'},
+        )
+
+    def test_matching_active_role_is_allowed(self):
+        for role in (User.Role.STUDENT, User.Role.TUTOR):
+            with self.subTest(role=role):
+                user = User(
+                    email='role-check@example.com',
+                    role=role,
+                )
+                request = self.make_request(user)
+
+                response = check_role_access(request, role)
+
+                self.assertIsNone(response)
+
+    def test_wrong_active_role_receives_403(self):
+        role_pairs = (
+            (User.Role.STUDENT, User.Role.TUTOR),
+            (User.Role.TUTOR, User.Role.STUDENT),
+        )
+
+        for active_role, required_role in role_pairs:
+            with self.subTest(
+                active_role=active_role,
+                required_role=required_role,
+            ):
+                user = User(
+                    email='role-check@example.com',
+                    role=active_role,
+                )
+                request = self.make_request(user)
+
+                response = check_role_access(request, required_role)
+
+                self.assertEqual(response.status_code, 403)
+                self.assertEqual(
+                    json.loads(response.content),
+                    {
+                        'error': (
+                            'Your active role does not allow this action.'
+                        ),
+                    },
+                )
+
+    def test_user_without_active_role_receives_403(self):
+        user = User(email='role-check@example.com')
+        request = self.make_request(user)
+
+        for required_role in (User.Role.STUDENT, User.Role.TUTOR):
+            with self.subTest(required_role=required_role):
+                response = check_role_access(request, required_role)
+
+                self.assertEqual(response.status_code, 403)
+
+class ProfileRoleAccessTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='profile-role-access@example.com',
+            password='ProfileRolePassword123!',
+            role=User.Role.STUDENT,
+        )
+        self.url = reverse('profile')
+
+    def test_student_cannot_update_tutor_profile(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {
+                'profile_type': 'tutor',
+                'bio': 'I offer tutoring for computer science.',
+                'courses_passed': [],
+            },
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn('error', response.json())
+        self.assertFalse(
+            TutorProfile.objects.filter(user=self.user).exists(),
+        )
+
+    def test_tutor_cannot_update_student_profile(self):
+        self.user.switch_role(User.Role.TUTOR)
+        self.user.save(update_fields=['role'])
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            self.url,
+            {
+                'profile_type': 'student',
+                'major': 'CS',
+                'semester': '1',
+                'courses': [],
+            },
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn('error', response.json())
+        self.assertFalse(
+            StudentProfile.objects.filter(user=self.user).exists(),
+        )
+
+class ProfileAccessWithoutRoleTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='no-role-profile@example.com',
+            password='NoRoleProfilePassword123!',
+            first_name='Marie',
+            last_name='Example',
+            phone='123456',
+        )
+        self.profile_url = reverse('profile')
+        self.role_url = reverse('switch_role')
+        self.client.force_login(self.user)
+
+    def test_user_without_role_can_read_own_profile(self):
+        response = self.client.get(self.profile_url)
+
+        self.assertEqual(response.status_code, 200)
+
+        data = response.json()
+        self.assertEqual(data['account']['id'], self.user.pk)
+        self.assertEqual(data['account']['role'], '')
+        self.assertIsNone(data['student_profile'])
+        self.assertIsNone(data['tutor_profile'])
+
+        self.assertFalse(
+            StudentProfile.objects.filter(user=self.user).exists(),
+        )
+        self.assertFalse(
+            TutorProfile.objects.filter(user=self.user).exists(),
+        )
+
+    def test_user_without_role_can_update_account(self):
+        response = self.client.post(
+            self.profile_url,
+            {
+                'first_name': 'Alex',
+                'last_name': 'Updated',
+                'phone': '987654',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, 'Alex')
+        self.assertEqual(self.user.last_name, 'Updated')
+        self.assertEqual(self.user.phone, '987654')
+        self.assertEqual(self.user.role, '')
+        self.assertEqual(
+            self.user.email,
+            'no-role-profile@example.com',
+        )
+
+        self.assertFalse(
+            StudentProfile.objects.filter(user=self.user).exists(),
+        )
+        self.assertFalse(
+            TutorProfile.objects.filter(user=self.user).exists(),
+        )
+
+    def test_user_without_role_can_choose_role_and_create_tutor_profile(self):
+        response = self.client.post(
+            self.role_url,
+            {'role': User.Role.TUTOR},
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.role, User.Role.TUTOR)
+
+        self.assertFalse(
+            TutorProfile.objects.filter(user=self.user).exists(),
+        )
+
+        response = self.client.post(
+            self.profile_url,
+            {
+                'profile_type': 'tutor',
+                'bio': 'I offer tutoring for computer science.',
+                'courses_passed': [],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        profile = TutorProfile.objects.get(user=self.user)
+        self.assertEqual(
+            profile.bio,
+            'I offer tutoring for computer science.',
+        )
+        self.assertFalse(profile.courses_passed.exists())
+        self.assertFalse(
+            StudentProfile.objects.filter(user=self.user).exists(),
+        )
 class test_favorite_tutors(TestCase):
     def setUp(self):
         self.student = User.objects.create_user(

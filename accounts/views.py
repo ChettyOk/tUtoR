@@ -109,6 +109,26 @@ def request_forgotten_password(request):
     )
 
 # Profile Controller
+from django.http import JsonResponse
+
+
+def check_role_access(request, required_role):
+    user = request.user
+
+    if not user.is_authenticated:
+        return JsonResponse(
+            {'error': 'Authentication required.'},
+            status=401,
+        )
+
+    if not user.has_role(required_role):
+        return JsonResponse(
+            {'error': 'Your active role does not allow this action.'},
+            status=403,
+        )
+
+    return None
+
 @require_http_methods(['GET', 'POST'])
 def get_my_profile(request):
     if not request.user.is_authenticated:
@@ -123,10 +143,26 @@ def get_my_profile(request):
         profile_type = request.POST.get('profile_type', 'account')
 
         if profile_type == 'student':
+            error_response = check_role_access(
+                request,
+                User.Role.STUDENT,
+            )
+
+            if error_response is not None:
+                return error_response
+
             return _update_student_profile(user, request.POST)
 
         if profile_type == 'tutor':
-            return _update_tutor_profile(request)
+            error_response = check_role_access(
+                request,
+                User.Role.TUTOR,
+            )
+
+            if error_response is not None:
+                return error_response
+
+            return _update_tutor_profile(user, request.POST)
 
         if profile_type != 'account':
             return JsonResponse(
@@ -203,8 +239,6 @@ def get_my_profile(request):
         'tutor_profile': tutor_data,
     })
 
-
-
 def _update_student_profile(user, data):
     profile = StudentProfile.objects.filter(user=user).first()
 
@@ -257,22 +291,14 @@ def switch_role(request):
         'role': user.role,
     })
 
-def _update_tutor_profile(request):
-    if not request.user.is_authenticated:
-        return JsonResponse(
-            {'error': 'Authentication required.'},
-            status=401,
-        )
-
-    profile = TutorProfile.objects.filter(
-        user=request.user,
-    ).first()
+def _update_tutor_profile(user, data):
+    profile = TutorProfile.objects.filter(user=user).first()
 
     if profile is None:
-        profile = TutorProfile(user=request.user)
+        profile = TutorProfile(user=user)
 
     form = TutorProfileForm(
-        data=request.POST,
+        data=data,
         instance=profile,
     )
 
