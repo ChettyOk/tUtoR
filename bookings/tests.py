@@ -522,6 +522,195 @@ class test_incoming_session_requests(TestCase):
         self.assertEqual(response.status_code, 405)
         self.assertEqual(response.headers['Allow'], 'GET')
 
+class test_decline_session_requests(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(
+            email='decline-student@uregina.ca',
+            password='RequestTestPassword123!',
+            role=User.Role.STUDENT,
+        )
+        self.tutor = User.objects.create_user(
+            email='decline-tutor@uregina.ca',
+            password='RequestTestPassword123!',
+            role=User.Role.TUTOR,
+        )
+        self.other_tutor = User.objects.create_user(
+            email='other-decline-tutor@uregina.ca',
+            password='RequestTestPassword123!',
+            role=User.Role.TUTOR,
+        )
+
+        self.booking = Booking.objects.create(
+            student=self.student,
+            tutor=self.tutor,
+            student_note='I need help preparing for my exam.',
+            session_price=Decimal('25.00'),
+            status=Booking.Status.PENDING,
+        )
+        self.url = reverse(
+            'decline_request',
+            kwargs={'booking_id': self.booking.id},
+        )
+
+    def assert_request_is_pending(self):
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.status, Booking.Status.PENDING)
+        self.assertIsNone(self.booking.cancel_time)
+        self.assertEqual(self.booking.cancellation_reason, '')
+
+    def test_decline_requires_login(self):
+        response = self.client.post(self.url)
+
+        self.assertEqual(response.status_code, 401)
+        self.assertIn('error', response.json())
+        self.assert_request_is_pending()
+
+    def test_requested_tutor_can_decline_pending_request(self):
+        self.client.force_login(self.tutor)
+
+        response = self.client.post(
+            self.url,
+            {'reason': '  I am not available.  '},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                'message': 'Request declined.',
+                'status': Booking.Status.CANCELLED_TUTOR,
+            },
+        )
+
+        self.booking.refresh_from_db()
+        self.assertEqual(
+            self.booking.status,
+            Booking.Status.CANCELLED_TUTOR,
+        )
+        self.assertEqual(
+            self.booking.cancellation_reason,
+            'I am not available.',
+        )
+        self.assertIsNotNone(self.booking.cancel_time)
+
+    def test_decline_uses_default_reason_when_missing_or_blank(self):
+        self.client.force_login(self.tutor)
+
+        for data in ({}, {'reason': '   '}):
+            with self.subTest(data=data):
+                self.booking.status = Booking.Status.PENDING
+                self.booking.cancel_time = None
+                self.booking.cancellation_reason = ''
+                self.booking.save()
+
+                response = self.client.post(self.url, data)
+
+                self.assertEqual(response.status_code, 200)
+                self.booking.refresh_from_db()
+                self.assertEqual(
+                    self.booking.cancellation_reason,
+                    'Tutor declined',
+                )
+
+    def test_other_users_cannot_decline_request(self):
+        for user in (self.student, self.other_tutor):
+            with self.subTest(user=user.email):
+                self.client.force_login(user)
+
+                response = self.client.post(
+                    self.url,
+                    {'reason': 'Not allowed.'},
+                )
+
+                self.assertEqual(response.status_code, 403)
+                self.assertIn('error', response.json())
+                self.assert_request_is_pending()
+
+    def test_processed_requests_cannot_be_declined(self):
+        self.client.force_login(self.tutor)
+
+        for status in (
+            Booking.Status.CONFIRMED,
+            Booking.Status.CANCELLED_TUTOR,
+            Booking.Status.CANCELLED_STUDENT,
+            Booking.Status.COMPLETED,
+        ):
+            with self.subTest(status=status):
+                self.booking.status = status
+                self.booking.cancellation_reason = 'Existing reason'
+                self.booking.cancel_time = timezone.now()
+                self.booking.save()
+
+                original_cancel_time = self.booking.cancel_time
+
+                response = self.client.post(
+                    self.url,
+                    {'reason': 'Replacement reason'},
+                )
+
+                self.assertEqual(response.status_code, 400)
+                self.assertIn('error', response.json())
+
+                self.booking.refresh_from_db()
+                self.assertEqual(self.booking.status, status)
+                self.assertEqual(
+                    self.booking.cancellation_reason,
+                    'Existing reason',
+                )
+                self.assertEqual(
+                    self.booking.cancel_time,
+                    original_cancel_time,
+                )
+
+    def test_request_cannot_be_declined_twice(self):
+        self.client.force_login(self.tutor)
+
+        first_response = self.client.post(
+            self.url,
+            {'reason': 'First decline'},
+        )
+        self.assertEqual(first_response.status_code, 200)
+
+        self.booking.refresh_from_db()
+        original_cancel_time = self.booking.cancel_time
+
+        second_response = self.client.post(
+            self.url,
+            {'reason': 'Second decline'},
+        )
+
+        self.assertEqual(second_response.status_code, 400)
+        self.booking.refresh_from_db()
+        self.assertEqual(
+            self.booking.cancellation_reason,
+            'First decline',
+        )
+        self.assertEqual(
+            self.booking.cancel_time,
+            original_cancel_time,
+        )
+
+    def test_unknown_request_returns_json_404(self):
+        self.client.force_login(self.tutor)
+        self.booking.delete()
+
+        response = self.client.post(self.url)
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            response.json(),
+            {'error': 'Session request not found.'},
+        )
+
+    def test_decline_rejects_get_requests(self):
+        self.client.force_login(self.tutor)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 405)
+        self.assertEqual(response.headers['Allow'], 'POST')
+        self.assert_request_is_pending()
+
 class test_ratings_system(TestCase):
     def setUp(self):
         self.student = User.objects.create_user(

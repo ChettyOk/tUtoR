@@ -29,6 +29,7 @@ from .pricing import (
 from .services import (
     create_rating,
     create_session_request,
+    decline_session_request,
     get_ratings,
     get_session_requests,
     get_tutor_available_slots,
@@ -280,17 +281,25 @@ def decline_session_request_view(request, booking_id):
     if not request.user.is_authenticated:
         return JsonResponse({'error': 'Please log in.'}, status=401)
 
-    booking = get_object_or_404(Booking, id=booking_id)
-
-    if request.user != booking.tutor:
-        return JsonResponse({'error': 'Not your request, only the requested tutor can accept.'}, status=403)
-
     reason = request.POST.get('reason', 'Tutor declined').strip()
+    if not reason:
+        reason = 'Tutor declined'
 
     try:
-        booking.cancel(cancelled_by='tutor', reason=reason)
-    except ValueError as e:
-        return JsonResponse({'error': str(e)}, status=400)
+        booking = decline_session_request(
+            booking_id=booking_id,
+            tutor=request.user,
+            reason=reason,
+        )
+    except Booking.DoesNotExist:
+        return JsonResponse(
+            {'error': 'Session request not found.'},
+            status=404,
+        )
+    except PermissionError as error:
+        return JsonResponse({'error': str(error)}, status=403)
+    except ValueError as error:
+        return JsonResponse({'error': str(error)}, status=400)
 
     return JsonResponse({
         'message': 'Request declined.',

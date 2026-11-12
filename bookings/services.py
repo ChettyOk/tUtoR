@@ -69,6 +69,23 @@ def get_session_requests(tutor):
     return Booking.objects.filter(
         tutor=tutor,
         status=Booking.Status.PENDING).order_by('-request_time')
+
+def decline_session_request(*, booking_id, tutor, reason='Tutor declined'):
+    with transaction.atomic():
+        booking = Booking.objects.select_for_update().get(pk=booking_id)
+
+        if booking.tutor_id != tutor.pk:
+            raise PermissionError(
+                'Only the requested tutor can decline this request.'
+            )
+
+        if booking.status != Booking.Status.PENDING:
+            raise ValueError('Only pending session requests can be declined.')
+
+        booking.cancel(cancelled_by='tutor', reason=reason)
+
+        return booking
+
 def update_rating(user, rated_role):
     if rated_role == Rating.RatedRole.TUTOR:
         existing_ratings = Rating.objects.filter(tutor=user, rated_role=Rating.RatedRole.TUTOR)
