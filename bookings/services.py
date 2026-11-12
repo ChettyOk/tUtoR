@@ -86,6 +86,19 @@ def decline_session_request(*, booking_id, tutor, reason='Tutor declined'):
 
         return booking
 
+def accept_session_request(*, booking_id, tutor):
+    with transaction.atomic():
+        booking = Booking.objects.select_for_update().get(pk=booking_id)
+
+        if booking.tutor_id != tutor.pk:
+            raise PermissionError(
+                'Only the requested tutor can accept this request.'
+            )
+
+        booking.confirm()
+
+        return booking
+
 def update_rating(user, rated_role):
     if rated_role == Rating.RatedRole.TUTOR:
         existing_ratings = Rating.objects.filter(tutor=user, rated_role=Rating.RatedRole.TUTOR)

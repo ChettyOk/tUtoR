@@ -27,6 +27,7 @@ from .pricing import (
     custom_pricing,
 )
 from .services import (
+    accept_session_request,
     create_rating,
     create_session_request,
     decline_session_request,
@@ -172,21 +173,25 @@ def accept_session_request_view(request, booking_id):
     if not request.user.is_authenticated:
         return JsonResponse({'error': 'Please log in.'}, status=401)
 
-    booking = get_object_or_404(Booking, id=booking_id)
-
-    if request.user != booking.tutor:
-        return JsonResponse({'error': 'Not your request, only the requested tutor can accept.'}, status=403)
-
     try:
-        booking.confirm()
-    except ValueError as e:
-        return JsonResponse({'error': str(e)}, status=400)
+        booking = accept_session_request(
+            booking_id=booking_id,
+            tutor=request.user,
+        )
+    except Booking.DoesNotExist:
+        return JsonResponse(
+            {'error': 'Session request not found.'},
+            status=404,
+        )
+    except PermissionError as error:
+        return JsonResponse({'error': str(error)}, status=403)
+    except ValueError as error:
+        return JsonResponse({'error': str(error)}, status=400)
 
     return JsonResponse({
         'message': 'Request accepted.',
         'status': booking.status,
     })
-
 
 @require_GET
 def get_ratings_view(request, user_id, rated_role):

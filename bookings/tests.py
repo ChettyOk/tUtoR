@@ -21,7 +21,7 @@ from bookings.pricing import (
     calc_price_suggestion,
     custom_pricing,
 )
-from bookings.services import DoubleBookingError, create_booking_request, get_tutor_available_slots, get_user_bookings, get_tutor_schedule, serialize_slot
+from bookings.services import DoubleBookingError, create_booking_request, get_tutor_available_slots, get_user_bookings, get_tutor_schedule, serialize_slot, accept_session_request
 from tUtoR.views import custom_403, custom_500
 
 class Dummy_Slot: 
@@ -379,15 +379,30 @@ class test_session_request(TestCase):
         self.assertEqual(data['open_requests'][0]['id'], self.booking.id)
 
     def test_tutor_accept_request(self):
-        self.booking.status = Booking.Status.PENDING
-        self.booking.save()
-
+        booking_count = Booking.objects.count()
         self.client.force_login(self.tutor)
-        url = reverse('accept_request', kwargs={'booking_id': self.booking.id})
+        url = reverse(
+            'accept_request',
+            kwargs={'booking_id': self.booking.id},
+        )
+
         response = self.client.post(url)
+
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                'message': 'Request accepted.',
+                'status': Booking.Status.CONFIRMED,
+            },
+        )
+
         self.booking.refresh_from_db()
-        self.assertEqual(self.booking.status, Booking.Status.CONFIRMED)
+        self.assertEqual(
+            self.booking.status,
+            Booking.Status.CONFIRMED,
+        )
+        self.assertEqual(Booking.objects.count(), booking_count)
 
     def test_tutor_decline_request(self):
         self.booking.status = Booking.Status.PENDING
@@ -402,13 +417,22 @@ class test_session_request(TestCase):
         self.assertEqual(self.booking.cancellation_reason, 'Kein bock auf dich')
 
     def test_wrong_user_accept(self):
-        self.booking.status = Booking.Status.PENDING
-        self.booking.save()
-
         self.client.force_login(self.other_user)
-        url = reverse('accept_request', kwargs={'booking_id': self.booking.id})
+        url = reverse(
+            'accept_request',
+            kwargs={'booking_id': self.booking.id},
+        )
+
         response = self.client.post(url)
+
         self.assertEqual(response.status_code, 403)
+        self.assertIn('error', response.json())
+
+        self.booking.refresh_from_db()
+        self.assertEqual(
+            self.booking.status,
+            Booking.Status.PENDING,
+        )
 
 class test_incoming_session_requests(TestCase):
     def setUp(self):
@@ -710,6 +734,82 @@ class test_decline_session_requests(TestCase):
         self.assertEqual(response.status_code, 405)
         self.assertEqual(response.headers['Allow'], 'POST')
         self.assert_request_is_pending()
+
+    def test_accept_request_requires_login(self):
+        url = reverse(
+            'accept_request',
+            kwargs={'booking_id': self.booking.id},
+        )
+
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, 401)
+        self.assertIn('error', response.json())
+
+        self.booking.refresh_from_db()
+        self.assertEqual(
+            self.booking.status,
+            Booking.Status.PENDING,
+        )
+
+    def test_accept_request_rejects_non_pending_statuses(self):
+        self.client.force_login(self.tutor)
+        url = reverse(
+            'accept_request',
+            kwargs={'booking_id': self.booking.id},
+        )
+
+        for status in (
+            Booking.Status.CONFIRMED,
+            Booking.Status.CANCELLED_TUTOR,
+            Booking.Status.CANCELLED_STUDENT,
+            Booking.Status.COMPLETED,
+        ):
+            with self.subTest(status=status):
+                self.booking.status = status
+                self.booking.save(update_fields=['status'])
+
+                response = self.client.post(url)
+
+                self.assertEqual(response.status_code, 400)
+                self.assertIn('error', response.json())
+
+                self.booking.refresh_from_db()
+                self.assertEqual(self.booking.status, status)
+
+    def test_accept_unknown_request_returns_json_404(self):
+        self.client.force_login(self.tutor)
+        url = reverse(
+            'accept_request',
+            kwargs={'booking_id': self.booking.id},
+        )
+        self.booking.delete()
+
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            response.json(),
+            {'error': 'Session request not found.'},
+        )
+
+    def test_accept_request_rejects_get(self):
+        self.client.force_login(self.tutor)
+        url = reverse(
+            'accept_request',
+            kwargs={'booking_id': self.booking.id},
+        )
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 405)
+        self.assertEqual(response.headers['Allow'], 'POST')
+
+        self.booking.refresh_from_db()
+        self.assertEqual(
+            self.booking.status,
+            Booking.Status.PENDING,
+        )
 
 class test_ratings_system(TestCase):
     def setUp(self):
