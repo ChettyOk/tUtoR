@@ -7,7 +7,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 class CancellationDeadlinePassedError(Exception):
     pass
@@ -151,6 +151,46 @@ class Available_Slots(models.Model):
 
     def __str__(self):
         return f"Slot #{self.id} | {self.tutor.email} | {self.start_time:%Y-%m-%d %H:%M} ({self.status})"
+
+    def clean(self):
+        if not isinstance(self.start_time, datetime) or not isinstance(self.end_time, datetime):
+            return
+
+        if timezone.is_naive(self.start_time):
+            self.start_time = timezone.make_aware(self.start_time)
+        if timezone.is_naive(self.end_time):
+            self.end_time = timezone.make_aware(self.end_time)
+
+        self.check_start_end_time()
+        self.check_time_overlaps()
+
+    def check_start_end_time(self):
+        if self.end_time <= self.start_time:
+            raise ValidationError("End time must be after start time.")
+        if self.start_time <= timezone.now():
+            raise ValidationError("Start time must be in the future.")
+
+    def check_time_overlaps(self):
+        if self.tutor_id is None:
+            return
+
+        overlapping_slots = Available_Slots.objects.filter(
+            tutor_id=self.tutor_id,
+            status__in=[self.Status.AVAILABLE, self.Status.BOOKED],
+            start_time__lt=self.end_time,
+            end_time__gt=self.start_time,
+        )
+        if self.pk is not None:
+            overlapping_slots = overlapping_slots.exclude(pk=self.pk)
+
+        conflict = overlapping_slots.first()
+        if conflict:
+            conflict_start = timezone.localtime(conflict.start_time)
+            conflict_end = timezone.localtime(conflict.end_time)
+            raise ValidationError(
+                f"This time overlaps with another of your slots "
+                f"({conflict_start:%Y-%m-%d %H:%M} to {conflict_end:%Y-%m-%d %H:%M})."
+            )
 
     def _validate(self):
         try:

@@ -694,10 +694,9 @@ class test_available_slots_model(TestCase):
         self.assertFalse(slot.is_available())
 
     def test_is_available_started(self):
-        slot = self.create_slot(
-            start_time=timezone.now() - timedelta(hours=2),
-            end_time=timezone.now() - timedelta(hours=1),
-        )
+        slot = self.create_slot()
+        slot.start_time = timezone.now() - timedelta(hours=2)
+        slot.end_time = timezone.now() - timedelta(hours=1)
         self.assertFalse(slot.is_available())
 
     def test_update_slot(self):
@@ -766,6 +765,145 @@ class test_available_slots_model(TestCase):
             slot.cancel_slot()
         slot.refresh_from_db()
         self.assertEqual(slot.status, Available_Slots.Status.BOOKED)
+
+    def test_create_slot_end_before_start(self):
+        with self.assertRaises(ValueError) as ctx:
+            self.create_slot(end_time=self.start - timedelta(hours=1))
+        self.assertIn("End time must be after start time.", str(ctx.exception))
+        self.assertEqual(Available_Slots.objects.count(), 0)
+
+    def test_create_slot_end_equals_start(self):
+        with self.assertRaises(ValueError) as ctx:
+            self.create_slot(end_time=self.start)
+        self.assertIn("End time must be after start time.", str(ctx.exception))
+
+    def test_create_slot_start_in_past(self):
+        start = timezone.now() - timedelta(hours=2)
+        with self.assertRaises(ValueError) as ctx:
+            self.create_slot(start_time=start, end_time=start + timedelta(hours=1))
+        self.assertIn("Start time must be in the future.", str(ctx.exception))
+        self.assertEqual(Available_Slots.objects.count(), 0)
+
+    def test_create_slot_naive_datetimes(self):
+        start = timezone.make_naive(timezone.now() + timedelta(days=2))
+        slot = self.create_slot(start_time=start, end_time=start + timedelta(hours=1))
+        self.assertTrue(timezone.is_aware(slot.start_time))
+        self.assertTrue(timezone.is_aware(slot.end_time))
+
+    def test_create_slot_invalid_start_time(self):
+        with self.assertRaises(ValueError):
+            self.create_slot(start_time='not a date')
+
+    def test_create_slot_missing_end_time(self):
+        with self.assertRaises(ValueError):
+            self.create_slot(end_time=None)
+
+    def test_overlap_same_time(self):
+        first = self.create_slot()
+        with self.assertRaises(ValueError) as ctx:
+            self.create_slot()
+        self.assertIn("overlaps with another of your slots", str(ctx.exception))
+        self.assertIn(timezone.localtime(first.start_time).strftime('%Y-%m-%d %H:%M'), str(ctx.exception))
+        self.assertEqual(Available_Slots.objects.count(), 1)
+
+    def test_overlap_new_slot_starts_inside(self):
+        self.create_slot()
+        with self.assertRaises(ValueError):
+            self.create_slot(start_time=self.start + timedelta(minutes=30), end_time=self.end + timedelta(minutes=30))
+
+    def test_overlap_new_slot_ends_inside(self):
+        self.create_slot()
+        with self.assertRaises(ValueError):
+            self.create_slot(start_time=self.start - timedelta(minutes=30), end_time=self.end - timedelta(minutes=30))
+
+    def test_overlap_new_slot_inside_existing(self):
+        self.create_slot()
+        with self.assertRaises(ValueError):
+            self.create_slot(start_time=self.start + timedelta(minutes=15), end_time=self.end - timedelta(minutes=15))
+
+    def test_overlap_new_slot_surrounds_existing(self):
+        self.create_slot()
+        with self.assertRaises(ValueError):
+            self.create_slot(start_time=self.start - timedelta(minutes=30), end_time=self.end + timedelta(minutes=30))
+
+    def test_adjacent_slots_allowed(self):
+        self.create_slot()
+        self.create_slot(start_time=self.end, end_time=self.end + timedelta(hours=1))
+        self.create_slot(start_time=self.start - timedelta(hours=1), end_time=self.start)
+        self.assertEqual(Available_Slots.objects.count(), 3)
+
+    def test_overlap_other_tutor_allowed(self):
+        other_tutor = User.objects.create_user(email="tutor2@uregina.ca", password="67676767jdUU!")
+        self.create_slot()
+        self.create_slot(tutor=other_tutor)
+        self.assertEqual(Available_Slots.objects.count(), 2)
+
+    def test_overlap_cancelled_slot_allowed(self):
+        slot = self.create_slot()
+        slot.cancel_slot()
+        self.create_slot()
+        self.assertEqual(Available_Slots.objects.count(), 2)
+
+    def test_overlap_booked_slot_blocks(self):
+        slot = self.create_slot()
+        slot.status = Available_Slots.Status.BOOKED
+        slot.save()
+        with self.assertRaises(ValueError):
+            self.create_slot()
+
+    def test_update_slot_does_not_overlap_itself(self):
+        slot = self.create_slot()
+        new_end = self.end + timedelta(minutes=30)
+        slot.update_slot(end_time=new_end)
+        slot.refresh_from_db()
+        self.assertEqual(slot.end_time, new_end)
+
+    def test_update_slot_move_to_free_time(self):
+        slot = self.create_slot()
+        new_start = self.start + timedelta(days=1)
+        slot.update_slot(start_time=new_start, end_time=new_start + timedelta(hours=1))
+        slot.refresh_from_db()
+        self.assertEqual(slot.start_time, new_start)
+
+    def test_update_slot_into_other_slot_fails(self):
+        self.create_slot()
+        second = self.create_slot(start_time=self.end, end_time=self.end + timedelta(hours=1))
+        with self.assertRaises(ValueError) as ctx:
+            second.update_slot(start_time=self.start + timedelta(minutes=30))
+        self.assertIn("overlaps with another of your slots", str(ctx.exception))
+        self.assertEqual(second.start_time, self.end)
+        second.refresh_from_db()
+        self.assertEqual(second.start_time, self.end)
+
+    def test_update_slot_into_cancelled_slot_time_allowed(self):
+        cancelled = self.create_slot()
+        cancelled.cancel_slot()
+        other = self.create_slot(start_time=self.end + timedelta(hours=2), end_time=self.end + timedelta(hours=3))
+        other.update_slot(start_time=self.start, end_time=self.end)
+        other.refresh_from_db()
+        self.assertEqual(other.start_time, self.start)
+
+    def test_update_slot_end_before_start(self):
+        slot = self.create_slot()
+        with self.assertRaises(ValueError) as ctx:
+            slot.update_slot(end_time=self.start - timedelta(minutes=1))
+        self.assertIn("End time must be after start time.", str(ctx.exception))
+        self.assertEqual(slot.end_time, self.end)
+
+    def test_update_slot_start_in_past(self):
+        slot = self.create_slot()
+        with self.assertRaises(ValueError) as ctx:
+            slot.update_slot(start_time=timezone.now() - timedelta(hours=1))
+        self.assertIn("Start time must be in the future.", str(ctx.exception))
+        slot.refresh_from_db()
+        self.assertEqual(slot.start_time, self.start)
+
+    def test_update_slot_naive_datetime(self):
+        slot = self.create_slot()
+        new_start = timezone.make_naive(self.start + timedelta(days=1))
+        slot.update_slot(start_time=new_start, end_time=new_start + timedelta(hours=1))
+        self.assertTrue(timezone.is_aware(slot.start_time))
+        self.assertTrue(timezone.is_aware(slot.end_time))
 
 class test_available_slots_interfaces(TestCase):
     def setUp(self):
