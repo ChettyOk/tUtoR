@@ -410,6 +410,118 @@ class test_session_request(TestCase):
         response = self.client.post(url)
         self.assertEqual(response.status_code, 403)
 
+class test_incoming_session_requests(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(
+            email='request-student@uregina.ca',
+            password='RequestTestPassword123!',
+            role=User.Role.STUDENT,
+        )
+        self.tutor = User.objects.create_user(
+            email='request-tutor@uregina.ca',
+            password='RequestTestPassword123!',
+            role=User.Role.TUTOR,
+        )
+        self.other_tutor = User.objects.create_user(
+            email='other-request-tutor@uregina.ca',
+            password='RequestTestPassword123!',
+            role=User.Role.TUTOR,
+        )
+
+        self.url = reverse('incoming_requests')
+        self.pending_request = self.create_request()
+
+    def create_request(self, **overrides):
+        data = {
+            'student': self.student,
+            'tutor': self.tutor,
+            'student_note': 'I need help preparing for my exam.',
+            'session_price': Decimal('25.00'),
+            'status': Booking.Status.PENDING,
+        }
+        data.update(overrides)
+        return Booking.objects.create(**data)
+
+    def test_list_requires_login(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 401)
+        self.assertIn('error', response.json())
+
+    def test_list_returns_only_requests_for_current_tutor(self):
+        other_request = self.create_request(tutor=self.other_tutor)
+        self.client.force_login(self.tutor)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        request_ids = [
+            item['id']
+            for item in response.json()['open_requests']
+        ]
+        self.assertEqual(request_ids, [self.pending_request.id])
+        self.assertNotIn(other_request.id, request_ids)
+
+    def test_list_excludes_processed_requests(self):
+        for status in (
+            Booking.Status.CONFIRMED,
+            Booking.Status.CANCELLED_TUTOR,
+            Booking.Status.CANCELLED_STUDENT,
+            Booking.Status.COMPLETED,
+        ):
+            self.create_request(status=status)
+
+        self.client.force_login(self.tutor)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        request_ids = [
+            item['id']
+            for item in response.json()['open_requests']
+        ]
+        self.assertEqual(request_ids, [self.pending_request.id])
+
+    def test_list_returns_empty_array_without_incoming_requests(self):
+        self.client.force_login(self.other_tutor)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'open_requests': []})
+
+    def test_list_preserves_existing_response_fields(self):
+        self.client.force_login(self.tutor)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()['open_requests'],
+            [
+                {
+                    'id': self.pending_request.id,
+                    'student_id': self.student.id,
+                    'student_email': self.student.email,
+                    'course': None,
+                    'student_note': self.pending_request.student_note,
+                    'session_price': '25.00',
+                    'status': Booking.Status.PENDING,
+                    'request_time': (
+                        self.pending_request.request_time.isoformat()
+                    ),
+                },
+            ],
+        )
+
+    def test_list_rejects_post_requests(self):
+        self.client.force_login(self.tutor)
+
+        response = self.client.post(self.url)
+
+        self.assertEqual(response.status_code, 405)
+        self.assertEqual(response.headers['Allow'], 'GET')
+
 class test_ratings_system(TestCase):
     def setUp(self):
         self.student = User.objects.create_user(
