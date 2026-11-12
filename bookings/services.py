@@ -1,16 +1,11 @@
-from django.db import transaction
-from bookings.models import Booking, Rating
-from django.db.models import Q, Avg
 from decimal import Decimal, ROUND_HALF_UP
-from accounts.models import TutorProfile
-from bookings.models import Booking
+
+from django.db import transaction
 from django.db.models import Q
+
+from accounts.models import StudentProfile, TutorProfile
+from bookings.models import Available_Slots, Booking, Rating
 from bookings.pricing import calc_price_suggestion
-
-from bookings.pricing import calc_price_suggestion
-from accounts.models import TutorProfile, StudentProfile
-
-
 
 
 class DoubleBookingError(Exception):
@@ -210,3 +205,19 @@ def get_tutor_available_slots(tutor):
             for slot in slot_list
         ]
     return []
+
+def serialize_slot(slot):
+    return {
+        'id': slot.id,
+        'start_time': slot.start_time.isoformat(),
+        'end_time': slot.end_time.isoformat(),
+        'price_per_hour': str(slot.price_per_hour),
+        'location_type': slot.location_type,
+        'status': slot.status,
+    }
+
+
+def get_tutor_schedule(tutor):
+    return Available_Slots.objects.filter(
+        tutor=tutor,
+    ).order_by('start_time', 'id')

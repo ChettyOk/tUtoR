@@ -17,4 +17,8 @@ urlpatterns = [
     path('favorites/<int:tutor_id>/toggle/', account_views.favorite_tutor_view, name='toggle_favorite_tutor'),
     path('bookings/', views.get_bookings, name='my_bookings'),
     path('bookings/<int:booking_id>/cancel/', views.cancel_booking_view, name='cancel_booking'),
+    path('tutor/slots/', views.get_tutor_schedule_view, name='tutor_schedule',),
+    path('tutor/slots/create/', views.create_slot_view, name='create_slot',),
+    path('tutor/slots/<int:slot_id>/update/', views.update_slot_view, name='update_slot',),
+    path('tutor/slots/<int:slot_id>/delete/', views.delete_slot_view, name='delete_slot',),
 ]
