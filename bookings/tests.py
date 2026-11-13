@@ -2535,3 +2535,100 @@ class test_slot_management_csrf(TestCase):
         self.assertEqual(response.status_code, 200)
         self.slot.refresh_from_db()
         self.assertEqual(self.slot.status, Available_Slots.Status.CANCELLED)
+
+class test_booking_session_details(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(
+            email='session-student@uregina.ca',
+            password='RequestTestPassword123!',
+            role=User.Role.STUDENT,
+        )
+        self.tutor = User.objects.create_user(
+            email='session-tutor@uregina.ca',
+            password='RequestTestPassword123!',
+            role=User.Role.TUTOR,
+        )
+
+        self.window_start = timezone.now() + timedelta(days=2)
+
+        self.slot = Available_Slots.create_slot(
+            tutor=self.tutor,
+            start_time=self.window_start,
+            end_time=self.window_start + timedelta(hours=3),
+            price_per_hour=Decimal('25.00'),
+        )
+
+        self.booking = Booking.objects.create(
+            student=self.student,
+            tutor=self.tutor,
+            time_slot=self.slot,
+            start_time=self.window_start + timedelta(hours=1),
+            end_time=self.window_start + timedelta(hours=2),
+            price_per_hour=Decimal('25.00'),
+            location_type=Available_Slots.LocationType.ONLINE,
+            session_price=Decimal('25.00'),
+            status=Booking.Status.PENDING,
+        )
+
+    def test_session_details_are_persisted(self):
+        self.booking.refresh_from_db()
+
+        self.assertEqual(self.booking.time_slot_id, self.slot.id)
+        self.assertEqual(
+            self.booking.start_time,
+            self.window_start + timedelta(hours=1),
+        )
+        self.assertEqual(
+            self.booking.end_time,
+            self.window_start + timedelta(hours=2),
+        )
+        self.assertEqual(self.booking.price_per_hour, Decimal('25.00'))
+        self.assertEqual(
+            self.booking.location_type,
+            Available_Slots.LocationType.ONLINE,
+        )
+
+    def test_cancellation_uses_session_start_not_window_start(self):
+        self.slot.start_time = timezone.now() + timedelta(hours=2)
+        self.slot.end_time = timezone.now() + timedelta(hours=8)
+        self.slot.save()
+
+        self.booking.start_time = timezone.now() + timedelta(hours=6)
+        self.booking.end_time = timezone.now() + timedelta(hours=7)
+        self.booking.status = Booking.Status.CONFIRMED
+        self.booking.save()
+
+        self.booking.cancel(cancelled_by='student')
+
+        self.booking.refresh_from_db()
+        self.assertEqual(
+            self.booking.status,
+            Booking.Status.CANCELLED_STUDENT,
+        )
+
+    def test_student_cannot_cancel_inside_session_deadline(self):
+        self.booking.start_time = timezone.now() + timedelta(hours=2)
+        self.booking.end_time = timezone.now() + timedelta(hours=3)
+        self.booking.status = Booking.Status.CONFIRMED
+        self.booking.save()
+
+        with self.assertRaises(CancellationDeadlinePassedError):
+            self.booking.cancel(cancelled_by='student')
+
+        self.booking.refresh_from_db()
+        self.assertEqual(
+            self.booking.status,
+            Booking.Status.CONFIRMED,
+        )
+
+    def test_session_cancellation_does_not_change_window_status(self):
+        self.slot.status = Available_Slots.Status.CANCELLED
+        self.slot.save(update_fields=['status'])
+
+        self.booking.cancel(cancelled_by='tutor')
+
+        self.slot.refresh_from_db()
+        self.assertEqual(
+            self.slot.status,
+            Available_Slots.Status.CANCELLED,
+        )
