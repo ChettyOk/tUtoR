@@ -82,6 +82,9 @@ def login(request):
 @require_POST
 def logout(request):
     auth_logout(request)
+    # Browser account menu posts with ui=1; API clients still get JSON.
+    if request.POST.get("ui") == "1":
+        return redirect("landing")
     return JsonResponse({"message": "Logout successful."}, status=200)
 
 
@@ -493,10 +496,69 @@ def student_home(request):
 def tutor_home(request):
     if not request.user.has_role('tutor'):
         return redirect('student_home')
+
+    from bookings.pricing import (
+        MIN_PRICE,
+        MAX_PRICE,
+        calc_price_suggestion,
+        custom_pricing,
+    )
+
+    location_choices = (
+        ('online', 'Online'),
+        ('in_person', 'In person'),
+    )
+    valid_locations = {value for value, _label in location_choices}
+
     profile = TutorProfile.objects.filter(user=request.user).first()
     courses = profile.courses_passed.order_by('course_code') if profile else []
+    suggested_price = calc_price_suggestion(request.user)
+
+    price_value = request.session.get('tutor_hourly_price', str(suggested_price))
+    location_value = request.session.get('tutor_location_type', 'online')
+    price_error = ''
+    location_error = ''
+    success_message = ''
+
+    if request.method == 'POST':
+        raw_price = request.POST.get('price_per_hour', '').strip()
+        raw_location = request.POST.get('location_type', '').strip()
+        price_value = raw_price
+        location_value = raw_location or location_value
+
+        try:
+            saved_price = custom_pricing(raw_price)
+        except ValueError as error:
+            price_error = str(error)
+            saved_price = None
+
+        if raw_location not in valid_locations:
+            location_error = 'Choose Online or In person.'
+
+        if saved_price is not None and not location_error:
+            price_value = str(saved_price)
+            location_value = raw_location
+            request.session['tutor_hourly_price'] = price_value
+            request.session['tutor_location_type'] = location_value
+            location_label = dict(location_choices)[location_value]
+            success_message = (
+                f'Slot details saved: ${saved_price}/hour, {location_label}.'
+            )
+
     return render(request, 'tutor_home.html', {
-        'site_name': 'tUtoR', 'campus': 'University of Regina', 'courses': courses})
+        'site_name': 'tUtoR',
+        'campus': 'University of Regina',
+        'courses': courses,
+        'suggested_price': suggested_price,
+        'price_value': price_value,
+        'price_error': price_error,
+        'location_choices': location_choices,
+        'location_value': location_value,
+        'location_error': location_error,
+        'success_message': success_message,
+        'min_price': MIN_PRICE,
+        'max_price': MAX_PRICE,
+    })
 
 #     get My Profile()
 #     update Student Profil()

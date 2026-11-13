@@ -1,13 +1,6 @@
 {% extends "base.html" %} {% load static %} {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/auth.css' %}" />
 <link rel="stylesheet" href="{% static 'css/profile.css' %}" />
-{% endblock %} {% block nav_links %}
-<li class="nav-item">
-  <a class="nav-link" href="{% url 'account_profile' %}">Account</a>
-</li>
-<li class="nav-item">
-  <a class="nav-link" href="{% url 'landing' %}">Home</a>
-</li>
 {% endblock %} {% block content %}
 <section class="auth-shell profile-shell">
   <aside class="auth-aside">

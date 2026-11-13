@@ -11,6 +11,7 @@ Book a tutor without the noticeboard{% endblock %} {% block meta_description %}
 <li class="nav-item"><a class="nav-link" href="#how">How it works</a></li>
 <li class="nav-item"><a class="nav-link" href="#students">Students</a></li>
 <li class="nav-item"><a class="nav-link" href="#tutors">Tutors</a></li>
+{% if not user.is_authenticated %}
 <li class="nav-item">
   <a
     class="btn btn-green rounded-pill ms-lg-3 mt-3 mt-lg-0"
@@ -25,6 +26,7 @@ Book a tutor without the noticeboard{% endblock %} {% block meta_description %}
     >Register Now!</a
   >
 </li>
+{% endif %}
 {% endblock %} {% block content %}
 <section class="hero">
   <div class="container">
