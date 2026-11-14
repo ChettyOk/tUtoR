@@ -83,30 +83,71 @@ def filter_courses(request):
 @require_POST
 def create_session_request_view(request):
     if not request.user.is_authenticated:
-        return JsonResponse({'error': 'Log in to make a request.'}, status=401)
+        return JsonResponse(
+            {'error': 'Log in to make a request.'},
+            status=401,
+        )
 
     tutor_id = request.POST.get('tutor_id')
     course_id = request.POST.get('course_id')
     student_note = request.POST.get('student_note', '').strip()
-    session_price = request.POST.get('session_price')
+    time_slot_id = request.POST.get('time_slot_id')
 
     if not tutor_id:
-        return JsonResponse({'error': 'tutor_id required.'}, status=400)
-
-    tutor = get_object_or_404(User, id=tutor_id)
-    course = Course.objects.filter(id=course_id).first() if course_id else None
-    price = Decimal(str(session_price)) if session_price else None
+        return JsonResponse(
+            {'error': 'tutor_id required.'},
+            status=400,
+        )
 
     try:
+        tutor_id = int(tutor_id)
+        if tutor_id <= 0:
+            raise ValueError
+
+        if course_id:
+            course_id = int(course_id)
+            if course_id <= 0:
+                raise ValueError
+    except (TypeError, ValueError, OverflowError):
+        return JsonResponse(
+            {'error': 'Tutor and course IDs must be positive integers.'},
+            status=400,
+        )
+
+    tutor = get_object_or_404(User, id=tutor_id)
+    course = get_object_or_404(Course, id=course_id) if course_id else None
+
+    try:
+        session_times = {}
+
+        for name in ('start_time', 'end_time'):
+            raw_value = request.POST.get(name, '').strip()
+
+            if not raw_value:
+                raise ValueError(f"{name} is required.")
+
+            try:
+                parsed_time = parse_datetime(raw_value)
+            except (ValueError, OverflowError):
+                parsed_time = None
+
+            if parsed_time is None:
+                raise ValueError(
+                    f"{name} must be a valid ISO date and time."
+                )
+
+            session_times[name] = parsed_time
+
         booking = create_session_request(
             student=request.user,
             tutor=tutor,
             course=course,
             student_note=student_note,
-            session_price=price,
+            time_slot_id=time_slot_id,
+            **session_times,
         )
-    except ValueError as e:
-        return JsonResponse({'error': str(e)}, status=400)
+    except ValueError as error:
+        return JsonResponse({'error': str(error)}, status=400)
 
     return JsonResponse({
         'message': 'Session request submitted.',

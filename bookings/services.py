@@ -1,5 +1,7 @@
 from decimal import Decimal, ROUND_HALF_UP
+from datetime import datetime
 
+from django.utils import timezone
 from django.db import transaction
 from django.db.models import Q
 
@@ -44,25 +46,92 @@ def get_user_bookings(user):
     
     return {'all_bookings': all_bookings, 'student_bookings': student_bookings, 'tutor_bookings': tutor_bookings}
 
-def create_session_request(student, tutor, course=None, student_note='', session_price=None):
-
+def create_session_request(
+    student,
+    tutor,
+    course=None,
+    student_note='',
+    *,
+    time_slot_id,
+    start_time,
+    end_time,
+):
     if not tutor:
         raise ValueError("Please select a tutor.")
-    
-    if session_price is None:
-        session_price = calc_price_suggestion(tutor)
 
     if not student_note or not student_note.strip():
         raise ValueError("Please specify your request in the note field.")
 
-    booking = Booking.objects.create(
-        student=student,
-        tutor=tutor,
-        course=course,
-        student_note=student_note,
-        session_price=session_price,
-        status=Booking.Status.PENDING,)
-    return booking
+    try:
+        time_slot_id = int(time_slot_id)
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError("Please select a valid availability.")
+
+    if time_slot_id <= 0:
+        raise ValueError("Please select a valid availability.")
+
+    for name, value in (
+        ('start_time', start_time),
+        ('end_time', end_time),
+    ):
+        if not isinstance(value, datetime):
+            raise ValueError(f"{name} must be a valid date and time.")
+
+    if timezone.is_naive(start_time):
+        start_time = timezone.make_aware(start_time)
+
+    if timezone.is_naive(end_time):
+        end_time = timezone.make_aware(end_time)
+
+    if end_time <= start_time:
+        raise ValueError("End time must be after start time.")
+
+    if start_time <= timezone.now():
+        raise ValueError("Start time must be in the future.")
+
+    with transaction.atomic():
+        slot = (
+            Available_Slots.objects
+            .select_for_update()
+            .filter(pk=time_slot_id)
+            .first()
+        )
+
+        if slot is None:
+            raise ValueError("Selected availability does not exist.")
+
+        if slot.tutor_id != tutor.pk:
+            raise ValueError(
+                "Selected availability does not belong to this tutor."
+            )
+
+        if slot.status != Available_Slots.Status.AVAILABLE:
+            raise ValueError("Selected availability is not available.")
+
+        if start_time < slot.start_time or end_time > slot.end_time:
+            raise ValueError(
+                "Requested session must be within the selected availability."
+            )
+
+        session_price = Booking.calc_price_per_session(
+            price_per_hour=slot.price_per_hour,
+            start_time=start_time,
+            end_time=end_time,
+        )
+
+        return Booking.objects.create(
+            student=student,
+            tutor=tutor,
+            course=course,
+            student_note=student_note.strip(),
+            time_slot=slot,
+            start_time=start_time,
+            end_time=end_time,
+            price_per_hour=slot.price_per_hour,
+            location_type=slot.location_type,
+            session_price=session_price,
+            status=Booking.Status.PENDING,
+        )
 
 
 def get_session_requests(tutor):
