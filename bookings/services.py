@@ -426,3 +426,76 @@ def get_tutor_schedule(tutor):
     return Available_Slots.objects.filter(
         tutor=tutor,
     ).order_by('start_time', 'id')
+
+def get_tutor_dashboard(tutor):
+    user_bookings = get_user_bookings(tutor)
+
+    booked_sessions = (
+        user_bookings['tutor_bookings']
+        .filter(status=Booking.Status.CONFIRMED)
+        .select_related('student', 'course')
+        .order_by('-request_time', '-pk')
+    )
+
+    open_requests = (
+        get_session_requests(tutor)
+        .select_related('student', 'course')
+        .order_by('-request_time', '-pk')
+    )
+
+    schedule = get_tutor_schedule(tutor)
+
+    return {
+        'booked_sessions': booked_sessions,
+        'open_requests': open_requests,
+        'schedule': schedule,
+    }
+
+def _serialize_dashboard_booking(booking):
+    return {
+        'id': booking.pk,
+        'student_id': booking.student_id,
+        'student_email': booking.student.email,
+        'course': str(booking.course) if booking.course else None,
+        'student_note': booking.student_note,
+        'status': booking.status,
+        'request_time': (
+            booking.request_time.isoformat()
+            if booking.request_time is not None
+            else None
+        ),
+        'time_slot_id': booking.time_slot_id,
+        'start_time': (
+            booking.start_time.isoformat()
+            if booking.start_time is not None
+            else None
+        ),
+        'end_time': (
+            booking.end_time.isoformat()
+            if booking.end_time is not None
+            else None
+        ),
+        'price_per_hour': (
+            str(booking.price_per_hour)
+            if booking.price_per_hour is not None
+            else None
+        ),
+        'session_price': str(booking.session_price),
+        'location_type': booking.location_type,
+    }
+
+def serialize_tutor_dashboard(dashboard):
+    return {
+        'booked_sessions': [
+            _serialize_dashboard_booking(booking)
+            for booking in dashboard['booked_sessions']
+        ],
+        'open_requests': [
+            _serialize_dashboard_booking(booking)
+            for booking in dashboard['open_requests']
+        ],
+        'schedule': [
+            serialize_slot(slot)
+            for slot in dashboard['schedule']
+        ],
+    }
