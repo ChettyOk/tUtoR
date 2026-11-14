@@ -27,8 +27,10 @@ from .pricing import (
     custom_pricing,
 )
 from .services import (
+    accept_session_request,
     create_rating,
     create_session_request,
+    decline_session_request,
     get_ratings,
     get_session_requests,
     get_tutor_available_slots,
@@ -81,30 +83,71 @@ def filter_courses(request):
 @require_POST
 def create_session_request_view(request):
     if not request.user.is_authenticated:
-        return JsonResponse({'error': 'Log in to make a request.'}, status=401)
+        return JsonResponse(
+            {'error': 'Log in to make a request.'},
+            status=401,
+        )
 
     tutor_id = request.POST.get('tutor_id')
     course_id = request.POST.get('course_id')
     student_note = request.POST.get('student_note', '').strip()
-    session_price = request.POST.get('session_price')
+    time_slot_id = request.POST.get('time_slot_id')
 
     if not tutor_id:
-        return JsonResponse({'error': 'tutor_id required.'}, status=400)
-
-    tutor = get_object_or_404(User, id=tutor_id)
-    course = Course.objects.filter(id=course_id).first() if course_id else None
-    price = Decimal(str(session_price)) if session_price else None
+        return JsonResponse(
+            {'error': 'tutor_id required.'},
+            status=400,
+        )
 
     try:
+        tutor_id = int(tutor_id)
+        if tutor_id <= 0:
+            raise ValueError
+
+        if course_id:
+            course_id = int(course_id)
+            if course_id <= 0:
+                raise ValueError
+    except (TypeError, ValueError, OverflowError):
+        return JsonResponse(
+            {'error': 'Tutor and course IDs must be positive integers.'},
+            status=400,
+        )
+
+    tutor = get_object_or_404(User, id=tutor_id)
+    course = get_object_or_404(Course, id=course_id) if course_id else None
+
+    try:
+        session_times = {}
+
+        for name in ('start_time', 'end_time'):
+            raw_value = request.POST.get(name, '').strip()
+
+            if not raw_value:
+                raise ValueError(f"{name} is required.")
+
+            try:
+                parsed_time = parse_datetime(raw_value)
+            except (ValueError, OverflowError):
+                parsed_time = None
+
+            if parsed_time is None:
+                raise ValueError(
+                    f"{name} must be a valid ISO date and time."
+                )
+
+            session_times[name] = parsed_time
+
         booking = create_session_request(
             student=request.user,
             tutor=tutor,
             course=course,
             student_note=student_note,
-            session_price=price,
+            time_slot_id=time_slot_id,
+            **session_times,
         )
-    except ValueError as e:
-        return JsonResponse({'error': str(e)}, status=400)
+    except ValueError as error:
+        return JsonResponse({'error': str(error)}, status=400)
 
     return JsonResponse({
         'message': 'Session request submitted.',
@@ -141,11 +184,13 @@ def submit_rating_view(request, booking_id):
         'comment': rating.rating_comment,
     }, status=201)
 
-
 @require_GET
 def get_session_request_view(request):
     if not request.user.is_authenticated:
-        return JsonResponse({'error': 'Log in to view your session requests.'}, status=401)
+        return JsonResponse(
+            {'error': 'Log in to view your session requests.'},
+            status=401,
+        )
 
     open_requests = get_session_requests(request.user)
 
@@ -158,7 +203,28 @@ def get_session_request_view(request):
             'student_note': booking.student_note,
             'session_price': str(booking.session_price),
             'status': booking.status,
-            'request_time': booking.request_time.isoformat() if booking.request_time else None,
+            'request_time': (
+                booking.request_time.isoformat()
+                if booking.request_time
+                else None
+            ),
+            'time_slot_id': booking.time_slot_id,
+            'start_time': (
+                booking.start_time.isoformat()
+                if booking.start_time
+                else None
+            ),
+            'end_time': (
+                booking.end_time.isoformat()
+                if booking.end_time
+                else None
+            ),
+            'price_per_hour': (
+                str(booking.price_per_hour)
+                if booking.price_per_hour is not None
+                else None
+            ),
+            'location_type': booking.location_type,
         }
         for booking in open_requests
     ]
@@ -171,21 +237,25 @@ def accept_session_request_view(request, booking_id):
     if not request.user.is_authenticated:
         return JsonResponse({'error': 'Please log in.'}, status=401)
 
-    booking = get_object_or_404(Booking, id=booking_id)
-
-    if request.user != booking.tutor:
-        return JsonResponse({'error': 'Not your request, only the requested tutor can accept.'}, status=403)
-
     try:
-        booking.confirm()
-    except ValueError as e:
-        return JsonResponse({'error': str(e)}, status=400)
+        booking = accept_session_request(
+            booking_id=booking_id,
+            tutor=request.user,
+        )
+    except Booking.DoesNotExist:
+        return JsonResponse(
+            {'error': 'Session request not found.'},
+            status=404,
+        )
+    except PermissionError as error:
+        return JsonResponse({'error': str(error)}, status=403)
+    except ValueError as error:
+        return JsonResponse({'error': str(error)}, status=400)
 
     return JsonResponse({
         'message': 'Request accepted.',
         'status': booking.status,
     })
-
 
 @require_GET
 def get_ratings_view(request, user_id, rated_role):
@@ -280,17 +350,25 @@ def decline_session_request_view(request, booking_id):
     if not request.user.is_authenticated:
         return JsonResponse({'error': 'Please log in.'}, status=401)
 
-    booking = get_object_or_404(Booking, id=booking_id)
-
-    if request.user != booking.tutor:
-        return JsonResponse({'error': 'Not your request, only the requested tutor can accept.'}, status=403)
-
     reason = request.POST.get('reason', 'Tutor declined').strip()
+    if not reason:
+        reason = 'Tutor declined'
 
     try:
-        booking.cancel(cancelled_by='tutor', reason=reason)
-    except ValueError as e:
-        return JsonResponse({'error': str(e)}, status=400)
+        booking = decline_session_request(
+            booking_id=booking_id,
+            tutor=request.user,
+            reason=reason,
+        )
+    except Booking.DoesNotExist:
+        return JsonResponse(
+            {'error': 'Session request not found.'},
+            status=404,
+        )
+    except PermissionError as error:
+        return JsonResponse({'error': str(error)}, status=403)
+    except ValueError as error:
+        return JsonResponse({'error': str(error)}, status=400)
 
     return JsonResponse({
         'message': 'Request declined.',

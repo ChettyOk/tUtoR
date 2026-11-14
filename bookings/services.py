@@ -1,5 +1,7 @@
 from decimal import Decimal, ROUND_HALF_UP
+from datetime import datetime
 
+from django.utils import timezone
 from django.db import transaction
 from django.db.models import Q
 
@@ -44,31 +46,234 @@ def get_user_bookings(user):
     
     return {'all_bookings': all_bookings, 'student_bookings': student_bookings, 'tutor_bookings': tutor_bookings}
 
-def create_session_request(student, tutor, course=None, student_note='', session_price=None):
-
+def create_session_request(
+    student,
+    tutor,
+    course=None,
+    student_note='',
+    *,
+    time_slot_id,
+    start_time,
+    end_time,
+):
     if not tutor:
         raise ValueError("Please select a tutor.")
-    
-    if session_price is None:
-        session_price = calc_price_suggestion(tutor)
 
     if not student_note or not student_note.strip():
         raise ValueError("Please specify your request in the note field.")
 
-    booking = Booking.objects.create(
-        student=student,
-        tutor=tutor,
-        course=course,
-        student_note=student_note,
-        session_price=session_price,
-        status=Booking.Status.PENDING,)
-    return booking
+    try:
+        time_slot_id = int(time_slot_id)
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError("Please select a valid availability.")
+
+    if time_slot_id <= 0:
+        raise ValueError("Please select a valid availability.")
+
+    for name, value in (
+        ('start_time', start_time),
+        ('end_time', end_time),
+    ):
+        if not isinstance(value, datetime):
+            raise ValueError(f"{name} must be a valid date and time.")
+
+    if timezone.is_naive(start_time):
+        start_time = timezone.make_aware(start_time)
+
+    if timezone.is_naive(end_time):
+        end_time = timezone.make_aware(end_time)
+
+    if end_time <= start_time:
+        raise ValueError("End time must be after start time.")
+
+    if start_time <= timezone.now():
+        raise ValueError("Start time must be in the future.")
+
+    with transaction.atomic():
+        slot = (
+            Available_Slots.objects
+            .select_for_update()
+            .filter(pk=time_slot_id)
+            .first()
+        )
+
+        if slot is None:
+            raise ValueError("Selected availability does not exist.")
+
+        if slot.tutor_id != tutor.pk:
+            raise ValueError(
+                "Selected availability does not belong to this tutor."
+            )
+
+        if slot.status != Available_Slots.Status.AVAILABLE:
+            raise ValueError("Selected availability is not available.")
+
+        if start_time < slot.start_time or end_time > slot.end_time:
+            raise ValueError(
+                "Requested session must be within the selected availability."
+            )
+
+        session_price = Booking.calc_price_per_session(
+            price_per_hour=slot.price_per_hour,
+            start_time=start_time,
+            end_time=end_time,
+        )
+
+        return Booking.objects.create(
+            student=student,
+            tutor=tutor,
+            course=course,
+            student_note=student_note.strip(),
+            time_slot=slot,
+            start_time=start_time,
+            end_time=end_time,
+            price_per_hour=slot.price_per_hour,
+            location_type=slot.location_type,
+            session_price=session_price,
+            status=Booking.Status.PENDING,
+        )
 
 
 def get_session_requests(tutor):
     return Booking.objects.filter(
         tutor=tutor,
         status=Booking.Status.PENDING).order_by('-request_time')
+
+def decline_session_request(*, booking_id, tutor, reason='Tutor declined'):
+    with transaction.atomic():
+        booking = Booking.objects.select_for_update().get(pk=booking_id)
+
+        if booking.tutor_id != tutor.pk:
+            raise PermissionError(
+                'Only the requested tutor can decline this request.'
+            )
+
+        if booking.status != Booking.Status.PENDING:
+            raise ValueError('Only pending session requests can be declined.')
+
+        booking.cancel(cancelled_by='tutor', reason=reason)
+
+        return booking
+
+def accept_session_request(*, booking_id, tutor):
+    with transaction.atomic():
+        booking = Booking.objects.select_for_update().get(
+            pk=booking_id,
+        )
+
+        if booking.tutor_id != tutor.pk:
+            raise PermissionError(
+                'Only the requested tutor can accept this request.'
+            )
+
+        if booking.status != Booking.Status.PENDING:
+            raise ValueError(
+                'Only pending session requests can be accepted.'
+            )
+
+        required_fields = (
+            'time_slot_id',
+            'start_time',
+            'end_time',
+            'price_per_hour',
+            'location_type',
+        )
+
+        if any(
+            getattr(booking, field) in (None, '')
+            for field in required_fields
+        ):
+            raise ValueError(
+                'Session details are missing. '
+                'This request cannot be confirmed.'
+            )
+
+        slot = (
+            Available_Slots.objects
+            .select_for_update()
+            .filter(pk=booking.time_slot_id)
+            .first()
+        )
+
+        if slot is None:
+            raise ValueError('Selected availability does not exist.')
+
+        if slot.tutor_id != booking.tutor_id:
+            raise ValueError(
+                'Selected availability does not belong to this tutor.'
+            )
+
+        if slot.status != Available_Slots.Status.AVAILABLE:
+            raise ValueError(
+                'Selected availability is no longer available.'
+            )
+
+        if booking.end_time <= booking.start_time:
+            raise ValueError('End time must be after start time.')
+
+        if booking.start_time <= timezone.now():
+            raise ValueError('Session start time must be in the future.')
+
+        if (
+            booking.start_time < slot.start_time
+            or booking.end_time > slot.end_time
+        ):
+            raise ValueError(
+                'Requested session is no longer within '
+                'the selected availability.'
+            )
+
+        if (
+            not booking.price_per_hour.is_finite()
+            or booking.price_per_hour <= 0
+        ):
+            raise ValueError('Stored hourly price is invalid.')
+
+        if booking.location_type not in (
+            Available_Slots.LocationType.values
+        ):
+            raise ValueError('Stored location type is invalid.')
+
+        confirmed_bookings = Booking.objects.filter(
+            tutor_id=booking.tutor_id,
+            status=Booking.Status.CONFIRMED,
+        ).exclude(pk=booking.pk)
+
+        session_conflict = Q(
+            start_time__lt=booking.end_time,
+            end_time__gt=booking.start_time,
+        )
+
+        legacy_slot_conflict = Q(
+            start_time__isnull=True,
+            time_slot__start_time__lt=booking.end_time,
+            time_slot__end_time__gt=booking.start_time,
+        )
+
+        if confirmed_bookings.filter(
+            session_conflict | legacy_slot_conflict
+        ).exists():
+            raise ValueError(
+                'The tutor already has a confirmed booking '
+                'during this time.'
+            )
+
+        expected_price = Booking.calc_price_per_session(
+            price_per_hour=booking.price_per_hour,
+            start_time=booking.start_time,
+            end_time=booking.end_time,
+        )
+
+        if booking.session_price != expected_price:
+            raise ValueError(
+                'Stored session price does not match '
+                'the requested session details.'
+            )
+
+        booking.confirm()
+
+        return booking
+
 def update_rating(user, rated_role):
     if rated_role == Rating.RatedRole.TUTOR:
         existing_ratings = Rating.objects.filter(tutor=user, rated_role=Rating.RatedRole.TUTOR)

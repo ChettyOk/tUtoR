@@ -19,8 +19,33 @@ class Booking(models.Model):
 
     course = models.ForeignKey(Course, on_delete=models.SET_NULL, null=True, blank=True, related_name='course_bookings')
 
-    # ----- uncomment as soon as Available_slots is implemented -----
-    # time_slot = models.ForeignKey('Available_Slots', on_delete=models.PROTECT, related_name='bookings') 
+    time_slot = models.ForeignKey(
+        'Available_Slots',
+        on_delete=models.PROTECT,
+        related_name='bookings',
+        null=True,
+        blank=True,
+    )
+
+    start_time = models.DateTimeField(null=True, blank=True)
+    end_time = models.DateTimeField(null=True, blank=True)
+
+    price_per_hour = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+
+    location_type = models.CharField(
+        max_length=10,
+        choices=[
+            ('online', 'Online'),
+            ('in_person', 'In person'),
+        ],
+        null=True,
+        blank=True,
+    )
 
     student_note = models.CharField(max_length=255, blank=True, default='')
 
@@ -60,7 +85,11 @@ class Booking(models.Model):
             raise ValueError(f"Booking cannot be cancelled because it was already completed.")
         
         if cancelled_by == 'student':
-            start_time = self.time_slot.start_time if hasattr(self, 'time_slot') and self.time_slot else None
+            start_time = self.start_time
+
+            if start_time is None and self.time_slot_id is not None:
+                start_time = self.time_slot.start_time
+
             if start_time is not None:
                 time_to_session = start_time - timezone.now()
                 if time_to_session < timedelta(hours=cancel_deadline):
@@ -98,11 +127,13 @@ class Booking(models.Model):
 
         return price.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
-
     def unblock_booking(self):
-        if hasattr(self, 'time_slot') and self.time_slot:
+        if self.start_time is not None:
+            return
+
+        if self.time_slot_id is not None:
             self.time_slot.status = 'available'
-            self.time_slot.save()
+            self.time_slot.save(update_fields=['status'])
 
 class Rating(models.Model):
     booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name='rating',)
