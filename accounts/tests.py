@@ -18,6 +18,10 @@ from django.contrib.auth.models import AnonymousUser
 from accounts.models import TutorProfile
 from decimal import Decimal
 from django.core.exceptions import ValidationError
+from datetime import timedelta
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
+from bookings.models import Available_Slots, Booking
 
 #personalisation tests imports
 from django.contrib.auth import get_user_model
@@ -2679,3 +2683,228 @@ class HomePageTests(TestCase):
 #************************************************************************************************************************************************
 #------------------------------------------------------- END OF HOME TESTS ----------------------------------------------------------------------
 #************************************************************************************************************************************************
+
+
+class TutorDashboardViewTests(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(
+            email='dashboard-view-student@uregina.ca',
+            password='DashboardTestPassword123!',
+            role=User.Role.STUDENT,
+        )
+        self.tutor = User.objects.create_user(
+            email='dashboard-view-tutor@uregina.ca',
+            password='DashboardTestPassword123!',
+            role=User.Role.TUTOR,
+        )
+        self.other_tutor = User.objects.create_user(
+            email='dashboard-view-other@uregina.ca',
+            password='DashboardTestPassword123!',
+            role=User.Role.TUTOR,
+        )
+
+        self.url = reverse('tutor_dashboard')
+        self.start = timezone.now() + timedelta(days=2)
+
+    def create_booking(self, **overrides):
+        data = {
+            'student': self.student,
+            'tutor': self.tutor,
+            'student_note': 'Please help me prepare for my exam.',
+            'session_price': Decimal('25.00'),
+            'status': Booking.Status.PENDING,
+        }
+        data.update(overrides)
+        return Booking.objects.create(**data)
+
+    def test_requires_login(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 401)
+        self.assertIn('error', response.json())
+
+    def test_requires_tutor_role(self):
+        for role in (User.Role.STUDENT, ''):
+            with self.subTest(role=role):
+                self.student.role = role
+                self.student.save(update_fields=['role'])
+                self.client.force_login(self.student)
+
+                response = self.client.get(self.url)
+
+                self.assertEqual(response.status_code, 403)
+                self.assertIn('error', response.json())
+
+    def test_rejects_post(self):
+        self.client.force_login(self.tutor)
+
+        response = self.client.post(self.url)
+
+        self.assertEqual(response.status_code, 405)
+        self.assertEqual(response.headers['Allow'], 'GET')
+
+    def test_returns_empty_dashboard(self):
+        self.client.force_login(self.tutor)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(
+            response.status_code,
+            200,
+            msg=response.content.decode(),
+        )
+        self.assertEqual(response.json(), {
+            'booked_sessions': [],
+            'open_requests': [],
+            'schedule': [],
+        })
+
+    def test_returns_stored_session_details_and_window(self):
+        slot = Available_Slots.create_slot(
+            tutor=self.tutor,
+            start_time=self.start,
+            end_time=self.start + timedelta(hours=3),
+            price_per_hour=Decimal('25.00'),
+            location_type=Available_Slots.LocationType.IN_PERSON,
+        )
+
+        booking = self.create_booking(
+            time_slot=slot,
+            start_time=self.start + timedelta(hours=1),
+            end_time=self.start + timedelta(hours=2),
+            price_per_hour=Decimal('25.00'),
+            location_type=Available_Slots.LocationType.IN_PERSON,
+            status=Booking.Status.CONFIRMED,
+        )
+
+        self.client.force_login(self.tutor)
+        response = self.client.get(self.url)
+
+        self.assertEqual(
+            response.status_code,
+            200,
+            msg=response.content.decode(),
+        )
+
+        data = response.json()
+        self.assertEqual(len(data['booked_sessions']), 1)
+        self.assertEqual(len(data['schedule']), 1)
+
+        session = data['booked_sessions'][0]
+        window = data['schedule'][0]
+
+        self.assertEqual(session['id'], booking.pk)
+        self.assertEqual(session['student_id'], self.student.pk)
+        self.assertEqual(session['student_email'], self.student.email)
+        self.assertEqual(session['time_slot_id'], slot.pk)
+        self.assertEqual(
+            parse_datetime(session['start_time']),
+            booking.start_time,
+        )
+        self.assertEqual(
+            parse_datetime(session['end_time']),
+            booking.end_time,
+        )
+        self.assertEqual(session['price_per_hour'], '25.00')
+        self.assertEqual(session['session_price'], '25.00')
+        self.assertEqual(session['location_type'], 'in_person')
+
+        self.assertEqual(window['id'], slot.pk)
+        self.assertEqual(
+            parse_datetime(window['start_time']),
+            slot.start_time,
+        )
+        self.assertEqual(
+            parse_datetime(window['end_time']),
+            slot.end_time,
+        )
+
+        booking.refresh_from_db()
+        slot.refresh_from_db()
+
+        self.assertEqual(booking.status, Booking.Status.CONFIRMED)
+        self.assertEqual(slot.status, Available_Slots.Status.AVAILABLE)
+
+    def test_separates_statuses_and_ignores_foreign_tutor_parameter(self):
+        confirmed = self.create_booking(
+            status=Booking.Status.CONFIRMED,
+        )
+        pending = self.create_booking()
+
+        for status in (
+            Booking.Status.CANCELLED_STUDENT,
+            Booking.Status.CANCELLED_TUTOR,
+            Booking.Status.COMPLETED,
+        ):
+            self.create_booking(status=status)
+
+        self.create_booking(
+            tutor=self.other_tutor,
+            status=Booking.Status.CONFIRMED,
+        )
+        self.create_booking(tutor=self.other_tutor)
+        self.create_booking(
+            student=self.tutor,
+            tutor=self.other_tutor,
+            status=Booking.Status.CONFIRMED,
+        )
+
+        Available_Slots.create_slot(
+            tutor=self.other_tutor,
+            start_time=self.start,
+            end_time=self.start + timedelta(hours=1),
+            price_per_hour=Decimal('25.00'),
+        )
+
+        self.client.force_login(self.tutor)
+        response = self.client.get(
+            self.url,
+            {'tutor_id': self.other_tutor.pk},
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+            msg=response.content.decode(),
+        )
+
+        data = response.json()
+
+        self.assertEqual(
+            [item['id'] for item in data['booked_sessions']],
+            [confirmed.pk],
+        )
+        self.assertEqual(
+            [item['id'] for item in data['open_requests']],
+            [pending.pk],
+        )
+        self.assertEqual(data['schedule'], [])
+
+    def test_legacy_booking_returns_null_session_fields(self):
+        booking = self.create_booking(
+            status=Booking.Status.CONFIRMED,
+        )
+
+        self.client.force_login(self.tutor)
+        response = self.client.get(self.url)
+
+        self.assertEqual(
+            response.status_code,
+            200,
+            msg=response.content.decode(),
+        )
+
+        session = response.json()['booked_sessions'][0]
+
+        self.assertEqual(session['id'], booking.pk)
+        self.assertEqual(session['session_price'], '25.00')
+
+        for field in (
+            'time_slot_id',
+            'start_time',
+            'end_time',
+            'price_per_hour',
+            'location_type',
+        ):
+            with self.subTest(field=field):
+                self.assertIsNone(session[field])
