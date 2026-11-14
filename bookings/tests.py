@@ -440,8 +440,30 @@ class test_session_request(TestCase):
         self.assertEqual(data['open_requests'][0]['id'], self.booking.id)
 
     def test_tutor_accept_request(self):
+        window_start = timezone.now() + timedelta(days=2)
+
+        slot = Available_Slots.create_slot(
+            tutor=self.tutor,
+            start_time=window_start,
+            end_time=window_start + timedelta(hours=3),
+            price_per_hour=Decimal('25.00'),
+        )
+
+        self.booking.time_slot = slot
+        self.booking.start_time = window_start + timedelta(hours=1)
+        self.booking.end_time = window_start + timedelta(hours=2)
+        self.booking.price_per_hour = Decimal('25.00')
+        self.booking.location_type = (
+            Available_Slots.LocationType.ONLINE
+        )
+        self.booking.session_price = Decimal('25.00')
+        self.booking.status = Booking.Status.PENDING
+        self.booking.save()
+
         booking_count = Booking.objects.count()
+
         self.client.force_login(self.tutor)
+
         url = reverse(
             'accept_request',
             kwargs={'booking_id': self.booking.id},
@@ -449,7 +471,11 @@ class test_session_request(TestCase):
 
         response = self.client.post(url)
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.status_code,
+            200,
+            msg=response.content.decode(),
+        )
         self.assertEqual(
             response.json(),
             {
@@ -459,11 +485,30 @@ class test_session_request(TestCase):
         )
 
         self.booking.refresh_from_db()
+        slot.refresh_from_db()
+
         self.assertEqual(
             self.booking.status,
             Booking.Status.CONFIRMED,
         )
+        self.assertEqual(self.booking.time_slot_id, slot.id)
+        self.assertEqual(
+            self.booking.start_time,
+            window_start + timedelta(hours=1),
+        )
+        self.assertEqual(
+            self.booking.end_time,
+            window_start + timedelta(hours=2),
+        )
+        self.assertEqual(
+            self.booking.session_price,
+            Decimal('25.00'),
+        )
         self.assertEqual(Booking.objects.count(), booking_count)
+        self.assertEqual(
+            slot.status,
+            Available_Slots.Status.AVAILABLE,
+        )
 
     def test_tutor_decline_request(self):
         self.booking.status = Booking.Status.PENDING
@@ -2899,3 +2944,184 @@ class test_scheduled_session_request_creation(TestCase):
             **self.data,
             'time_slot_id': missing_id,
         })
+
+class test_scheduled_session_request_acceptance(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(
+            email='accept-student@uregina.ca',
+            password='RequestTestPassword123!',
+        )
+        self.tutor = User.objects.create_user(
+            email='accept-tutor@uregina.ca',
+            password='RequestTestPassword123!',
+        )
+
+        self.window_start = timezone.now() + timedelta(days=2)
+
+        self.slot = Available_Slots.create_slot(
+            tutor=self.tutor,
+            start_time=self.window_start,
+            end_time=self.window_start + timedelta(hours=3),
+            price_per_hour=Decimal('25.00'),
+        )
+
+        self.booking = self.create_request()
+
+    def create_request(self, **overrides):
+        data = {
+            'student': self.student,
+            'tutor': self.tutor,
+            'time_slot': self.slot,
+            'start_time': self.window_start + timedelta(hours=1),
+            'end_time': self.window_start + timedelta(hours=2),
+            'price_per_hour': Decimal('25.00'),
+            'location_type': Available_Slots.LocationType.ONLINE,
+            'session_price': Decimal('25.00'),
+            'student_note': 'Please help me prepare for my exam.',
+            'status': Booking.Status.PENDING,
+        }
+        data.update(overrides)
+        return Booking.objects.create(**data)
+
+    def accept(self):
+        return accept_session_request(
+            booking_id=self.booking.pk,
+            tutor=self.tutor,
+        )
+
+    def assert_rejected(self):
+        booking_count = Booking.objects.count()
+
+        with self.assertRaises(ValueError):
+            self.accept()
+
+        self.booking.refresh_from_db()
+
+        self.assertEqual(self.booking.status, Booking.Status.PENDING)
+        self.assertEqual(Booking.objects.count(), booking_count)
+
+    def test_accept_confirms_existing_booking(self):
+        booking_count = Booking.objects.count()
+        original_start = self.booking.start_time
+        original_end = self.booking.end_time
+
+        accepted = self.accept()
+
+        self.booking.refresh_from_db()
+        self.slot.refresh_from_db()
+
+        self.assertEqual(accepted.pk, self.booking.pk)
+        self.assertEqual(Booking.objects.count(), booking_count)
+        self.assertEqual(
+            self.booking.status,
+            Booking.Status.CONFIRMED,
+        )
+        self.assertEqual(self.booking.time_slot_id, self.slot.pk)
+        self.assertEqual(self.booking.start_time, original_start)
+        self.assertEqual(self.booking.end_time, original_end)
+        self.assertEqual(
+            self.slot.status,
+            Available_Slots.Status.AVAILABLE,
+        )
+
+    def test_missing_session_details_are_rejected(self):
+        for field in (
+            'time_slot',
+            'start_time',
+            'end_time',
+            'price_per_hour',
+            'location_type',
+        ):
+            with self.subTest(field=field):
+                original_value = getattr(self.booking, field)
+
+                setattr(self.booking, field, None)
+                self.booking.save(update_fields=[field])
+
+                self.assert_rejected()
+
+                setattr(self.booking, field, original_value)
+                self.booking.save(update_fields=[field])
+
+    def test_unavailable_slot_is_rejected(self):
+        for status in (
+            Available_Slots.Status.BOOKED,
+            Available_Slots.Status.CANCELLED,
+        ):
+            with self.subTest(status=status):
+                self.slot.status = status
+                self.slot.save(update_fields=['status'])
+
+                self.assert_rejected()
+
+    def test_changed_window_is_rejected(self):
+        self.slot.start_time = self.booking.end_time
+        self.slot.save(update_fields=['start_time'])
+
+        self.assert_rejected()
+
+    def test_past_session_is_rejected(self):
+        self.booking.start_time = timezone.now() - timedelta(hours=1)
+        self.booking.end_time = timezone.now() + timedelta(hours=1)
+        self.booking.save(update_fields=['start_time', 'end_time'])
+
+        self.assert_rejected()
+
+    def test_overlapping_confirmed_session_is_rejected(self):
+        self.create_request(
+            start_time=self.booking.start_time + timedelta(minutes=30),
+            end_time=self.booking.end_time + timedelta(minutes=30),
+            status=Booking.Status.CONFIRMED,
+        )
+
+        self.assert_rejected()
+
+    def test_adjacent_confirmed_session_is_allowed(self):
+        self.create_request(
+            start_time=self.booking.end_time,
+            end_time=self.booking.end_time + timedelta(hours=1),
+            status=Booking.Status.CONFIRMED,
+        )
+
+        self.accept()
+
+        self.booking.refresh_from_db()
+        self.assertEqual(
+            self.booking.status,
+            Booking.Status.CONFIRMED,
+        )
+
+    def test_cancelled_session_does_not_block_acceptance(self):
+        self.create_request(
+            status=Booking.Status.CANCELLED_TUTOR,
+        )
+
+        self.accept()
+
+        self.booking.refresh_from_db()
+        self.assertEqual(
+            self.booking.status,
+            Booking.Status.CONFIRMED,
+        )
+
+    def test_inconsistent_session_price_is_rejected(self):
+        self.booking.session_price = Decimal('0.01')
+        self.booking.save(update_fields=['session_price'])
+
+        self.assert_rejected()
+
+    def test_changed_offer_does_not_overwrite_requested_price(self):
+        self.slot.price_per_hour = Decimal('30.00')
+        self.slot.save(update_fields=['price_per_hour'])
+
+        self.accept()
+
+        self.booking.refresh_from_db()
+        self.assertEqual(
+            self.booking.price_per_hour,
+            Decimal('25.00'),
+        )
+        self.assertEqual(
+            self.booking.session_price,
+            Decimal('25.00'),
+        )
