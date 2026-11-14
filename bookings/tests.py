@@ -9,6 +9,7 @@ from django.db import connection
 from django.test import Client, TestCase, override_settings, RequestFactory
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.middleware.csrf import get_token
 
 from accounts.models import Course, StudentProfile, TutorProfile, User
@@ -3125,3 +3126,220 @@ class test_scheduled_session_request_acceptance(TestCase):
             self.booking.session_price,
             Decimal('25.00'),
         )
+
+class test_scheduled_session_request_workflow(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(
+            email='workflow-student@uregina.ca',
+            password='RequestTestPassword123!',
+            role=User.Role.STUDENT,
+        )
+        self.tutor = User.objects.create_user(
+            email='workflow-tutor@uregina.ca',
+            password='RequestTestPassword123!',
+            role=User.Role.TUTOR,
+        )
+
+        self.window_start = timezone.now() + timedelta(days=2)
+        self.session_start = self.window_start + timedelta(hours=1)
+        self.session_end = self.window_start + timedelta(hours=2)
+
+        self.slot = Available_Slots.create_slot(
+            tutor=self.tutor,
+            start_time=self.window_start,
+            end_time=self.window_start + timedelta(hours=3),
+            price_per_hour=Decimal('25.00'),
+            location_type=Available_Slots.LocationType.IN_PERSON,
+        )
+
+    def create_request_through_view(self):
+        self.client.force_login(self.student)
+
+        booking_count = Booking.objects.count()
+
+        response = self.client.post(
+            reverse('create_request'),
+            {
+                'tutor_id': self.tutor.pk,
+                'student_note': 'Please help me prepare for my exam.',
+                'time_slot_id': self.slot.pk,
+                'start_time': self.session_start.isoformat(),
+                'end_time': self.session_end.isoformat(),
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            201,
+            msg=response.content.decode(),
+        )
+        self.assertEqual(
+            Booking.objects.count(),
+            booking_count + 1,
+        )
+
+        booking = Booking.objects.get(
+            pk=response.json()['booking_id'],
+        )
+
+        self.assertEqual(booking.student_id, self.student.pk)
+        self.assertEqual(booking.tutor_id, self.tutor.pk)
+        self.assertEqual(booking.status, Booking.Status.PENDING)
+        self.assert_session_details(booking)
+
+        return booking
+
+    def assert_session_details(self, booking):
+        self.assertEqual(booking.time_slot_id, self.slot.pk)
+        self.assertEqual(booking.start_time, self.session_start)
+        self.assertEqual(booking.end_time, self.session_end)
+        self.assertEqual(booking.price_per_hour, Decimal('25.00'))
+        self.assertEqual(booking.session_price, Decimal('25.00'))
+        self.assertEqual(
+            booking.location_type,
+            Available_Slots.LocationType.IN_PERSON,
+        )
+
+    def assert_no_open_requests(self):
+        response = self.client.get(reverse('incoming_requests'))
+
+        self.assertEqual(
+            response.status_code,
+            200,
+            msg=response.content.decode(),
+        )
+        self.assertEqual(response.json()['open_requests'], [])
+
+    def assert_window_unchanged(self):
+        self.slot.refresh_from_db()
+
+        self.assertEqual(
+            self.slot.status,
+            Available_Slots.Status.AVAILABLE,
+        )
+        self.assertEqual(self.slot.start_time, self.window_start)
+        self.assertEqual(
+            self.slot.end_time,
+            self.window_start + timedelta(hours=3),
+        )
+
+    def test_create_list_and_accept_request(self):
+        booking = self.create_request_through_view()
+        booking_count = Booking.objects.count()
+
+        self.client.force_login(self.tutor)
+
+        list_response = self.client.get(
+            reverse('incoming_requests'),
+        )
+
+        self.assertEqual(
+            list_response.status_code,
+            200,
+            msg=list_response.content.decode(),
+        )
+
+        requests = list_response.json()['open_requests']
+        self.assertEqual(len(requests), 1)
+
+        request_data = requests[0]
+
+        self.assertEqual(request_data['id'], booking.pk)
+        self.assertEqual(
+            request_data['time_slot_id'],
+            self.slot.pk,
+        )
+        self.assertEqual(
+            parse_datetime(request_data['start_time']),
+            self.session_start,
+        )
+        self.assertEqual(
+            parse_datetime(request_data['end_time']),
+            self.session_end,
+        )
+        self.assertEqual(request_data['price_per_hour'], '25.00')
+        self.assertEqual(request_data['session_price'], '25.00')
+        self.assertEqual(
+            request_data['location_type'],
+            Available_Slots.LocationType.IN_PERSON,
+        )
+
+        accept_response = self.client.post(
+            reverse(
+                'accept_request',
+                kwargs={'booking_id': booking.pk},
+            ),
+        )
+
+        self.assertEqual(
+            accept_response.status_code,
+            200,
+            msg=accept_response.content.decode(),
+        )
+        self.assertEqual(
+            accept_response.json()['status'],
+            Booking.Status.CONFIRMED,
+        )
+
+        booking.refresh_from_db()
+
+        self.assertEqual(Booking.objects.count(), booking_count)
+        self.assertEqual(booking.status, Booking.Status.CONFIRMED)
+        self.assert_session_details(booking)
+        self.assert_window_unchanged()
+        self.assert_no_open_requests()
+
+        second_response = self.client.post(
+            reverse(
+                'accept_request',
+                kwargs={'booking_id': booking.pk},
+            ),
+        )
+
+        self.assertEqual(
+            second_response.status_code,
+            400,
+            msg=second_response.content.decode(),
+        )
+
+        booking.refresh_from_db()
+
+        self.assertEqual(booking.status, Booking.Status.CONFIRMED)
+        self.assertEqual(Booking.objects.count(), booking_count)
+        self.assert_session_details(booking)
+
+    def test_create_and_decline_request(self):
+        booking = self.create_request_through_view()
+        booking_count = Booking.objects.count()
+
+        self.client.force_login(self.tutor)
+
+        response = self.client.post(
+            reverse(
+                'decline_request',
+                kwargs={'booking_id': booking.pk},
+            ),
+            {'reason': 'I cannot take this session.'},
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+            msg=response.content.decode(),
+        )
+
+        booking.refresh_from_db()
+
+        self.assertEqual(Booking.objects.count(), booking_count)
+        self.assertEqual(
+            booking.status,
+            Booking.Status.CANCELLED_TUTOR,
+        )
+        self.assertEqual(
+            booking.cancellation_reason,
+            'I cannot take this session.',
+        )
+        self.assertIsNotNone(booking.cancel_time)
+        self.assert_session_details(booking)
+        self.assert_window_unchanged()
+        self.assert_no_open_requests()
