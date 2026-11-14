@@ -595,6 +595,11 @@ class test_incoming_session_requests(TestCase):
                     'request_time': (
                         self.pending_request.request_time.isoformat()
                     ),
+                    'time_slot_id': None,
+                    'start_time': None,
+                    'end_time': None,
+                    'price_per_hour': None,
+                    'location_type': None,
                 },
             ],
         )
@@ -606,6 +611,81 @@ class test_incoming_session_requests(TestCase):
 
         self.assertEqual(response.status_code, 405)
         self.assertEqual(response.headers['Allow'], 'GET')
+
+    def test_list_returns_stored_session_details(self):
+        window_start = timezone.now() + timedelta(days=2)
+
+        slot = Available_Slots.create_slot(
+            tutor=self.tutor,
+            start_time=window_start,
+            end_time=window_start + timedelta(hours=3),
+            price_per_hour=Decimal('25.00'),
+            location_type=Available_Slots.LocationType.IN_PERSON,
+        )
+
+        session_start = window_start + timedelta(hours=1)
+        session_end = window_start + timedelta(hours=2)
+
+        self.pending_request.time_slot = slot
+        self.pending_request.start_time = session_start
+        self.pending_request.end_time = session_end
+        self.pending_request.price_per_hour = slot.price_per_hour
+        self.pending_request.location_type = slot.location_type
+        self.pending_request.save(update_fields=[
+            'time_slot',
+            'start_time',
+            'end_time',
+            'price_per_hour',
+            'location_type',
+        ])
+
+        self.client.force_login(self.tutor)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+
+        requests = response.json()['open_requests']
+        self.assertEqual(len(requests), 1)
+
+        data = requests[0]
+
+        self.assertEqual(data['id'], self.pending_request.id)
+        self.assertEqual(data['time_slot_id'], slot.id)
+        self.assertEqual(
+            datetime.fromisoformat(data['start_time']),
+            session_start,
+        )
+        self.assertEqual(
+            datetime.fromisoformat(data['end_time']),
+            session_end,
+        )
+        self.assertEqual(data['price_per_hour'], '25.00')
+        self.assertEqual(
+            data['location_type'],
+            Available_Slots.LocationType.IN_PERSON,
+        )
+
+        self.assertNotEqual(
+            datetime.fromisoformat(data['start_time']),
+            slot.start_time,
+        )
+        self.assertNotEqual(
+            datetime.fromisoformat(data['end_time']),
+            slot.end_time,
+        )
+
+        self.pending_request.refresh_from_db()
+        slot.refresh_from_db()
+
+        self.assertEqual(
+            self.pending_request.status,
+            Booking.Status.PENDING,
+        )
+        self.assertEqual(
+            slot.status,
+            Available_Slots.Status.AVAILABLE,
+        )
 
 class test_decline_session_requests(TestCase):
     def setUp(self):

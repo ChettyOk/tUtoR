@@ -184,11 +184,13 @@ def submit_rating_view(request, booking_id):
         'comment': rating.rating_comment,
     }, status=201)
 
-
 @require_GET
 def get_session_request_view(request):
     if not request.user.is_authenticated:
-        return JsonResponse({'error': 'Log in to view your session requests.'}, status=401)
+        return JsonResponse(
+            {'error': 'Log in to view your session requests.'},
+            status=401,
+        )
 
     open_requests = get_session_requests(request.user)
 
@@ -201,7 +203,28 @@ def get_session_request_view(request):
             'student_note': booking.student_note,
             'session_price': str(booking.session_price),
             'status': booking.status,
-            'request_time': booking.request_time.isoformat() if booking.request_time else None,
+            'request_time': (
+                booking.request_time.isoformat()
+                if booking.request_time
+                else None
+            ),
+            'time_slot_id': booking.time_slot_id,
+            'start_time': (
+                booking.start_time.isoformat()
+                if booking.start_time
+                else None
+            ),
+            'end_time': (
+                booking.end_time.isoformat()
+                if booking.end_time
+                else None
+            ),
+            'price_per_hour': (
+                str(booking.price_per_hour)
+                if booking.price_per_hour is not None
+                else None
+            ),
+            'location_type': booking.location_type,
         }
         for booking in open_requests
     ]
