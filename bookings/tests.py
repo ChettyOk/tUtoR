@@ -2134,3 +2134,51 @@ class test_slot_management_csrf(TestCase):
         self.assertEqual(response.status_code, 200)
         self.slot.refresh_from_db()
         self.assertEqual(self.slot.status, Available_Slots.Status.CANCELLED)
+
+
+
+class TutorSessionsPageTests(TestCase):
+    def setUp(self):
+        self.url = reverse('tutor_sessions')
+        self.tutor = User.objects.create_user(
+            email='tutor@example.com', password='pw-12345-xyz', role='tutor')
+        self.student = User.objects.create_user(
+            email='student@example.com', password='pw-12345-xyz', role='student')
+        self.undecided = User.objects.create_user(
+            email='new@example.com', password='pw-12345-xyz')
+
+    def test_anonymous_user_is_sent_to_login(self):
+        response = self.client.get(self.url)
+        self.assertRedirects(response, f"{reverse('login')}?next={self.url}",
+                             fetch_redirect_response=False)
+
+    def test_student_is_sent_to_student_home(self):
+        self.client.force_login(self.student)
+        self.assertRedirects(self.client.get(self.url), reverse('student_home'),
+                             fetch_redirect_response=False)
+
+    def test_user_without_a_role_is_sent_to_student_home(self):
+        self.client.force_login(self.undecided)
+        self.assertRedirects(self.client.get(self.url), reverse('student_home'),
+                             fetch_redirect_response=False)
+
+    def test_tutor_sees_the_page(self):
+        self.client.force_login(self.tutor)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'tutor/sessions/setup.html')
+        self.assertContains(response, 'Set up tutoring sessions')
+
+    def test_page_lists_the_tutors_courses(self):
+        course = Course.create_course('CS 110', 'Programming and Problem Solving')
+        TutorProfile.objects.create(user=self.tutor).courses_passed.add(course)
+        self.client.force_login(self.tutor)
+        self.assertContains(self.client.get(self.url), 'CS 110')
+
+    def test_page_without_courses_still_loads(self):
+        self.client.force_login(self.tutor)
+        self.assertContains(self.client.get(self.url), 'You have not picked any courses yet.')
+
+    def test_tutor_home_links_to_the_page(self):
+        self.client.force_login(self.tutor)
+        self.assertContains(self.client.get(reverse('tutor_home')), self.url)
