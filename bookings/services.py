@@ -6,7 +6,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.core.exceptions import ValidationError
 
-from accounts.models import StudentProfile, TutorProfile
+from accounts.models import Course, StudentProfile, TutorProfile
 from bookings.models import (
     Available_Slots,
     Booking,
@@ -83,6 +83,15 @@ def create_tutoring_request(
     except ValidationError as error:
         raise ValueError(' '.join(error.messages)) from error
 
+    if get_existing_request_tutors(
+        student=student,
+        course=course,
+    ).exists():
+        raise ValueError(
+            'Tutors already offer this course. '
+            'Please view the existing tutors instead.'
+        )
+
     tutoring_request.save()
 
     return tutoring_request
@@ -135,6 +144,72 @@ def withdraw_tutoring_request(*, request_id, student):
     tutoring_request.refresh_from_db()
 
     return tutoring_request
+
+def get_existing_request_tutors(*, student, course):
+    return (
+        TutorProfile.objects
+        .filter(
+            courses_passed=course,
+            user__is_active=True,
+        )
+        .exclude(user_id=student.pk)
+        .select_related('user')
+        .order_by(
+            'user__first_name',
+            'user__last_name',
+            'user_id',
+        )
+    )
+
+def get_tutoring_request_form_data(*, student, course=None):
+    existing_tutors = []
+
+    if course is not None:
+        tutor_profiles = get_existing_request_tutors(
+            student=student,
+            course=course,
+        )
+
+        existing_tutors = [
+            {
+                'tutor_id': profile.user_id,
+                'first_name': profile.user.first_name,
+                'last_name': profile.user.last_name,
+            }
+            for profile in tutor_profiles
+        ]
+
+    can_create_request = None
+
+    if course is not None:
+        can_create_request = not existing_tutors
+
+    return {
+        'courses': list(
+            Course.objects
+            .order_by('course_code')
+            .values(
+                'id',
+                'course_code',
+                'course_name',
+                'course_faculty',
+            )
+        ),
+        'location_types': [
+            {'value': value, 'label': label}
+            for value, label in TutoringRequest.LocationType.choices
+        ],
+        'visibility_options': [
+            {'value': value, 'label': label}
+            for value, label in TutoringRequest.Visibility.choices
+        ],
+        'description_max_length': (
+            TutoringRequest._meta.get_field('description').max_length
+        ),
+        'selected_course_id': course.pk if course is not None else None,
+        'can_create_request': can_create_request,
+        'existing_tutors': existing_tutors,
+    }
 
 def create_session_request(
     student,

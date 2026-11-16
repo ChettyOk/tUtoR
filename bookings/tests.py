@@ -3533,3 +3533,271 @@ class StudentTutoringRequestViewTests(TestCase):
             self.tutoring_request.status,
             TutoringRequest.Status.OPEN,
         )
+
+class TutoringRequestFormViewTests(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(
+            email='request-form-student@uregina.ca',
+            password='RequestFormTest123!',
+            role=User.Role.STUDENT,
+        )
+        self.tutor = User.objects.create_user(
+            email='request-form-tutor@uregina.ca',
+            password='RequestFormTest123!',
+            first_name='Alex',
+            last_name='Tutor',
+            role=User.Role.TUTOR,
+        )
+        self.course = Course.create_course(
+            'CS 476',
+            'Software Development Project',
+        )
+        self.other_course = Course.create_course(
+            'CS 477',
+            'Another Computer Science Course',
+        )
+        self.tutor_profile = TutorProfile.objects.create(
+            user=self.tutor,
+        )
+
+        self.url = reverse('tutoring_request_form')
+        self.client.force_login(self.student)
+
+    def get_form(self, course=None):
+        data = {}
+
+        if course is not None:
+            data['course_id'] = course.pk
+
+        return self.client.get(self.url, data)
+
+    def post_request(self):
+        return self.client.post(
+            reverse('create_request'),
+            {
+                'course_id': self.course.pk,
+                'description': 'Please help me understand Django.',
+            },
+        )
+
+    def test_returns_form_metadata_without_course_selection(self):
+        response = self.get_form()
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+
+        self.assertEqual(
+            data['courses'],
+            [
+                {
+                    'id': course.pk,
+                    'course_code': course.course_code,
+                    'course_name': course.course_name,
+                    'course_faculty': course.course_faculty,
+                }
+                for course in (self.course, self.other_course)
+            ],
+        )
+        self.assertEqual(
+            data['location_types'],
+            [
+                {'value': value, 'label': label}
+                for value, label in TutoringRequest.LocationType.choices
+            ],
+        )
+        self.assertEqual(
+            data['visibility_options'],
+            [
+                {'value': value, 'label': label}
+                for value, label in TutoringRequest.Visibility.choices
+            ],
+        )
+        self.assertEqual(data['description_max_length'], 2000)
+        self.assertIsNone(data['selected_course_id'])
+        self.assertIsNone(data['can_create_request'])
+        self.assertEqual(data['existing_tutors'], [])
+
+    def test_allows_course_without_existing_tutors(self):
+        response = self.get_form(self.course)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()['selected_course_id'],
+            self.course.pk,
+        )
+        self.assertIs(response.json()['can_create_request'], True)
+        self.assertEqual(response.json()['existing_tutors'], [])
+
+    def test_existing_tutor_blocks_course_without_requiring_slots(self):
+        self.tutor_profile.courses_passed.add(self.course)
+
+        response = self.get_form(self.course)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIs(response.json()['can_create_request'], False)
+        self.assertEqual(
+            response.json()['existing_tutors'],
+            [
+                {
+                    'tutor_id': self.tutor.pk,
+                    'first_name': 'Alex',
+                    'last_name': 'Tutor',
+                },
+            ],
+        )
+
+    def test_tutor_for_different_course_does_not_block(self):
+        self.tutor_profile.courses_passed.add(self.other_course)
+
+        response = self.get_form(self.course)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIs(response.json()['can_create_request'], True)
+        self.assertEqual(response.json()['existing_tutors'], [])
+
+    def test_own_tutor_profile_does_not_block(self):
+        profile = TutorProfile.objects.create(user=self.student)
+        profile.courses_passed.add(self.course)
+
+        form_response = self.get_form(self.course)
+        create_response = self.post_request()
+
+        self.assertIs(form_response.json()['can_create_request'], True)
+        self.assertEqual(
+            create_response.status_code,
+            201,
+            msg=create_response.content.decode(),
+        )
+
+    def test_inactive_tutor_does_not_block(self):
+        self.tutor_profile.courses_passed.add(self.course)
+        self.tutor.is_active = False
+        self.tutor.save(update_fields=['is_active'])
+
+        form_response = self.get_form(self.course)
+        create_response = self.post_request()
+
+        self.assertIs(form_response.json()['can_create_request'], True)
+        self.assertEqual(
+            create_response.status_code,
+            201,
+            msg=create_response.content.decode(),
+        )
+
+    def test_tutor_role_switch_does_not_remove_course_offer(self):
+        self.tutor_profile.courses_passed.add(self.course)
+        self.tutor.switch_role(User.Role.STUDENT)
+        self.tutor.save(update_fields=['role'])
+
+        form_response = self.get_form(self.course)
+        create_response = self.post_request()
+
+        self.assertIs(form_response.json()['can_create_request'], False)
+        self.assertEqual(create_response.status_code, 400)
+        self.assertEqual(TutoringRequest.objects.count(), 0)
+
+    def test_direct_creation_is_blocked_without_form_check(self):
+        self.tutor_profile.courses_passed.add(self.course)
+        request_count = TutoringRequest.objects.count()
+        booking_count = Booking.objects.count()
+
+        response = self.post_request()
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {
+                'error': (
+                    'Tutors already offer this course. '
+                    'Please view the existing tutors instead.'
+                ),
+            },
+        )
+        self.assertEqual(
+            TutoringRequest.objects.count(),
+            request_count,
+        )
+        self.assertEqual(Booking.objects.count(), booking_count)
+
+    def test_creation_rechecks_offers_after_form_was_loaded(self):
+        form_response = self.get_form(self.course)
+        self.assertIs(form_response.json()['can_create_request'], True)
+
+        self.tutor_profile.courses_passed.add(self.course)
+
+        response = self.post_request()
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(TutoringRequest.objects.count(), 0)
+
+    def test_creation_is_allowed_without_existing_tutors(self):
+        response = self.post_request()
+
+        self.assertEqual(
+            response.status_code,
+            201,
+            msg=response.content.decode(),
+        )
+        tutoring_request = TutoringRequest.objects.get(
+            pk=response.json()['request_id'],
+        )
+        self.assertEqual(tutoring_request.course, self.course)
+        self.assertEqual(
+            tutoring_request.status,
+            TutoringRequest.Status.OPEN,
+        )
+
+    def test_invalid_course_ids_are_rejected(self):
+        for course_id in ('', 'abc', '0', '-1', '1.5'):
+            with self.subTest(course_id=course_id):
+                response = self.client.get(
+                    self.url,
+                    {'course_id': course_id},
+                )
+
+                self.assertEqual(response.status_code, 400)
+                self.assertIn('error', response.json())
+
+    def test_unknown_course_is_rejected(self):
+        missing_id = self.other_course.pk
+        self.other_course.delete()
+
+        response = self.client.get(
+            self.url,
+            {'course_id': missing_id},
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_requires_login(self):
+        self.client.logout()
+
+        response = self.get_form()
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_requires_active_student_role(self):
+        self.client.force_login(self.tutor)
+
+        response = self.get_form()
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_rejects_post(self):
+        response = self.client.post(self.url)
+
+        self.assertEqual(response.status_code, 405)
+        self.assertEqual(response.headers['Allow'], 'GET')
+
+    def test_reading_form_does_not_create_requests_or_bookings(self):
+        request_count = TutoringRequest.objects.count()
+        booking_count = Booking.objects.count()
+
+        response = self.get_form(self.course)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            TutoringRequest.objects.count(),
+            request_count,
+        )
+        self.assertEqual(Booking.objects.count(), booking_count)

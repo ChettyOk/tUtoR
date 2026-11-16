@@ -24,4 +24,5 @@ urlpatterns = [
     path('requests/mine/', views.get_my_tutoring_requests_view,name='my_tutoring_requests',),
     path('requests/mine/<int:request_id>/', views.get_my_tutoring_request_view, name='my_tutoring_request',),
     path('requests/mine/<int:request_id>/withdraw/', views.withdraw_tutoring_request_view, name='withdraw_tutoring_request',),
+    path('requests/form/', views.get_tutoring_request_form_view, name='tutoring_request_form',),
 ]

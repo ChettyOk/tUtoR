@@ -37,6 +37,7 @@ from .services import (
     get_session_requests,
     get_tutor_available_slots,
     get_tutor_schedule,
+    get_tutoring_request_form_data,
     get_user_bookings,
     get_user_details,
     serialize_slot,
@@ -226,6 +227,40 @@ def withdraw_tutoring_request_view(request, request_id):
         'request_id': tutoring_request.pk,
         'status': tutoring_request.status,
     })
+
+@require_GET
+def get_tutoring_request_form_view(request):
+    error_response = check_role_access(
+        request,
+        User.Role.STUDENT,
+    )
+
+    if error_response is not None:
+        return error_response
+
+    course = None
+    raw_course_id = request.GET.get('course_id')
+
+    if raw_course_id is not None:
+        try:
+            course_id = int(raw_course_id)
+
+            if course_id <= 0:
+                raise ValueError
+        except (TypeError, ValueError, OverflowError):
+            return JsonResponse(
+                {'error': 'course_id must be a positive integer.'},
+                status=400,
+            )
+
+        course = get_object_or_404(Course, pk=course_id)
+
+    return JsonResponse(
+        get_tutoring_request_form_data(
+            student=request.user,
+            course=course,
+        ),
+    )
 
 @require_POST
 def submit_rating_view(request, booking_id):
