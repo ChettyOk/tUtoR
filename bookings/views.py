@@ -34,12 +34,12 @@ from .services import (
     create_tutoring_request,
     decline_session_request,
     get_ratings,
-    get_session_requests,
     get_tutor_available_slots,
     get_tutor_schedule,
     get_tutoring_request_form_data,
     get_user_bookings,
     get_user_details,
+    get_visible_tutoring_requests,
     serialize_slot,
     get_student_tutoring_requests,
     serialize_tutoring_request,
@@ -291,52 +291,25 @@ def submit_rating_view(request, booking_id):
     }, status=201)
 
 @require_GET
-def get_session_request_view(request):
-    if not request.user.is_authenticated:
-        return JsonResponse(
-            {'error': 'Log in to view your session requests.'},
-            status=401,
-        )
+def get_tutoring_request_forum_view(request):
+    error_response = check_role_access(
+        request,
+        User.Role.TUTOR,
+    )
 
-    open_requests = get_session_requests(request.user)
+    if error_response is not None:
+        return error_response
 
-    data = [
-        {
-            'id': booking.id,
-            'student_id': booking.student.id,
-            'student_email': booking.student.email,
-            'course': str(booking.course) if booking.course else None,
-            'student_note': booking.student_note,
-            'session_price': str(booking.session_price),
-            'status': booking.status,
-            'request_time': (
-                booking.request_time.isoformat()
-                if booking.request_time
-                else None
-            ),
-            'time_slot_id': booking.time_slot_id,
-            'start_time': (
-                booking.start_time.isoformat()
-                if booking.start_time
-                else None
-            ),
-            'end_time': (
-                booking.end_time.isoformat()
-                if booking.end_time
-                else None
-            ),
-            'price_per_hour': (
-                str(booking.price_per_hour)
-                if booking.price_per_hour is not None
-                else None
-            ),
-            'location_type': booking.location_type,
-        }
-        for booking in open_requests
-    ]
+    tutoring_requests = get_visible_tutoring_requests(
+        tutor=request.user,
+    )
 
-    return JsonResponse({'open_requests': data})
-
+    return JsonResponse({
+        'open_requests': [
+            serialize_tutoring_request(tutoring_request)
+            for tutoring_request in tutoring_requests
+        ],
+    })
 
 @require_POST
 def accept_session_request_view(request, booking_id):
