@@ -44,6 +44,8 @@ from .services import (
     get_student_tutoring_requests,
     serialize_tutoring_request,
     withdraw_tutoring_request,
+    express_tutoring_request_interest,    express_tutoring_request_interest,
+    withdraw_tutoring_request_interest,
 )
 
 def filter_courses(request):
@@ -261,6 +263,80 @@ def get_tutoring_request_form_view(request):
             course=course,
         ),
     )
+
+@require_POST
+def express_tutoring_request_interest_view(request, request_id):
+    error_response = check_role_access(
+        request,
+        User.Role.TUTOR,
+    )
+
+    if error_response is not None:
+        return error_response
+
+    try:
+        interest, created = express_tutoring_request_interest(
+            request_id=request_id,
+            tutor=request.user,
+        )
+    except TutoringRequest.DoesNotExist:
+        return JsonResponse(
+            {'error': 'Tutoring request not found.'},
+            status=404,
+        )
+    except PermissionError as error:
+        return JsonResponse(
+            {'error': str(error)},
+            status=403,
+        )
+    except ValueError as error:
+        return JsonResponse(
+            {'error': str(error)},
+            status=400,
+        )
+
+    return JsonResponse(
+        {
+            'message': 'Interest recorded.',
+            'request_id': interest.tutoring_request_id,
+            'interested': True,
+        },
+        status=201 if created else 200,
+    )
+
+
+@require_POST
+def withdraw_tutoring_request_interest_view(request, request_id):
+    error_response = check_role_access(
+        request,
+        User.Role.TUTOR,
+    )
+
+    if error_response is not None:
+        return error_response
+
+    try:
+        removed = withdraw_tutoring_request_interest(
+            request_id=request_id,
+            tutor=request.user,
+        )
+    except TutoringRequest.DoesNotExist:
+        return JsonResponse(
+            {'error': 'Tutoring request not found.'},
+            status=404,
+        )
+    except PermissionError as error:
+        return JsonResponse(
+            {'error': str(error)},
+            status=403,
+        )
+
+    return JsonResponse({
+        'message': 'Interest withdrawn.',
+        'request_id': request_id,
+        'interested': False,
+        'removed': removed,
+    })
 
 @require_POST
 def submit_rating_view(request, booking_id):

@@ -12,6 +12,7 @@ from bookings.models import (
     Booking,
     Rating,
     TutoringRequest,
+    TutoringRequestInterest,
 )
 from bookings.pricing import calc_price_suggestion
 
@@ -236,6 +237,66 @@ def get_visible_tutoring_requests(*, tutor):
         .select_related('course', 'student')
         .order_by('-created_at', '-id')
     )
+
+def express_tutoring_request_interest(*, request_id, tutor):
+    if not tutor.is_authenticated or not tutor.has_role(
+        tutor.Role.TUTOR
+    ):
+        raise PermissionError(
+            'Only users with an active tutor role can express interest.'
+        )
+
+    with transaction.atomic():
+        tutoring_request = (
+            TutoringRequest.objects
+            .select_for_update()
+            .filter(
+                visibility=TutoringRequest.Visibility.ALL_TUTORS,
+            )
+            .exclude(student=tutor)
+            .get(pk=request_id)
+        )
+
+        if tutoring_request.status != TutoringRequest.Status.OPEN:
+            raise ValueError(
+                'Interest can only be expressed in open tutoring requests.'
+            )
+
+        interest, created = (
+            TutoringRequestInterest.objects.get_or_create(
+                tutoring_request=tutoring_request,
+                tutor=tutor,
+            )
+        )
+
+    return interest, created
+
+
+def withdraw_tutoring_request_interest(*, request_id, tutor):
+    if not tutor.is_authenticated or not tutor.has_role(
+        tutor.Role.TUTOR
+    ):
+        raise PermissionError(
+            'Only users with an active tutor role can withdraw interest.'
+        )
+
+    with transaction.atomic():
+        tutoring_request = (
+            TutoringRequest.objects
+            .select_for_update()
+            .filter(
+                visibility=TutoringRequest.Visibility.ALL_TUTORS,
+            )
+            .exclude(student=tutor)
+            .get(pk=request_id)
+        )
+
+        deleted_count, _ = TutoringRequestInterest.objects.filter(
+            tutoring_request=tutoring_request,
+            tutor=tutor,
+        ).delete()
+
+    return deleted_count > 0
 
 def create_session_request(
     student,

@@ -14,7 +14,7 @@ from django.middleware.csrf import get_token
 from django.core.exceptions import ValidationError
 
 from accounts.models import Course, StudentProfile, TutorProfile, User
-from bookings.models import Available_Slots, Booking, CancellationDeadlinePassedError, TutoringRequest, Rating
+from bookings.models import Available_Slots, Booking, CancellationDeadlinePassedError, TutoringRequest, Rating, TutoringRequestInterest
 from bookings.pricing import (
     DEFAULT_PRICE_GRAD,
     DEFAULT_PRICE_UNDERGRAD,
@@ -3853,6 +3853,270 @@ class TutoringRequestForumViewTests(TestCase):
             request_count,
         )
         self.assertEqual(Booking.objects.count(), booking_count)
+
+        self.tutoring_request.refresh_from_db()
+        self.assertEqual(
+            self.tutoring_request.status,
+            TutoringRequest.Status.OPEN,
+        )
+
+class TutoringRequestInterestViewTests(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(
+            email='interest-student@uregina.ca',
+            password='InterestViewTest123!',
+            role=User.Role.STUDENT,
+        )
+        self.tutor = User.objects.create_user(
+            email='interest-tutor@uregina.ca',
+            password='InterestViewTest123!',
+            role=User.Role.TUTOR,
+        )
+        self.other_tutor = User.objects.create_user(
+            email='other-interest-tutor@uregina.ca',
+            password='InterestViewTest123!',
+            role=User.Role.TUTOR,
+        )
+        TutorProfile.objects.create(user=self.tutor)
+        TutorProfile.objects.create(user=self.other_tutor)
+
+        self.course = Course.create_course(
+            'CS 476',
+            'Software Development Project',
+        )
+        self.tutoring_request = TutoringRequest.objects.create(
+            student=self.student,
+            course=self.course,
+            description='Please help me understand Django.',
+        )
+
+        self.interest_url = reverse(
+            'express_tutoring_request_interest',
+            kwargs={'request_id': self.tutoring_request.pk},
+        )
+        self.withdraw_url = reverse(
+            'withdraw_tutoring_request_interest',
+            kwargs={'request_id': self.tutoring_request.pk},
+        )
+
+        self.client.force_login(self.tutor)
+
+    def test_tutor_can_express_interest_without_matching_courses(self):
+        response = self.client.post(self.interest_url)
+
+        self.assertEqual(
+            response.status_code,
+            201,
+            msg=response.content.decode(),
+        )
+        self.assertEqual(
+            response.json(),
+            {
+                'message': 'Interest recorded.',
+                'request_id': self.tutoring_request.pk,
+                'interested': True,
+            },
+        )
+        self.assertTrue(
+            TutoringRequestInterest.objects.filter(
+                tutoring_request=self.tutoring_request,
+                tutor=self.tutor,
+            ).exists()
+        )
+
+    def test_repeated_interest_does_not_create_duplicates(self):
+        first_response = self.client.post(self.interest_url)
+        second_response = self.client.post(self.interest_url)
+
+        self.assertEqual(first_response.status_code, 201)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertEqual(TutoringRequestInterest.objects.count(), 1)
+
+    def test_multiple_tutors_can_express_interest(self):
+        first_response = self.client.post(self.interest_url)
+
+        self.client.force_login(self.other_tutor)
+        second_response = self.client.post(self.interest_url)
+
+        self.assertEqual(first_response.status_code, 201)
+        self.assertEqual(second_response.status_code, 201)
+        self.assertEqual(
+            set(
+                self.tutoring_request.interests.values_list(
+                    'tutor_id',
+                    flat=True,
+                )
+            ),
+            {self.tutor.pk, self.other_tutor.pk},
+        )
+
+    def test_tutor_can_withdraw_own_interest(self):
+        self.client.post(self.interest_url)
+
+        response = self.client.post(self.withdraw_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                'message': 'Interest withdrawn.',
+                'request_id': self.tutoring_request.pk,
+                'interested': False,
+                'removed': True,
+            },
+        )
+        self.assertFalse(
+            TutoringRequestInterest.objects.filter(
+                tutoring_request=self.tutoring_request,
+                tutor=self.tutor,
+            ).exists()
+        )
+
+    def test_withdrawal_preserves_other_tutors_interest(self):
+        self.client.post(self.interest_url)
+        other_interest = TutoringRequestInterest.objects.create(
+            tutoring_request=self.tutoring_request,
+            tutor=self.other_tutor,
+        )
+
+        response = self.client.post(self.withdraw_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(
+            TutoringRequestInterest.objects.filter(
+                pk=other_interest.pk,
+            ).exists()
+        )
+        self.assertEqual(TutoringRequestInterest.objects.count(), 1)
+
+    def test_withdrawal_without_interest_is_safe(self):
+        response = self.client.post(self.withdraw_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIs(response.json()['removed'], False)
+        self.assertEqual(TutoringRequestInterest.objects.count(), 0)
+
+    def test_interest_can_be_expressed_again_after_withdrawal(self):
+        self.client.post(self.interest_url)
+        self.client.post(self.withdraw_url)
+
+        response = self.client.post(self.interest_url)
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(TutoringRequestInterest.objects.count(), 1)
+
+    def test_closed_requests_reject_new_interest(self):
+        for status in (
+            TutoringRequest.Status.WITHDRAWN,
+            TutoringRequest.Status.FULFILLED,
+        ):
+            with self.subTest(status=status):
+                self.tutoring_request.status = status
+                self.tutoring_request.save(update_fields=['status'])
+
+                response = self.client.post(self.interest_url)
+
+                self.assertEqual(response.status_code, 400)
+                self.assertIn('error', response.json())
+                self.assertEqual(
+                    TutoringRequestInterest.objects.count(),
+                    0,
+                )
+
+    def test_interest_can_be_withdrawn_after_request_closes(self):
+        self.client.post(self.interest_url)
+        self.tutoring_request.status = (
+            TutoringRequest.Status.WITHDRAWN
+        )
+        self.tutoring_request.save(update_fields=['status'])
+
+        response = self.client.post(self.withdraw_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(TutoringRequestInterest.objects.count(), 0)
+
+    def test_own_request_cannot_receive_own_interest(self):
+        self.tutoring_request.student = self.tutor
+        self.tutoring_request.save(update_fields=['student'])
+
+        for url in (self.interest_url, self.withdraw_url):
+            with self.subTest(url=url):
+                response = self.client.post(url)
+                self.assertEqual(response.status_code, 404)
+
+        self.assertEqual(TutoringRequestInterest.objects.count(), 0)
+
+    def test_restricted_request_is_not_accessible(self):
+        self.tutoring_request.visibility = (
+            TutoringRequest.Visibility.COURSE_FACULTY
+        )
+        self.tutoring_request.save(update_fields=['visibility'])
+
+        for url in (self.interest_url, self.withdraw_url):
+            with self.subTest(url=url):
+                response = self.client.post(url)
+                self.assertEqual(response.status_code, 404)
+
+        self.assertEqual(TutoringRequestInterest.objects.count(), 0)
+
+    def test_unknown_request_returns_404(self):
+        self.tutoring_request.delete()
+
+        for url in (self.interest_url, self.withdraw_url):
+            with self.subTest(url=url):
+                response = self.client.post(url)
+                self.assertEqual(response.status_code, 404)
+
+    def test_requires_login(self):
+        self.client.logout()
+
+        for url in (self.interest_url, self.withdraw_url):
+            with self.subTest(url=url):
+                response = self.client.post(url)
+                self.assertEqual(response.status_code, 401)
+
+        self.assertEqual(TutoringRequestInterest.objects.count(), 0)
+
+    def test_requires_active_tutor_role(self):
+        self.client.force_login(self.student)
+
+        for url in (self.interest_url, self.withdraw_url):
+            with self.subTest(url=url):
+                response = self.client.post(url)
+                self.assertEqual(response.status_code, 403)
+
+        self.assertEqual(TutoringRequestInterest.objects.count(), 0)
+
+    def test_rejects_get(self):
+        for url in (self.interest_url, self.withdraw_url):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, 405)
+                self.assertEqual(response.headers['Allow'], 'POST')
+
+    def test_client_cannot_choose_another_tutor(self):
+        response = self.client.post(
+            self.interest_url,
+            {'tutor_id': self.other_tutor.pk},
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(
+            TutoringRequestInterest.objects.get().tutor,
+            self.tutor,
+        )
+
+    def test_interest_actions_do_not_book_or_reserve(self):
+        booking_count = Booking.objects.count()
+        slot_count = Available_Slots.objects.count()
+
+        create_response = self.client.post(self.interest_url)
+        withdraw_response = self.client.post(self.withdraw_url)
+
+        self.assertEqual(create_response.status_code, 201)
+        self.assertEqual(withdraw_response.status_code, 200)
+        self.assertEqual(Booking.objects.count(), booking_count)
+        self.assertEqual(Available_Slots.objects.count(), slot_count)
 
         self.tutoring_request.refresh_from_db()
         self.assertEqual(

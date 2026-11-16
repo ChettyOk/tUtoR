@@ -77,6 +77,37 @@ class TutoringRequest(models.Model):
             f"{self.course} ({self.status})"
         )
 
+class TutoringRequestInterest(models.Model):
+    tutoring_request = models.ForeignKey(
+        TutoringRequest,
+        on_delete=models.CASCADE,
+        related_name='interests',
+    )
+
+    tutor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='tutoring_request_interests',
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['tutoring_request', 'tutor'],
+                name='unique_tutor_interest_per_request',
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"Interest #{self.pk} | "
+            f"request {self.tutoring_request_id}, "
+            f"tutor {self.tutor_id}"
+        )
+
 class Booking(models.Model):
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='student_bookings')
 
