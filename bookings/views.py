@@ -30,10 +30,8 @@ from .pricing import (
     custom_pricing,
 )
 from .services import (
-    accept_session_request,
     create_rating,
     create_tutoring_request,
-    decline_session_request,
     get_interested_tutors,
     get_ratings,
     get_tutor_available_slots,
@@ -46,7 +44,7 @@ from .services import (
     get_student_tutoring_requests,
     serialize_tutoring_request,
     withdraw_tutoring_request,
-    express_tutoring_request_interest,    express_tutoring_request_interest,
+    express_tutoring_request_interest,
     withdraw_tutoring_request_interest,
 )
 
@@ -430,31 +428,6 @@ def get_tutoring_request_forum_view(request):
         ],
     })
 
-@require_POST
-def accept_session_request_view(request, booking_id):
-    if not request.user.is_authenticated:
-        return JsonResponse({'error': 'Please log in.'}, status=401)
-
-    try:
-        booking = accept_session_request(
-            booking_id=booking_id,
-            tutor=request.user,
-        )
-    except Booking.DoesNotExist:
-        return JsonResponse(
-            {'error': 'Session request not found.'},
-            status=404,
-        )
-    except PermissionError as error:
-        return JsonResponse({'error': str(error)}, status=403)
-    except ValueError as error:
-        return JsonResponse({'error': str(error)}, status=400)
-
-    return JsonResponse({
-        'message': 'Request accepted.',
-        'status': booking.status,
-    })
-
 @require_GET
 def get_ratings_view(request, user_id, rated_role):
     user = get_object_or_404(User, id=user_id)
@@ -541,38 +514,6 @@ def get_bookings(request):
         'student_bookings': [serialize_booking(booking) for booking in bookings['student_bookings']],
         'tutor_bookings': [serialize_booking(booking) for booking in bookings['tutor_bookings']],
     })
-
-
-@require_POST
-def decline_session_request_view(request, booking_id):
-    if not request.user.is_authenticated:
-        return JsonResponse({'error': 'Please log in.'}, status=401)
-
-    reason = request.POST.get('reason', 'Tutor declined').strip()
-    if not reason:
-        reason = 'Tutor declined'
-
-    try:
-        booking = decline_session_request(
-            booking_id=booking_id,
-            tutor=request.user,
-            reason=reason,
-        )
-    except Booking.DoesNotExist:
-        return JsonResponse(
-            {'error': 'Session request not found.'},
-            status=404,
-        )
-    except PermissionError as error:
-        return JsonResponse({'error': str(error)}, status=403)
-    except ValueError as error:
-        return JsonResponse({'error': str(error)}, status=400)
-
-    return JsonResponse({
-        'message': 'Request declined.',
-        'status': booking.status,
-    })
-
 
 @require_POST
 def cancel_booking_view(request, booking_id):
