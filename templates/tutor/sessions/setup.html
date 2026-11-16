@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}Set up tutoring sessions · {{ site_name|default:"tUtoR" }}{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+
+  <div class="mb-4">
+    <a href="{% url 'tutor_home' %}" class="small text-decoration-none">&larr; Back to home</a>
+    <p class="kicker kicker-green mt-3 mb-2">Tutor</p>
+    <h1 class="h3 mb-1">Set up tutoring sessions</h1>
+    <p class="text-muted mb-0">
+      Choose the courses you teach, then add the times you are free. Students
+      can book any open time.
+    </p>
+  </div>
+
+  <div class="row g-4">
+
+    <!-- Left column: what you teach and the new session -->
+    <div class="col-lg-5">
+
+      <section class="card mb-4" id="courses-section" aria-labelledby="courses-heading">
+        <div class="card-body">
+          <h2 class="h6" id="courses-heading">Courses you teach</h2>
+          {% if courses %}
+          <ul class="mb-0">
+            {% for course in courses %}
+            <li>{{ course.course_code }} &ndash; {{ course.course_name }}</li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          <p class="text-muted mb-0">You have not picked any courses yet.</p>
+          {% endif %}
+        </div>
+      </section>
+
+      <section class="card" id="session-form-section" aria-labelledby="session-form-heading">
+        <div class="card-body">
+          <h2 class="h6" id="session-form-heading">New session</h2>
+          <p class="text-muted mb-0">The form for adding a time slot goes here.</p>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- Right column: summary and schedule -->
+    <div class="col-lg-7">
+
+      <section class="card mb-4" id="session-info-section" aria-labelledby="session-info-heading">
+        <div class="card-body">
+          <h2 class="h6" id="session-info-heading">Session information</h2>
+          <p class="text-muted mb-0">A summary of the session you are creating appears here.</p>
+        </div>
+      </section>
+
+      <section class="card" id="schedule-section" aria-labelledby="schedule-heading">
+        <div class="card-body">
+          <h2 class="h6" id="schedule-heading">Your schedule</h2>
+          <p class="text-muted mb-0">Your sessions will be listed here.</p>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+{% endblock %}
