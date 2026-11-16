@@ -4,9 +4,15 @@ from datetime import datetime
 from django.utils import timezone
 from django.db import transaction
 from django.db.models import Q
+from django.core.exceptions import ValidationError
 
 from accounts.models import StudentProfile, TutorProfile
-from bookings.models import Available_Slots, Booking, Rating
+from bookings.models import (
+    Available_Slots,
+    Booking,
+    Rating,
+    TutoringRequest,
+)
 from bookings.pricing import calc_price_suggestion
 
 
@@ -45,6 +51,41 @@ def get_user_bookings(user):
     all_bookings = Booking.objects.filter(Q(student=user) | Q(tutor=user)).order_by(sort_by)
     
     return {'all_bookings': all_bookings, 'student_bookings': student_bookings, 'tutor_bookings': tutor_bookings}
+
+def create_tutoring_request(
+    *,
+    student,
+    course,
+    description,
+    location_type=TutoringRequest.LocationType.FLEXIBLE,
+    visibility=TutoringRequest.Visibility.ALL_TUTORS,
+):
+    if not student.is_authenticated or not student.has_role(
+        student.Role.STUDENT
+    ):
+        raise PermissionError(
+            'Only users with an active student role can create requests.'
+        )
+
+    if not isinstance(description, str) or not description.strip():
+        raise ValueError('Please describe the support you need.')
+
+    tutoring_request = TutoringRequest(
+        student=student,
+        course=course,
+        description=description.strip(),
+        location_type=location_type,
+        visibility=visibility,
+    )
+
+    try:
+        tutoring_request.full_clean()
+    except ValidationError as error:
+        raise ValueError(' '.join(error.messages)) from error
+
+    tutoring_request.save()
+
+    return tutoring_request
 
 def create_session_request(
     student,
