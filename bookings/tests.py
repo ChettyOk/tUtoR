@@ -2880,9 +2880,7 @@ class TutoringRequestCreationViewTests(TestCase):
                 **self.data,
                 'description': '  Help me with Django.  ',
                 'location_type': TutoringRequest.LocationType.ONLINE,
-                'visibility': (
-                    TutoringRequest.Visibility.COURSE_FACULTY
-                ),
+                'visibility': TutoringRequest.Visibility.ALL_TUTORS,
             },
         )
 
@@ -2906,7 +2904,7 @@ class TutoringRequestCreationViewTests(TestCase):
         )
         self.assertEqual(
             tutoring_request.visibility,
-            TutoringRequest.Visibility.COURSE_FACULTY,
+            TutoringRequest.Visibility.ALL_TUTORS,
         )
 
     def test_requires_login(self):
@@ -3608,8 +3606,12 @@ class TutoringRequestFormViewTests(TestCase):
         self.assertEqual(
             data['visibility_options'],
             [
-                {'value': value, 'label': label}
-                for value, label in TutoringRequest.Visibility.choices
+                {
+                    'value': TutoringRequest.Visibility.ALL_TUTORS,
+                    'label': (
+                        TutoringRequest.Visibility.ALL_TUTORS.label
+                    ),
+                },
             ],
         )
         self.assertEqual(data['description_max_length'], 2000)

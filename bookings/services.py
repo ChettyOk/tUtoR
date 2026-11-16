@@ -70,6 +70,11 @@ def create_tutoring_request(
     if not isinstance(description, str) or not description.strip():
         raise ValueError('Please describe the support you need.')
 
+    if visibility != TutoringRequest.Visibility.ALL_TUTORS:
+        raise ValueError(
+            'Only visibility to all tutors is currently supported.'
+        )
+
     tutoring_request = TutoringRequest(
         student=student,
         course=course,
@@ -200,8 +205,10 @@ def get_tutoring_request_form_data(*, student, course=None):
             for value, label in TutoringRequest.LocationType.choices
         ],
         'visibility_options': [
-            {'value': value, 'label': label}
-            for value, label in TutoringRequest.Visibility.choices
+            {
+                'value': TutoringRequest.Visibility.ALL_TUTORS,
+                'label': TutoringRequest.Visibility.ALL_TUTORS.label,
+            },
         ],
         'description_max_length': (
             TutoringRequest._meta.get_field('description').max_length
@@ -210,6 +217,25 @@ def get_tutoring_request_form_data(*, student, course=None):
         'can_create_request': can_create_request,
         'existing_tutors': existing_tutors,
     }
+
+def get_visible_tutoring_requests(*, tutor):
+    if not tutor.is_authenticated or not tutor.has_role(
+        tutor.Role.TUTOR
+    ):
+        raise PermissionError(
+            'Only users with an active tutor role can view the forum.'
+        )
+
+    return (
+        TutoringRequest.objects
+        .filter(
+            status=TutoringRequest.Status.OPEN,
+            visibility=TutoringRequest.Visibility.ALL_TUTORS,
+        )
+        .exclude(student=tutor)
+        .select_related('course', 'student')
+        .order_by('-created_at', '-id')
+    )
 
 def create_session_request(
     student,
