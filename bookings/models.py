@@ -4,13 +4,78 @@ from django.conf import settings
 from django.utils import timezone
 from accounts.models import Course
 from decimal import Decimal, ROUND_HALF_UP
-from django.core.validators import MinValueValidator, MaxValueValidator
+from django.core.validators import (
+    MaxLengthValidator,
+    MaxValueValidator,
+    MinValueValidator,
+)
 from django.core.exceptions import ValidationError
 
 from datetime import datetime, timedelta
 
 class CancellationDeadlinePassedError(Exception):
     pass
+
+class TutoringRequest(models.Model):
+    class Status(models.TextChoices):
+        OPEN = 'open', 'Open'
+        WITHDRAWN = 'withdrawn', 'Withdrawn'
+        FULFILLED = 'fulfilled', 'Fulfilled'
+
+    class Visibility(models.TextChoices):
+        ALL_TUTORS = 'all_tutors', 'All tutors'
+        COURSE_FACULTY = 'course_faculty', 'Course faculty'
+
+    class LocationType(models.TextChoices):
+        ONLINE = 'online', 'Online'
+        IN_PERSON = 'in_person', 'In person'
+        FLEXIBLE = 'flexible', 'Flexible'
+
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='tutoring_requests',
+    )
+
+    course = models.ForeignKey(
+        Course,
+        on_delete=models.PROTECT,
+        related_name='tutoring_requests',
+    )
+
+    description = models.TextField(
+        max_length=2000,
+        validators=[MaxLengthValidator(2000)],
+    )
+
+    location_type = models.CharField(
+        max_length=10,
+        choices=LocationType.choices,
+        default=LocationType.FLEXIBLE,
+    )
+
+    visibility = models.CharField(
+        max_length=20,
+        choices=Visibility.choices,
+        default=Visibility.ALL_TUTORS,
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.OPEN,
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at', '-id']
+
+    def __str__(self):
+        return (
+            f"Tutoring request #{self.pk} | "
+            f"{self.course} ({self.status})"
+        )
 
 class Booking(models.Model):
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='student_bookings')

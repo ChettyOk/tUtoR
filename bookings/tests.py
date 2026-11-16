@@ -11,9 +11,10 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.middleware.csrf import get_token
+from django.core.exceptions import ValidationError
 
 from accounts.models import Course, StudentProfile, TutorProfile, User
-from bookings.models import Available_Slots, Booking, CancellationDeadlinePassedError, Rating
+from bookings.models import Available_Slots, Booking, CancellationDeadlinePassedError, TutoringRequest, Rating
 from bookings.pricing import (
     DEFAULT_PRICE_GRAD,
     DEFAULT_PRICE_UNDERGRAD,
@@ -22,7 +23,15 @@ from bookings.pricing import (
     calc_price_suggestion,
     custom_pricing,
 )
-from bookings.services import DoubleBookingError, create_booking_request, get_tutor_available_slots, get_user_bookings, get_tutor_schedule, serialize_slot, accept_session_request
+from bookings.services import (
+    DoubleBookingError,
+    create_booking_request,
+    get_tutor_available_slots,
+    get_user_bookings,
+    get_tutor_schedule,
+    serialize_slot,
+    accept_session_request,
+)
 from tUtoR.views import custom_403, custom_500
 
 class Dummy_Slot: 
@@ -3343,3 +3352,90 @@ class test_scheduled_session_request_workflow(TestCase):
         self.assert_session_details(booking)
         self.assert_window_unchanged()
         self.assert_no_open_requests()
+
+class TutoringRequestModelTests(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(
+            email='request-model-student@uregina.ca',
+            password='RequestModelTest123!',
+            role=User.Role.STUDENT,
+        )
+
+        self.course = Course.create_course(
+            'CS 476',
+            'Software Development Project',
+        )
+
+    def make_request(self, **overrides):
+        fields = {
+            'student': self.student,
+            'course': self.course,
+            'description': 'I need help preparing for the final exam.',
+        }
+        fields.update(overrides)
+        return TutoringRequest(**fields)
+
+    def test_request_can_be_saved_without_tutor_or_slot(self):
+        booking_count = Booking.objects.count()
+        tutoring_request = self.make_request()
+
+        tutoring_request.full_clean()
+        tutoring_request.save()
+        tutoring_request.refresh_from_db()
+
+        self.assertEqual(tutoring_request.student, self.student)
+        self.assertEqual(tutoring_request.course, self.course)
+        self.assertEqual(
+            tutoring_request.status,
+            TutoringRequest.Status.OPEN,
+        )
+        self.assertEqual(
+            tutoring_request.visibility,
+            TutoringRequest.Visibility.ALL_TUTORS,
+        )
+        self.assertEqual(
+            tutoring_request.location_type,
+            TutoringRequest.LocationType.FLEXIBLE,
+        )
+        self.assertIsNotNone(tutoring_request.created_at)
+        self.assertEqual(Booking.objects.count(), booking_count)
+
+    def test_description_is_required(self):
+        tutoring_request = self.make_request(description='')
+
+        with self.assertRaises(ValidationError) as context:
+            tutoring_request.full_clean()
+
+        self.assertIn('description', context.exception.message_dict)
+
+    def test_description_length_is_limited(self):
+        tutoring_request = self.make_request(description='x' * 2001)
+
+        with self.assertRaises(ValidationError) as context:
+            tutoring_request.full_clean()
+
+        self.assertIn('description', context.exception.message_dict)
+
+    def test_invalid_choices_are_rejected(self):
+        invalid_values = {
+            'status': 'invalid',
+            'visibility': 'invalid',
+            'location_type': 'invalid',
+        }
+
+        for field, value in invalid_values.items():
+            with self.subTest(field=field):
+                tutoring_request = self.make_request(**{field: value})
+
+                with self.assertRaises(ValidationError) as context:
+                    tutoring_request.full_clean()
+
+                self.assertIn(field, context.exception.message_dict)
+
+    def test_course_is_required(self):
+        tutoring_request = self.make_request(course=None)
+
+        with self.assertRaises(ValidationError) as context:
+            tutoring_request.full_clean()
+
+        self.assertIn('course', context.exception.message_dict)
