@@ -10,6 +10,7 @@ from django.views.decorators.http import (
 )
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from django.urls import reverse
 
 from accounts.constants import FACULTIES
 from accounts.models import Course, StudentProfile, TutorProfile, User
@@ -33,6 +34,7 @@ from .services import (
     create_rating,
     create_tutoring_request,
     decline_session_request,
+    get_interested_tutors,
     get_ratings,
     get_tutor_available_slots,
     get_tutor_schedule,
@@ -336,6 +338,47 @@ def withdraw_tutoring_request_interest_view(request, request_id):
         'request_id': request_id,
         'interested': False,
         'removed': removed,
+    })
+
+@require_GET
+def get_interested_tutors_view(request, request_id):
+    error_response = check_role_access(
+        request,
+        User.Role.STUDENT,
+    )
+
+    if error_response is not None:
+        return error_response
+
+    tutoring_request = get_object_or_404(
+        get_student_tutoring_requests(request.user),
+        pk=request_id,
+    )
+
+    interests = get_interested_tutors(
+        tutoring_request=tutoring_request,
+    )
+
+    return JsonResponse({
+        'request_id': tutoring_request.pk,
+        'status': tutoring_request.status,
+        'interested_tutors': [
+            {
+                'tutor_id': interest.tutor_id,
+                'first_name': interest.tutor.first_name,
+                'last_name': interest.tutor.last_name,
+                'interested_since': interest.created_at.isoformat(),
+                'profile_url': reverse(
+                    'tutor_details',
+                    kwargs={'user_id': interest.tutor_id},
+                ),
+                'availability_url': reverse(
+                    'tutor_slots',
+                    kwargs={'tutor_id': interest.tutor_id},
+                ),
+            }
+            for interest in interests
+        ],
     })
 
 @require_POST

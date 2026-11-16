@@ -298,6 +298,17 @@ def withdraw_tutoring_request_interest(*, request_id, tutor):
 
     return deleted_count > 0
 
+def get_interested_tutors(*, tutoring_request):
+    return (
+        TutoringRequestInterest.objects
+        .filter(
+            tutoring_request=tutoring_request,
+            tutor__is_active=True,
+        )
+        .select_related('tutor')
+        .order_by('created_at', 'id')
+    )
+
 def create_session_request(
     student,
     tutor,
