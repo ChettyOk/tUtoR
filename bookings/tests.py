@@ -386,57 +386,6 @@ class test_session_request(TestCase):
             status=Booking.Status.PENDING,
         )
 
-    def test_student_create_session_request(self):
-        window_start = timezone.now() + timedelta(days=2)
-
-        slot = Available_Slots.create_slot(
-            tutor=self.tutor,
-            start_time=window_start,
-            end_time=window_start + timedelta(hours=3),
-            price_per_hour=Decimal('25.00'),
-            location_type=Available_Slots.LocationType.IN_PERSON,
-        )
-
-        session_start = window_start + timedelta(hours=1)
-        session_end = session_start + timedelta(minutes=90)
-        booking_count = Booking.objects.count()
-
-        self.client.force_login(self.student)
-
-        response = self.client.post(reverse('create_request'), {
-            'tutor_id': self.tutor.id,
-            'course_id': self.course.id,
-            'student_note': 'Please help me prepare for my exam.',
-            'time_slot_id': slot.id,
-            'start_time': session_start.isoformat(),
-            'end_time': session_end.isoformat(),
-            'session_price': '0.01',
-            'price_per_hour': '0.01',
-            'location_type': 'online',
-        })
-
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(Booking.objects.count(), booking_count + 1)
-
-        booking = Booking.objects.get(pk=response.json()['booking_id'])
-
-        self.assertEqual(booking.status, Booking.Status.PENDING)
-        self.assertEqual(booking.student, self.student)
-        self.assertEqual(booking.tutor, self.tutor)
-        self.assertEqual(booking.course, self.course)
-        self.assertEqual(booking.time_slot_id, slot.id)
-        self.assertEqual(booking.start_time, session_start)
-        self.assertEqual(booking.end_time, session_end)
-        self.assertEqual(booking.price_per_hour, Decimal('25.00'))
-        self.assertEqual(booking.session_price, Decimal('37.50'))
-        self.assertEqual(
-            booking.location_type,
-            Available_Slots.LocationType.IN_PERSON,
-        )
-
-        slot.refresh_from_db()
-        self.assertEqual(slot.status, Available_Slots.Status.AVAILABLE)
-
     def test_tutor_get_incoming_requests(self):
         self.booking.status = Booking.Status.PENDING
         self.booking.save()
@@ -2829,131 +2778,239 @@ class test_booking_session_details(TestCase):
             Available_Slots.Status.CANCELLED,
         )
 
-class test_scheduled_session_request_creation(TestCase):
+class TutoringRequestCreationViewTests(TestCase):
     def setUp(self):
         self.student = User.objects.create_user(
-            email='scheduled-student@uregina.ca',
-            password='RequestTestPassword123!',
-        )
-        self.tutor = User.objects.create_user(
-            email='scheduled-tutor@uregina.ca',
-            password='RequestTestPassword123!',
-        )
-        self.other_tutor = User.objects.create_user(
-            email='scheduled-other-tutor@uregina.ca',
-            password='RequestTestPassword123!',
+            email='request-view-student@uregina.ca',
+            password='RequestViewTest123!',
+            role=User.Role.STUDENT,
         )
 
-        self.window_start = timezone.now() + timedelta(days=2)
-        self.slot = Available_Slots.create_slot(
-            tutor=self.tutor,
-            start_time=self.window_start,
-            end_time=self.window_start + timedelta(hours=3),
-            price_per_hour=Decimal('25.00'),
+        self.tutor = User.objects.create_user(
+            email='request-view-tutor@uregina.ca',
+            password='RequestViewTest123!',
+            role=User.Role.TUTOR,
+        )
+
+        self.course = Course.create_course(
+            'CS 476',
+            'Software Development Project',
         )
 
         self.url = reverse('create_request')
         self.data = {
-            'tutor_id': self.tutor.id,
-            'student_note': 'Please help me prepare for my exam.',
-            'time_slot_id': self.slot.id,
-            'start_time': (
-                self.window_start + timedelta(hours=1)
-            ).isoformat(),
-            'end_time': (
-                self.window_start + timedelta(hours=2)
-            ).isoformat(),
+            'course_id': self.course.pk,
+            'description': 'Please help me understand Django models.',
         }
 
         self.client.force_login(self.student)
 
-    def assert_rejected(self, data):
+    def assert_rejected(self, data, expected_status=400):
+        request_count = TutoringRequest.objects.count()
         booking_count = Booking.objects.count()
 
         response = self.client.post(self.url, data)
 
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.status_code,
+            expected_status,
+            msg=response.content.decode(),
+        )
         self.assertIn('error', response.json())
+        self.assertEqual(
+            TutoringRequest.objects.count(),
+            request_count,
+        )
         self.assertEqual(Booking.objects.count(), booking_count)
 
-    def test_required_session_fields(self):
-        for field in ('time_slot_id', 'start_time', 'end_time'):
-            with self.subTest(field=field):
-                data = self.data.copy()
-                del data[field]
-                self.assert_rejected(data)
+        return response
 
-    def test_invalid_dates(self):
-        for value in ('not-a-date', '2026-02-30T12:00:00'):
-            with self.subTest(value=value):
-                self.assert_rejected({
-                    **self.data,
-                    'start_time': value,
-                })
+    def test_creates_open_request_without_tutor_or_slot(self):
+        request_count = TutoringRequest.objects.count()
+        booking_count = Booking.objects.count()
+        slot_count = Available_Slots.objects.count()
 
-    def test_slot_must_belong_to_selected_tutor(self):
-        self.assert_rejected({
-            **self.data,
-            'tutor_id': self.other_tutor.id,
-        })
+        response = self.client.post(self.url, self.data)
 
-    def test_slot_must_be_available(self):
-        for status in (
-            Available_Slots.Status.BOOKED,
-            Available_Slots.Status.CANCELLED,
-        ):
-            with self.subTest(status=status):
-                self.slot.status = status
-                self.slot.save(update_fields=['status'])
-                self.assert_rejected(self.data)
+        self.assertEqual(
+            response.status_code,
+            201,
+            msg=response.content.decode(),
+        )
 
-    def test_session_must_fit_inside_window(self):
-        cases = [
+        data = response.json()
+        tutoring_request = TutoringRequest.objects.get(
+            pk=data['request_id'],
+        )
+
+        self.assertEqual(
+            data,
             {
-                'start_time': (
-                    self.window_start - timedelta(minutes=1)
-                ).isoformat(),
+                'message': 'Tutoring request published.',
+                'request_id': tutoring_request.pk,
+                'status': TutoringRequest.Status.OPEN,
             },
+        )
+        self.assertNotIn('booking_id', data)
+        self.assertEqual(
+            TutoringRequest.objects.count(),
+            request_count + 1,
+        )
+        self.assertEqual(tutoring_request.student, self.student)
+        self.assertEqual(tutoring_request.course, self.course)
+        self.assertEqual(
+            tutoring_request.description,
+            self.data['description'],
+        )
+        self.assertEqual(
+            tutoring_request.location_type,
+            TutoringRequest.LocationType.FLEXIBLE,
+        )
+        self.assertEqual(
+            tutoring_request.visibility,
+            TutoringRequest.Visibility.ALL_TUTORS,
+        )
+        self.assertEqual(Booking.objects.count(), booking_count)
+        self.assertEqual(Available_Slots.objects.count(), slot_count)
+
+    def test_saves_selected_options_and_trims_description(self):
+        response = self.client.post(
+            self.url,
             {
-                'end_time': (
-                    self.slot.end_time + timedelta(minutes=1)
-                ).isoformat(),
+                **self.data,
+                'description': '  Help me with Django.  ',
+                'location_type': TutoringRequest.LocationType.ONLINE,
+                'visibility': (
+                    TutoringRequest.Visibility.COURSE_FACULTY
+                ),
             },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            201,
+            msg=response.content.decode(),
+        )
+
+        tutoring_request = TutoringRequest.objects.get(
+            pk=response.json()['request_id'],
+        )
+
+        self.assertEqual(
+            tutoring_request.description,
+            'Help me with Django.',
+        )
+        self.assertEqual(
+            tutoring_request.location_type,
+            TutoringRequest.LocationType.ONLINE,
+        )
+        self.assertEqual(
+            tutoring_request.visibility,
+            TutoringRequest.Visibility.COURSE_FACULTY,
+        )
+
+    def test_requires_login(self):
+        self.client.logout()
+
+        self.assert_rejected(self.data, expected_status=401)
+
+    def test_requires_active_student_role(self):
+        self.client.force_login(self.tutor)
+
+        self.assert_rejected(self.data, expected_status=403)
+
+    def test_rejects_get(self):
+        request_count = TutoringRequest.objects.count()
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 405)
+        self.assertEqual(response.headers['Allow'], 'POST')
+        self.assertEqual(
+            TutoringRequest.objects.count(),
+            request_count,
+        )
+
+    def test_course_id_is_required(self):
+        data = self.data.copy()
+        del data['course_id']
+
+        self.assert_rejected(data)
+
+    def test_invalid_course_ids_are_rejected(self):
+        for course_id in ('', 'abc', '0', '-1', '1.5'):
+            with self.subTest(course_id=course_id):
+                self.assert_rejected(
+                    {
+                        **self.data,
+                        'course_id': course_id,
+                    },
+                )
+
+    def test_unknown_course_is_rejected(self):
+        missing_id = self.course.pk
+        self.course.delete()
+
+        self.assert_rejected(
             {
-                'end_time': self.data['start_time'],
+                **self.data,
+                'course_id': missing_id,
             },
+            expected_status=404,
+        )
+
+    def test_description_is_required(self):
+        data = self.data.copy()
+        del data['description']
+
+        self.assert_rejected(data)
+
+    def test_invalid_descriptions_are_rejected(self):
+        for description in ('', '   ', 'x' * 2001):
+            with self.subTest(length=len(description)):
+                self.assert_rejected(
+                    {
+                        **self.data,
+                        'description': description,
+                    },
+                )
+
+    def test_invalid_options_are_rejected(self):
+        for field in ('location_type', 'visibility'):
+            for value in ('', 'invalid'):
+                with self.subTest(field=field, value=value):
+                    self.assert_rejected(
+                        {
+                            **self.data,
+                            field: value,
+                        },
+                    )
+
+    def test_student_and_status_cannot_be_overridden(self):
+        response = self.client.post(
+            self.url,
             {
-                'end_time': self.window_start.isoformat(),
+                **self.data,
+                'student_id': self.tutor.pk,
+                'status': TutoringRequest.Status.FULFILLED,
             },
-        ]
+        )
 
-        for changes in cases:
-            with self.subTest(changes=changes):
-                self.assert_rejected({**self.data, **changes})
+        self.assertEqual(
+            response.status_code,
+            201,
+            msg=response.content.decode(),
+        )
 
-    def test_session_must_be_in_future(self):
-        self.slot.start_time = timezone.now() - timedelta(hours=2)
-        self.slot.end_time = timezone.now() + timedelta(hours=2)
-        self.slot.save(update_fields=['start_time', 'end_time'])
+        tutoring_request = TutoringRequest.objects.get(
+            pk=response.json()['request_id'],
+        )
 
-        self.assert_rejected({
-            **self.data,
-            'start_time': (
-                timezone.now() - timedelta(hours=1)
-            ).isoformat(),
-            'end_time': (
-                timezone.now() + timedelta(hours=1)
-            ).isoformat(),
-        })
-
-    def test_unknown_slot_is_rejected(self):
-        missing_id = self.slot.id
-        self.slot.delete()
-
-        self.assert_rejected({
-            **self.data,
-            'time_slot_id': missing_id,
-        })
+        self.assertEqual(tutoring_request.student, self.student)
+        self.assertEqual(
+            tutoring_request.status,
+            TutoringRequest.Status.OPEN,
+        )
 
 class test_scheduled_session_request_acceptance(TestCase):
     def setUp(self):
@@ -3135,223 +3192,6 @@ class test_scheduled_session_request_acceptance(TestCase):
             self.booking.session_price,
             Decimal('25.00'),
         )
-
-class test_scheduled_session_request_workflow(TestCase):
-    def setUp(self):
-        self.student = User.objects.create_user(
-            email='workflow-student@uregina.ca',
-            password='RequestTestPassword123!',
-            role=User.Role.STUDENT,
-        )
-        self.tutor = User.objects.create_user(
-            email='workflow-tutor@uregina.ca',
-            password='RequestTestPassword123!',
-            role=User.Role.TUTOR,
-        )
-
-        self.window_start = timezone.now() + timedelta(days=2)
-        self.session_start = self.window_start + timedelta(hours=1)
-        self.session_end = self.window_start + timedelta(hours=2)
-
-        self.slot = Available_Slots.create_slot(
-            tutor=self.tutor,
-            start_time=self.window_start,
-            end_time=self.window_start + timedelta(hours=3),
-            price_per_hour=Decimal('25.00'),
-            location_type=Available_Slots.LocationType.IN_PERSON,
-        )
-
-    def create_request_through_view(self):
-        self.client.force_login(self.student)
-
-        booking_count = Booking.objects.count()
-
-        response = self.client.post(
-            reverse('create_request'),
-            {
-                'tutor_id': self.tutor.pk,
-                'student_note': 'Please help me prepare for my exam.',
-                'time_slot_id': self.slot.pk,
-                'start_time': self.session_start.isoformat(),
-                'end_time': self.session_end.isoformat(),
-            },
-        )
-
-        self.assertEqual(
-            response.status_code,
-            201,
-            msg=response.content.decode(),
-        )
-        self.assertEqual(
-            Booking.objects.count(),
-            booking_count + 1,
-        )
-
-        booking = Booking.objects.get(
-            pk=response.json()['booking_id'],
-        )
-
-        self.assertEqual(booking.student_id, self.student.pk)
-        self.assertEqual(booking.tutor_id, self.tutor.pk)
-        self.assertEqual(booking.status, Booking.Status.PENDING)
-        self.assert_session_details(booking)
-
-        return booking
-
-    def assert_session_details(self, booking):
-        self.assertEqual(booking.time_slot_id, self.slot.pk)
-        self.assertEqual(booking.start_time, self.session_start)
-        self.assertEqual(booking.end_time, self.session_end)
-        self.assertEqual(booking.price_per_hour, Decimal('25.00'))
-        self.assertEqual(booking.session_price, Decimal('25.00'))
-        self.assertEqual(
-            booking.location_type,
-            Available_Slots.LocationType.IN_PERSON,
-        )
-
-    def assert_no_open_requests(self):
-        response = self.client.get(reverse('incoming_requests'))
-
-        self.assertEqual(
-            response.status_code,
-            200,
-            msg=response.content.decode(),
-        )
-        self.assertEqual(response.json()['open_requests'], [])
-
-    def assert_window_unchanged(self):
-        self.slot.refresh_from_db()
-
-        self.assertEqual(
-            self.slot.status,
-            Available_Slots.Status.AVAILABLE,
-        )
-        self.assertEqual(self.slot.start_time, self.window_start)
-        self.assertEqual(
-            self.slot.end_time,
-            self.window_start + timedelta(hours=3),
-        )
-
-    def test_create_list_and_accept_request(self):
-        booking = self.create_request_through_view()
-        booking_count = Booking.objects.count()
-
-        self.client.force_login(self.tutor)
-
-        list_response = self.client.get(
-            reverse('incoming_requests'),
-        )
-
-        self.assertEqual(
-            list_response.status_code,
-            200,
-            msg=list_response.content.decode(),
-        )
-
-        requests = list_response.json()['open_requests']
-        self.assertEqual(len(requests), 1)
-
-        request_data = requests[0]
-
-        self.assertEqual(request_data['id'], booking.pk)
-        self.assertEqual(
-            request_data['time_slot_id'],
-            self.slot.pk,
-        )
-        self.assertEqual(
-            parse_datetime(request_data['start_time']),
-            self.session_start,
-        )
-        self.assertEqual(
-            parse_datetime(request_data['end_time']),
-            self.session_end,
-        )
-        self.assertEqual(request_data['price_per_hour'], '25.00')
-        self.assertEqual(request_data['session_price'], '25.00')
-        self.assertEqual(
-            request_data['location_type'],
-            Available_Slots.LocationType.IN_PERSON,
-        )
-
-        accept_response = self.client.post(
-            reverse(
-                'accept_request',
-                kwargs={'booking_id': booking.pk},
-            ),
-        )
-
-        self.assertEqual(
-            accept_response.status_code,
-            200,
-            msg=accept_response.content.decode(),
-        )
-        self.assertEqual(
-            accept_response.json()['status'],
-            Booking.Status.CONFIRMED,
-        )
-
-        booking.refresh_from_db()
-
-        self.assertEqual(Booking.objects.count(), booking_count)
-        self.assertEqual(booking.status, Booking.Status.CONFIRMED)
-        self.assert_session_details(booking)
-        self.assert_window_unchanged()
-        self.assert_no_open_requests()
-
-        second_response = self.client.post(
-            reverse(
-                'accept_request',
-                kwargs={'booking_id': booking.pk},
-            ),
-        )
-
-        self.assertEqual(
-            second_response.status_code,
-            400,
-            msg=second_response.content.decode(),
-        )
-
-        booking.refresh_from_db()
-
-        self.assertEqual(booking.status, Booking.Status.CONFIRMED)
-        self.assertEqual(Booking.objects.count(), booking_count)
-        self.assert_session_details(booking)
-
-    def test_create_and_decline_request(self):
-        booking = self.create_request_through_view()
-        booking_count = Booking.objects.count()
-
-        self.client.force_login(self.tutor)
-
-        response = self.client.post(
-            reverse(
-                'decline_request',
-                kwargs={'booking_id': booking.pk},
-            ),
-            {'reason': 'I cannot take this session.'},
-        )
-
-        self.assertEqual(
-            response.status_code,
-            200,
-            msg=response.content.decode(),
-        )
-
-        booking.refresh_from_db()
-
-        self.assertEqual(Booking.objects.count(), booking_count)
-        self.assertEqual(
-            booking.status,
-            Booking.Status.CANCELLED_TUTOR,
-        )
-        self.assertEqual(
-            booking.cancellation_reason,
-            'I cannot take this session.',
-        )
-        self.assertIsNotNone(booking.cancel_time)
-        self.assert_session_details(booking)
-        self.assert_window_unchanged()
-        self.assert_no_open_requests()
 
 class TutoringRequestModelTests(TestCase):
     def setUp(self):

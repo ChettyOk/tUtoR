@@ -13,12 +13,14 @@ from django.utils.dateparse import parse_datetime
 
 from accounts.constants import FACULTIES
 from accounts.models import Course, StudentProfile, TutorProfile, User
+from accounts.views import check_role_access
 
 from .models import (
     Available_Slots,
     Booking,
     CancellationDeadlinePassedError,
     Rating,
+    TutoringRequest,
 )
 from .pricing import (
     MAX_PRICE,
@@ -29,7 +31,7 @@ from .pricing import (
 from .services import (
     accept_session_request,
     create_rating,
-    create_session_request,
+    create_tutoring_request,
     decline_session_request,
     get_ratings,
     get_session_requests,
@@ -81,80 +83,69 @@ def filter_courses(request):
     
 
 @require_POST
-def create_session_request_view(request):
-    if not request.user.is_authenticated:
-        return JsonResponse(
-            {'error': 'Log in to make a request.'},
-            status=401,
-        )
+def create_tutoring_request_view(request):
+    error_response = check_role_access(
+        request,
+        User.Role.STUDENT,
+    )
 
-    tutor_id = request.POST.get('tutor_id')
-    course_id = request.POST.get('course_id')
-    student_note = request.POST.get('student_note', '').strip()
-    time_slot_id = request.POST.get('time_slot_id')
+    if error_response is not None:
+        return error_response
 
-    if not tutor_id:
+    raw_course_id = request.POST.get('course_id', '').strip()
+
+    if not raw_course_id:
         return JsonResponse(
-            {'error': 'tutor_id required.'},
+            {'error': 'course_id is required.'},
             status=400,
         )
 
     try:
-        tutor_id = int(tutor_id)
-        if tutor_id <= 0:
-            raise ValueError
+        course_id = int(raw_course_id)
 
-        if course_id:
-            course_id = int(course_id)
-            if course_id <= 0:
-                raise ValueError
+        if course_id <= 0:
+            raise ValueError
     except (TypeError, ValueError, OverflowError):
         return JsonResponse(
-            {'error': 'Tutor and course IDs must be positive integers.'},
+            {'error': 'course_id must be a positive integer.'},
             status=400,
         )
 
-    tutor = get_object_or_404(User, id=tutor_id)
-    course = get_object_or_404(Course, id=course_id) if course_id else None
+    course = get_object_or_404(Course, pk=course_id)
 
     try:
-        session_times = {}
-
-        for name in ('start_time', 'end_time'):
-            raw_value = request.POST.get(name, '').strip()
-
-            if not raw_value:
-                raise ValueError(f"{name} is required.")
-
-            try:
-                parsed_time = parse_datetime(raw_value)
-            except (ValueError, OverflowError):
-                parsed_time = None
-
-            if parsed_time is None:
-                raise ValueError(
-                    f"{name} must be a valid ISO date and time."
-                )
-
-            session_times[name] = parsed_time
-
-        booking = create_session_request(
+        tutoring_request = create_tutoring_request(
             student=request.user,
-            tutor=tutor,
             course=course,
-            student_note=student_note,
-            time_slot_id=time_slot_id,
-            **session_times,
+            description=request.POST.get('description', ''),
+            location_type=request.POST.get(
+                'location_type',
+                TutoringRequest.LocationType.FLEXIBLE,
+            ),
+            visibility=request.POST.get(
+                'visibility',
+                TutoringRequest.Visibility.ALL_TUTORS,
+            ),
+        )
+    except PermissionError as error:
+        return JsonResponse(
+            {'error': str(error)},
+            status=403,
         )
     except ValueError as error:
-        return JsonResponse({'error': str(error)}, status=400)
+        return JsonResponse(
+            {'error': str(error)},
+            status=400,
+        )
 
-    return JsonResponse({
-        'message': 'Session request submitted.',
-        'booking_id': booking.id,
-        'status': booking.status,
-    }, status=201)
-
+    return JsonResponse(
+        {
+            'message': 'Tutoring request published.',
+            'request_id': tutoring_request.pk,
+            'status': tutoring_request.status,
+        },
+        status=201,
+    )
 
 @require_POST
 def submit_rating_view(request, booking_id):
