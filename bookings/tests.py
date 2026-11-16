@@ -2169,16 +2169,83 @@ class TutorSessionsPageTests(TestCase):
         self.assertTemplateUsed(response, 'tutor/sessions/setup.html')
         self.assertContains(response, 'Set up tutoring sessions')
 
-    def test_page_lists_the_tutors_courses(self):
+    def test_page_preselects_the_tutors_saved_courses(self):
         course = Course.create_course('CS 110', 'Programming and Problem Solving')
         TutorProfile.objects.create(user=self.tutor).courses_passed.add(course)
         self.client.force_login(self.tutor)
-        self.assertContains(self.client.get(self.url), 'CS 110')
+        response = self.client.get(self.url)
+        self.assertEqual(response.context['selected_ids'], [course.pk])
+        self.assertContains(response, 'CS 110')   # the search list holds every course
 
-    def test_page_without_courses_still_loads(self):
+    def test_page_without_saved_courses_still_loads(self):
+        Course.create_course('CS 110', 'Programming and Problem Solving')
         self.client.force_login(self.tutor)
-        self.assertContains(self.client.get(self.url), 'You have not picked any courses yet.')
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['selected_ids'], [])
+
+    def test_picker_has_no_course_limit_and_posts_to_the_save_view(self):
+        self.client.force_login(self.tutor)
+        response = self.client.get(self.url)
+        self.assertContains(response, 'data-max=""')
+        self.assertContains(response, f'action="{reverse("tutor_save_courses")}"')
 
     def test_tutor_home_links_to_the_page(self):
         self.client.force_login(self.tutor)
         self.assertContains(self.client.get(reverse('tutor_home')), self.url)
+
+
+class TutorSaveCoursesTests(TestCase):
+    def setUp(self):
+        self.url = reverse('tutor_save_courses')
+        self.tutor = User.objects.create_user(
+            email='tutor@example.com', password='pw-12345-xyz', role='tutor')
+        self.student = User.objects.create_user(
+            email='student@example.com', password='pw-12345-xyz', role='student')
+        self.cs110 = Course.create_course('CS 110', 'Programming and Problem Solving')
+        self.cs210 = Course.create_course('CS 210', 'Data Structures')
+
+    def saved(self):
+        return set(TutorProfile.objects.get(user=self.tutor).courses_passed
+                   .values_list('course_code', flat=True))
+
+    def test_anonymous_user_is_sent_to_login(self):
+        response = self.client.post(self.url, {'courses': [self.cs110.pk]})
+        self.assertRedirects(response, f"{reverse('login')}?next={self.url}",
+                             fetch_redirect_response=False)
+
+    def test_only_post_is_allowed(self):
+        self.client.force_login(self.tutor)
+        self.assertEqual(self.client.get(self.url).status_code, 405)
+
+    def test_student_cannot_save_tutor_courses(self):
+        self.client.force_login(self.student)
+        response = self.client.post(self.url, {'courses': [self.cs110.pk]})
+        self.assertRedirects(response, reverse('student_home'), fetch_redirect_response=False)
+        self.assertFalse(TutorProfile.objects.filter(user=self.student).exists())
+
+    def test_tutor_saves_courses_and_returns_to_the_page(self):
+        self.client.force_login(self.tutor)
+        response = self.client.post(self.url, {'courses': [self.cs110.pk, self.cs210.pk]}, follow=True)
+        self.assertRedirects(response, reverse('tutor_sessions'))
+        self.assertContains(response, 'Your courses were saved.')
+        self.assertEqual(self.saved(), {'CS 110', 'CS 210'})
+
+    def test_saving_replaces_the_old_choice(self):
+        TutorProfile.objects.create(user=self.tutor).courses_passed.add(self.cs110)
+        self.client.force_login(self.tutor)
+        self.client.post(self.url, {'courses': [self.cs210.pk]})
+        self.assertEqual(self.saved(), {'CS 210'})
+
+    def test_unknown_course_is_rejected_and_nothing_changes(self):
+        TutorProfile.objects.create(user=self.tutor).courses_passed.add(self.cs110)
+        self.client.force_login(self.tutor)
+        response = self.client.post(self.url, {'courses': [self.cs210.pk, 99999]}, follow=True)
+        self.assertContains(response, 'do not exist')
+        self.assertEqual(self.saved(), {'CS 110'})
+
+    def test_tutors_have_no_course_limit(self):
+        courses = [Course.create_course(f'MATH {n}', f'Course {n}') for n in range(100, 125)]
+        self.client.force_login(self.tutor)
+        self.client.post(self.url, {'courses': [c.pk for c in courses]})
+        self.assertEqual(len(self.saved()), 25)
