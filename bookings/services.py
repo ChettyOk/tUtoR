@@ -6,6 +6,8 @@ from django.db.models import Q
 from accounts.models import StudentProfile, TutorProfile
 from bookings.models import Available_Slots, Booking, Rating
 from bookings.pricing import calc_price_suggestion
+from bookings.interfaces import BookingEvent
+from bookings.subjects import booking_event_manager
 
 
 class DoubleBookingError(Exception):

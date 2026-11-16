@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.core.mail import send_mail
+from django.template.loader import render_to_string
 
 from bookings.interfaces import BookingEvent, BookingObserver
 
@@ -13,16 +14,13 @@ class ConfirmationMailObserver(BookingObserver):
 
     def sendConfirmationMail(self, booking) -> None:
         recipient_list = [booking.student.email, booking.tutor.email]
+        context = {"booking": booking}
         send_mail(
             subject=f"Booking confirmation for booking #{booking.id}",
-            message=(
-                "Your tutoring session has been booked successfully.\n\n"
-                f"Booking: #{booking.id}\n"
-                f"Student: {booking.student.email}\n"
-                f"Tutor: {booking.tutor.email}\n"
-            ),
+            message=render_to_string("emails/confirmation.txt", context).strip(),
             from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
             recipient_list=recipient_list,
+            html_message=render_to_string("emails/confirmation.html", context),
             fail_silently=False,
         ) 
 
@@ -36,17 +34,13 @@ class CancellationMailObserver(BookingObserver):
 
     def sendCancellationMail(self, booking) -> None:
         recipient_list = [booking.student.email, booking.tutor.email]
+        context = {"booking": booking}
         send_mail(
             subject=f"Booking cancellation for booking #{booking.id}",
-            message=(
-                "Your tutoring session has been cancelled.\n\n"
-                f"Booking: #{booking.id}\n"
-                f"Student: {booking.student.email}\n"
-                f"Tutor: {booking.tutor.email}\n"
-                f"Reason: {booking.cancellation_reason or 'Not provided'}\n"
-            ),
+            message=render_to_string("emails/cancellation.txt", context).strip(),
             from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
             recipient_list=recipient_list,
+            html_message=render_to_string("emails/cancellation.html", context),
             fail_silently=False,
         )
 
@@ -68,15 +62,12 @@ class ReminderMailObserver(BookingObserver):
 
     def sendReminderMail(self, booking) -> None:
         recipient_list = [booking.student.email, booking.tutor.email]
+        context = {"booking": booking}
         send_mail(
             subject=f"Reminder: booking #{booking.id} starts in 2 hours",
-            message=(
-                "Your tutoring session starts in 2 hours.\n\n"
-                f"Booking: #{booking.id}\n"
-                f"Student: {booking.student.email}\n"
-                f"Tutor: {booking.tutor.email}\n"
-            ),
+            message=render_to_string("emails/reminder.txt", context).strip(),
             from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
             recipient_list=recipient_list,
+            html_message=render_to_string("emails/reminder.html", context),
             fail_silently=False,
         )

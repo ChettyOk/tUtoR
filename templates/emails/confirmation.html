@@ -1,0 +1,12 @@
+<!doctype html>
+<html>
+  <body>
+    <h1>Booking confirmation</h1>
+    <p>Your tutoring session has been booked successfully.</p>
+    <ul>
+      <li><strong>Booking:</strong> #{{ booking.id }}</li>
+      <li><strong>Student:</strong> {{ booking.student.email }}</li>
+      <li><strong>Tutor:</strong> {{ booking.tutor.email }}</li>
+    </ul>
+  </body>
+</html>
