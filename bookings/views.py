@@ -40,6 +40,9 @@ from .services import (
     get_user_bookings,
     get_user_details,
     serialize_slot,
+    get_student_tutoring_requests,
+    serialize_tutoring_request,
+    withdraw_tutoring_request,
 )
 
 def filter_courses(request):
@@ -146,6 +149,83 @@ def create_tutoring_request_view(request):
         },
         status=201,
     )
+
+@require_GET
+def get_my_tutoring_requests_view(request):
+    error_response = check_role_access(
+        request,
+        User.Role.STUDENT,
+    )
+
+    if error_response is not None:
+        return error_response
+
+    tutoring_requests = get_student_tutoring_requests(request.user)
+
+    return JsonResponse({
+        'requests': [
+            serialize_tutoring_request(tutoring_request)
+            for tutoring_request in tutoring_requests
+        ],
+    })
+
+
+@require_GET
+def get_my_tutoring_request_view(request, request_id):
+    error_response = check_role_access(
+        request,
+        User.Role.STUDENT,
+    )
+
+    if error_response is not None:
+        return error_response
+
+    tutoring_request = get_object_or_404(
+        get_student_tutoring_requests(request.user),
+        pk=request_id,
+    )
+
+    return JsonResponse({
+        'request': serialize_tutoring_request(tutoring_request),
+    })
+
+
+@require_POST
+def withdraw_tutoring_request_view(request, request_id):
+    error_response = check_role_access(
+        request,
+        User.Role.STUDENT,
+    )
+
+    if error_response is not None:
+        return error_response
+
+    try:
+        tutoring_request = withdraw_tutoring_request(
+            request_id=request_id,
+            student=request.user,
+        )
+    except TutoringRequest.DoesNotExist:
+        return JsonResponse(
+            {'error': 'Tutoring request not found.'},
+            status=404,
+        )
+    except PermissionError as error:
+        return JsonResponse(
+            {'error': str(error)},
+            status=403,
+        )
+    except ValueError as error:
+        return JsonResponse(
+            {'error': str(error)},
+            status=400,
+        )
+
+    return JsonResponse({
+        'message': 'Tutoring request withdrawn.',
+        'request_id': tutoring_request.pk,
+        'status': tutoring_request.status,
+    })
 
 @require_POST
 def submit_rating_view(request, booking_id):

@@ -87,6 +87,55 @@ def create_tutoring_request(
 
     return tutoring_request
 
+def get_student_tutoring_requests(student):
+    return (
+        TutoringRequest.objects
+        .filter(student=student)
+        .select_related('course')
+    )
+
+
+def serialize_tutoring_request(tutoring_request):
+    return {
+        'request_id': tutoring_request.pk,
+        'course_id': tutoring_request.course_id,
+        'course': str(tutoring_request.course),
+        'description': tutoring_request.description,
+        'location_type': tutoring_request.location_type,
+        'visibility': tutoring_request.visibility,
+        'status': tutoring_request.status,
+        'created_at': tutoring_request.created_at.isoformat(),
+    }
+
+
+def withdraw_tutoring_request(*, request_id, student):
+    if not student.is_authenticated or not student.has_role(
+        student.Role.STUDENT
+    ):
+        raise PermissionError(
+            'Only users with an active student role can withdraw requests.'
+        )
+
+    tutoring_request = TutoringRequest.objects.get(
+        pk=request_id,
+        student=student,
+    )
+
+    updated_count = TutoringRequest.objects.filter(
+        pk=tutoring_request.pk,
+        student=student,
+        status=TutoringRequest.Status.OPEN,
+    ).update(
+        status=TutoringRequest.Status.WITHDRAWN,
+    )
+
+    if updated_count == 0:
+        raise ValueError('Only open tutoring requests can be withdrawn.')
+
+    tutoring_request.refresh_from_db()
+
+    return tutoring_request
+
 def create_session_request(
     student,
     tutor,

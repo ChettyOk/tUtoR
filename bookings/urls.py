@@ -21,4 +21,7 @@ urlpatterns = [
     path('tutor/slots/create/', views.create_slot_view, name='create_slot',),
     path('tutor/slots/<int:slot_id>/update/', views.update_slot_view, name='update_slot',),
     path('tutor/slots/<int:slot_id>/delete/', views.delete_slot_view, name='delete_slot',),
+    path('requests/mine/', views.get_my_tutoring_requests_view,name='my_tutoring_requests',),
+    path('requests/mine/<int:request_id>/', views.get_my_tutoring_request_view, name='my_tutoring_request',),
+    path('requests/mine/<int:request_id>/withdraw/', views.withdraw_tutoring_request_view, name='withdraw_tutoring_request',),
 ]

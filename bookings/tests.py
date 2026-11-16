@@ -3279,3 +3279,257 @@ class TutoringRequestModelTests(TestCase):
             tutoring_request.full_clean()
 
         self.assertIn('course', context.exception.message_dict)
+
+class StudentTutoringRequestViewTests(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(
+            email='request-owner@uregina.ca',
+            password='RequestOwnerTest123!',
+            role=User.Role.STUDENT,
+        )
+        self.other_student = User.objects.create_user(
+            email='other-request-owner@uregina.ca',
+            password='RequestOwnerTest123!',
+            role=User.Role.STUDENT,
+        )
+        self.tutor = User.objects.create_user(
+            email='request-owner-tutor@uregina.ca',
+            password='RequestOwnerTest123!',
+            role=User.Role.TUTOR,
+        )
+        self.course = Course.create_course(
+            'CS 476',
+            'Software Development Project',
+        )
+        self.tutoring_request = self.make_request()
+        self.list_url = reverse('my_tutoring_requests')
+        self.client.force_login(self.student)
+
+    def make_request(self, **overrides):
+        fields = {
+            'student': self.student,
+            'course': self.course,
+            'description': 'Please help me understand Django.',
+        }
+        fields.update(overrides)
+        return TutoringRequest.objects.create(**fields)
+
+    def detail_url(self, request_id):
+        return reverse(
+            'my_tutoring_request',
+            kwargs={'request_id': request_id},
+        )
+
+    def withdraw_url(self, request_id):
+        return reverse(
+            'withdraw_tutoring_request',
+            kwargs={'request_id': request_id},
+        )
+
+    def endpoint_calls(self):
+        return (
+            ('get', self.list_url),
+            ('get', self.detail_url(self.tutoring_request.pk)),
+            ('post', self.withdraw_url(self.tutoring_request.pk)),
+        )
+
+    def test_list_contains_only_own_requests_in_newest_first_order(self):
+        newer_request = self.make_request()
+        self.make_request(student=self.other_student)
+
+        response = self.client.get(self.list_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [
+                item['request_id']
+                for item in response.json()['requests']
+            ],
+            [newer_request.pk, self.tutoring_request.pk],
+        )
+
+    def test_list_includes_withdrawn_and_fulfilled_requests(self):
+        withdrawn = self.make_request(
+            status=TutoringRequest.Status.WITHDRAWN,
+        )
+        fulfilled = self.make_request(
+            status=TutoringRequest.Status.FULFILLED,
+        )
+
+        response = self.client.get(self.list_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            {
+                item['request_id']
+                for item in response.json()['requests']
+            },
+            {
+                self.tutoring_request.pk,
+                withdrawn.pk,
+                fulfilled.pk,
+            },
+        )
+
+    def test_list_is_empty_without_own_requests(self):
+        self.client.force_login(self.other_student)
+
+        response = self.client.get(self.list_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'requests': []})
+
+    def test_detail_returns_own_request(self):
+        response = self.client.get(
+            self.detail_url(self.tutoring_request.pk),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                'request': {
+                    'request_id': self.tutoring_request.pk,
+                    'course_id': self.course.pk,
+                    'course': str(self.course),
+                    'description': self.tutoring_request.description,
+                    'location_type': (
+                        TutoringRequest.LocationType.FLEXIBLE
+                    ),
+                    'visibility': (
+                        TutoringRequest.Visibility.ALL_TUTORS
+                    ),
+                    'status': TutoringRequest.Status.OPEN,
+                    'created_at': (
+                        self.tutoring_request.created_at.isoformat()
+                    ),
+                },
+            },
+        )
+
+    def test_other_students_request_cannot_be_read_or_withdrawn(self):
+        other_request = self.make_request(
+            student=self.other_student,
+        )
+
+        responses = (
+            self.client.get(self.detail_url(other_request.pk)),
+            self.client.post(self.withdraw_url(other_request.pk)),
+        )
+
+        for response in responses:
+            self.assertEqual(response.status_code, 404)
+
+        other_request.refresh_from_db()
+        self.assertEqual(
+            other_request.status,
+            TutoringRequest.Status.OPEN,
+        )
+
+    def test_unknown_request_returns_404(self):
+        request_id = self.tutoring_request.pk
+        self.tutoring_request.delete()
+
+        responses = (
+            self.client.get(self.detail_url(request_id)),
+            self.client.post(self.withdraw_url(request_id)),
+        )
+
+        for response in responses:
+            self.assertEqual(response.status_code, 404)
+
+    def test_owner_can_withdraw_open_request(self):
+        request_count = TutoringRequest.objects.count()
+        booking_count = Booking.objects.count()
+
+        response = self.client.post(
+            self.withdraw_url(self.tutoring_request.pk),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                'message': 'Tutoring request withdrawn.',
+                'request_id': self.tutoring_request.pk,
+                'status': TutoringRequest.Status.WITHDRAWN,
+            },
+        )
+
+        self.tutoring_request.refresh_from_db()
+        self.assertEqual(
+            self.tutoring_request.status,
+            TutoringRequest.Status.WITHDRAWN,
+        )
+        self.assertEqual(
+            TutoringRequest.objects.count(),
+            request_count,
+        )
+        self.assertEqual(Booking.objects.count(), booking_count)
+
+    def test_non_open_requests_cannot_be_withdrawn(self):
+        for status in (
+            TutoringRequest.Status.WITHDRAWN,
+            TutoringRequest.Status.FULFILLED,
+        ):
+            with self.subTest(status=status):
+                self.tutoring_request.status = status
+                self.tutoring_request.save(update_fields=['status'])
+
+                response = self.client.post(
+                    self.withdraw_url(self.tutoring_request.pk),
+                )
+
+                self.assertEqual(response.status_code, 400)
+                self.assertIn('error', response.json())
+                self.tutoring_request.refresh_from_db()
+                self.assertEqual(
+                    self.tutoring_request.status,
+                    status,
+                )
+
+    def test_all_endpoints_require_login(self):
+        self.client.logout()
+
+        for method, url in self.endpoint_calls():
+            with self.subTest(method=method, url=url):
+                response = getattr(self.client, method)(url)
+                self.assertEqual(response.status_code, 401)
+
+        self.tutoring_request.refresh_from_db()
+        self.assertEqual(
+            self.tutoring_request.status,
+            TutoringRequest.Status.OPEN,
+        )
+
+    def test_all_endpoints_require_active_student_role(self):
+        self.client.force_login(self.tutor)
+
+        for method, url in self.endpoint_calls():
+            with self.subTest(method=method, url=url):
+                response = getattr(self.client, method)(url)
+                self.assertEqual(response.status_code, 403)
+
+        self.tutoring_request.refresh_from_db()
+        self.assertEqual(
+            self.tutoring_request.status,
+            TutoringRequest.Status.OPEN,
+        )
+
+    def test_endpoints_reject_wrong_http_methods(self):
+        calls = (
+            ('post', self.list_url),
+            ('post', self.detail_url(self.tutoring_request.pk)),
+            ('get', self.withdraw_url(self.tutoring_request.pk)),
+        )
+
+        for method, url in calls:
+            with self.subTest(method=method, url=url):
+                response = getattr(self.client, method)(url)
+                self.assertEqual(response.status_code, 405)
+
+        self.tutoring_request.refresh_from_db()
+        self.assertEqual(
+            self.tutoring_request.status,
+            TutoringRequest.Status.OPEN,
+        )
