@@ -34,8 +34,34 @@ def create_booking_request(student, tutor, slot, course=None, student_note=''):
             session_price=session_price,
             status=Booking.Status.CONFIRMED
         )
+        transaction.on_commit(
+            lambda booking=booking: booking_event_manager.notify(
+                BookingEvent.BOOKED, booking
+            )
+        )
         return booking
 
+def confirm_booking(booking):
+    with transaction.atomic():
+        booking.confirm()
+        transaction.on_commit(
+            lambda booking=booking: booking_event_manager.notify(
+                BookingEvent.BOOKED, booking
+            )
+        )
+    return booking
+
+def cancel_booking(booking, cancelled_by, reason=''):
+    with transaction.atomic():
+        booking.cancel(cancelled_by=cancelled_by, reason=reason)
+        transaction.on_commit(
+            lambda booking=booking: booking_event_manager.notify(
+                BookingEvent.CANCELLED, booking
+            )
+        )
+    return booking
+
+    
 def get_user_bookings(user):
 
     sort_by = 'request_time'        # once available model -> 'time_slot__start_time'

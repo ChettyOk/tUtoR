@@ -12,6 +12,6 @@ class BookingsConfig(AppConfig):
         )
         from bookings.subjects import booking_event_manager
 
-        booking_event_manager.attach(ConfirmationMailObserver())
         booking_event_manager.attach(CancellationMailObserver())
+        booking_event_manager.attach(ConfirmationMailObserver())
         booking_event_manager.attach(ReminderMailObserver())

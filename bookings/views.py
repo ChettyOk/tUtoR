@@ -36,6 +36,9 @@ from .services import (
     get_user_bookings,
     get_user_details,
     serialize_slot,
+    cancel_booking,
+    confirm_booking,
+
 )
 
 def filter_courses(request):
@@ -177,7 +180,7 @@ def accept_session_request_view(request, booking_id):
         return JsonResponse({'error': 'Not your request, only the requested tutor can accept.'}, status=403)
 
     try:
-        booking.confirm()
+        confirm_booking(booking)
     except ValueError as e:
         return JsonResponse({'error': str(e)}, status=400)
 
@@ -288,7 +291,7 @@ def decline_session_request_view(request, booking_id):
     reason = request.POST.get('reason', 'Tutor declined').strip()
 
     try:
-        booking.cancel(cancelled_by='tutor', reason=reason)
+        cancel_booking(booking, cancelled_by='tutor', reason=reason)
     except ValueError as e:
         return JsonResponse({'error': str(e)}, status=400)
 
@@ -312,7 +315,7 @@ def cancel_booking_view(request, booking_id):
     reason = request.POST.get('reason', '').strip()
 
     try:
-        booking.cancel(cancelled_by=cancelled_by, reason=reason)
+        cancel_booking(booking, cancelled_by=cancelled_by, reason=reason)
     except CancellationDeadlinePassedError as e:
         return JsonResponse({'error': str(e)}, status=400)
     except ValueError as e:
