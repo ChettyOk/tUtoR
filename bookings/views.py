@@ -38,6 +38,9 @@ from .services import (
     serialize_slot,
 )
 
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import get_object_or_404, redirect, render
+
 def filter_courses(request):
     search_query = request.GET.get('q', '').strip()
     selected_faculty = request.GET.get('faculty', '').strip()
@@ -526,4 +529,20 @@ def delete_slot_view(request, slot_id):
     return JsonResponse({
         'message': 'Slot cancelled successfully.',
         'slot': serialize_slot(slot),
+    })
+
+
+@login_required
+def tutor_sessions_page(request):
+    """Page where a tutor sets up sessions: courses, slot form and schedule."""
+    if not request.user.has_role(User.Role.TUTOR):
+        return redirect('student_home')
+
+    profile = TutorProfile.objects.filter(user=request.user).first()
+    courses = profile.courses_passed.order_by('course_code') if profile else []
+
+    return render(request, 'tutor/sessions/setup.html', {
+        'site_name': 'tUtoR',
+        'campus': 'University of Regina',
+        'courses': courses,
     })
