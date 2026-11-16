@@ -40,6 +40,8 @@ from .services import (
 
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, redirect, render
+from django.contrib import messages
+from accounts.forms import CoursePickForm
 
 def filter_courses(request):
     search_query = request.GET.get('q', '').strip()
@@ -539,10 +541,34 @@ def tutor_sessions_page(request):
         return redirect('student_home')
 
     profile = TutorProfile.objects.filter(user=request.user).first()
-    courses = profile.courses_passed.order_by('course_code') if profile else []
+    selected_ids = list(profile.courses_passed.values_list('pk', flat=True)) if profile else []
 
     return render(request, 'tutor/sessions/setup.html', {
         'site_name': 'tUtoR',
         'campus': 'University of Regina',
-        'courses': courses,
+        # every course, for the search box; the page script filters them in the browser
+        'courses': list(
+            Course.objects.order_by('course_code')
+            .values('id', 'course_code', 'course_name', 'course_faculty')
+        ),
+        'selected_ids': selected_ids,
     })
+
+
+@login_required
+@require_POST
+def tutor_save_courses(request):
+    """Save the courses a tutor teaches (the picker form on the sessions page)."""
+    if not request.user.has_role(User.Role.TUTOR):
+        return redirect('student_home')
+
+    form = CoursePickForm(request.POST)   # no limit for tutors
+    if form.is_valid():
+        profile, _ = TutorProfile.objects.get_or_create(user=request.user)
+        profile.courses_passed.set(form.cleaned_data['courses'])
+        messages.success(request, 'Your courses were saved.')
+    else:
+        messages.error(request, 'Some of the chosen courses do not exist. Please try again.')
+
+    return redirect('tutor_sessions')
+
