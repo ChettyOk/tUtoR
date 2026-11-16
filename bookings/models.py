@@ -100,9 +100,19 @@ class Booking(models.Model):
 
 
     def unblock_booking(self):
-        if hasattr(self, 'time_slot') and self.time_slot:
+        if self.time_slot_id is None:
+            return
+
+        is_full_slot = (
+            self.start_time is None
+            or (
+                self.start_time == self.time_slot.start_time
+                and self.end_time == self.time_slot.end_time
+            )
+        )
+        if is_full_slot and self.time_slot.status == 'booked':
             self.time_slot.status = 'available'
-            self.time_slot.save()
+            self.time_slot.save(update_fields=['status'])
 
 class Rating(models.Model):
     booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name='rating',)
