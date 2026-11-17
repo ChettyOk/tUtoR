@@ -29,7 +29,31 @@
       href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="{% static 'css/site.css' %}" />
+    <link rel="stylesheet" href="{% static 'css/site.css' %}?v=20261116f" />
+    {# Critical layout inlined so cached CSS cannot leave a gap under the footer #}
+    <style>
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: #f4f1e8;
+      }
+      .site-shell {
+        box-sizing: border-box;
+        width: 100%;
+        min-height: 100vh;
+        min-height: 100dvh;
+        padding-bottom: 7.5rem; /* room for fixed footer */
+        background: #f4f1e8;
+      }
+      .site-shell > .site-footer {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 20;
+      }
+    </style>
     {% block extra_head %}{% endblock %}
   </head>
   <body>
@@ -37,129 +61,134 @@
       >Skip to content</a
     >
 
-    {% block header %}
-    <header class="navbar navbar-expand-lg sticky-top site-header">
-      <div class="container">
-        <a
-          class="navbar-brand py-0"
-          href="{% if user.is_authenticated %}{% if user.role == 'tutor' %}{% url 'tutor_home' %}{% else %}{% url 'student_home' %}{% endif %}{% else %}{% url 'landing' %}{% endif %}"
-        >
-          <img
-            src="{% static 'img/tutor-logo.svg' %}"
-            alt="{{ site_name|default:'tUtoR' }}"
-            width="148"
-            height="46"
-          />
-        </a>
-        {% block nav_actions %}
-        {% if user.is_authenticated %}
-        <div class="account-menu dropdown order-lg-last ms-auto ms-lg-3">
-          <button
-            class="account-avatar-btn dropdown-toggle"
-            type="button"
-            id="account-menu"
-            data-bs-toggle="dropdown"
-            data-bs-display="static"
-            aria-expanded="false"
-            aria-label="Account menu"
+    <div class="site-shell">
+      {% block header %}
+      <header class="navbar navbar-expand-lg site-header">
+        <div class="container">
+          <a
+            class="navbar-brand py-0"
+            href="{% if user.is_authenticated %}{% if user.role == 'tutor' %}{% url 'tutor_home' %}{% else %}{% url 'student_home' %}{% endif %}{% else %}{% url 'landing' %}{% endif %}"
           >
-            <span class="account-avatar" aria-hidden="true">
-              {% if user.first_name or user.last_name %}
-                {{ user.first_name|default:user.email|slice:":1"|upper }}{{ user.last_name|default:""|slice:":1"|upper }}
-              {% else %}
-                {{ user.email|slice:":1"|upper }}
-              {% endif %}
-            </span>
-          </button>
-          <ul class="dropdown-menu dropdown-menu-end account-menu-panel" aria-labelledby="account-menu">
-            <li class="account-menu-header px-3 py-2">
-              <p class="account-menu-name mb-0">
+            <img
+              src="{% static 'img/tutor-logo.svg' %}"
+              alt="{{ site_name|default:'tUtoR' }}"
+              width="148"
+              height="46"
+            />
+          </a>
+          {% block nav_actions %}
+          {% if user.is_authenticated %}
+          <div class="account-menu dropdown order-lg-last ms-auto ms-lg-3">
+            <button
+              class="account-avatar-btn dropdown-toggle"
+              type="button"
+              id="account-menu"
+              data-bs-toggle="dropdown"
+              data-bs-display="static"
+              aria-expanded="false"
+              aria-label="Account menu"
+            >
+              <span class="account-avatar" aria-hidden="true">
                 {% if user.first_name or user.last_name %}
-                  {{ user.first_name }} {{ user.last_name }}
+                  {{ user.first_name|default:user.email|slice:":1"|upper }}{{ user.last_name|default:""|slice:":1"|upper }}
                 {% else %}
-                  {{ user.email }}
+                  {{ user.email|slice:":1"|upper }}
                 {% endif %}
-              </p>
-              <p class="account-menu-meta mb-0">
-                {% if user.role == 'tutor' %}Tutor{% elif user.role == 'student' %}Student{% else %}Account{% endif %}
-                · {{ user.email }}
-              </p>
-            </li>
-            <li><hr class="dropdown-divider" /></li>
-            <li>
-              <a class="dropdown-item" href="{% url 'account_profile' %}">Profile &amp; settings</a>
-            </li>
-            <li>
-              <a class="dropdown-item" href="{% if user.role == 'tutor' %}{% url 'tutor_home' %}{% else %}{% url 'student_home' %}{% endif %}">
-                {% if user.role == 'tutor' %}Tutor home{% else %}Student home{% endif %}
-              </a>
-            </li>
-            <li><hr class="dropdown-divider" /></li>
-            <li>
-              <form method="post" action="{% url 'logout' %}" class="px-3 pb-2">
-                {% csrf_token %}
-                <input type="hidden" name="ui" value="1" />
-                <button type="submit" class="btn btn-outline-secondary rounded-pill w-100">
-                  Sign out
-                </button>
-              </form>
-            </li>
-          </ul>
+              </span>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end account-menu-panel" aria-labelledby="account-menu">
+              <li class="account-menu-header px-3 py-2">
+                <p class="account-menu-name mb-0">
+                  {% if user.first_name or user.last_name %}
+                    {{ user.first_name }} {{ user.last_name }}
+                  {% else %}
+                    {{ user.email }}
+                  {% endif %}
+                </p>
+                <p class="account-menu-meta mb-0">
+                  {% if user.role == 'tutor' %}Tutor{% elif user.role == 'student' %}Student{% else %}Account{% endif %}
+                  · {{ user.email }}
+                </p>
+              </li>
+              <li><hr class="dropdown-divider" /></li>
+              <li>
+                <a class="dropdown-item" href="{% url 'account_profile' %}">Profile &amp; settings</a>
+              </li>
+              <li>
+                <a class="dropdown-item" href="{% if user.role == 'tutor' %}{% url 'tutor_home' %}{% else %}{% url 'student_home' %}{% endif %}">
+                  {% if user.role == 'tutor' %}Tutor home{% else %}Student home{% endif %}
+                </a>
+              </li>
+              <li><hr class="dropdown-divider" /></li>
+              <li>
+                <form method="post" action="{% url 'logout' %}" class="px-3 pb-2">
+                  {% csrf_token %}
+                  <input type="hidden" name="ui" value="1" />
+                  <button type="submit" class="btn btn-outline-secondary rounded-pill w-100">
+                    Sign out
+                  </button>
+                </form>
+              </li>
+            </ul>
+          </div>
+          {% endif %}
+          {% endblock %}
+          <button
+            class="navbar-toggler{% if user.is_authenticated %} ms-2{% else %} ms-auto{% endif %}"
+            type="button"
+            data-bs-toggle="collapse"
+            data-bs-target="#site-nav"
+            aria-controls="site-nav"
+            aria-expanded="false"
+            aria-label="Menu"
+          >
+            <span class="navbar-toggler-icon"></span>
+          </button>
+          <nav class="collapse navbar-collapse" id="site-nav" aria-label="Page">
+            <ul class="navbar-nav ms-lg-auto align-items-lg-center gap-lg-1">
+              {% block nav_links %}{% endblock %}
+            </ul>
+          </nav>
+        </div>
+      </header>
+      {% endblock %}
+
+      <main id="main">
+        {% if messages %}
+        <div class="container mt-3">
+          {% for message in messages %}
+          <div
+            class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %}"
+            role="alert"
+          >
+            {{ message }}
+          </div>
+          {% endfor %}
         </div>
         {% endif %}
-        {% endblock %}
-        <button
-          class="navbar-toggler{% if user.is_authenticated %} ms-2{% else %} ms-auto{% endif %}"
-          type="button"
-          data-bs-toggle="collapse"
-          data-bs-target="#site-nav"
-          aria-controls="site-nav"
-          aria-expanded="false"
-          aria-label="Menu"
+        {% block content %}{% endblock %}
+      </main>
+
+      {% block footer %}
+      <footer class="site-footer">
+        <div
+          class="container d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3"
         >
-          <span class="navbar-toggler-icon"></span>
-        </button>
-        <nav class="collapse navbar-collapse" id="site-nav" aria-label="Page">
-          <ul class="navbar-nav ms-lg-auto align-items-lg-center gap-lg-1">
-            {% block nav_links %}{% endblock %}
-          </ul>
-        </nav>
-      </div>
-    </header>
-    {% endblock %} {% if messages %}
-    <div class="container mt-3">
-      {% for message in messages %}
-      <div
-        class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %}"
-        role="alert"
-      >
-        {{ message }}
-      </div>
-      {% endfor %}
+          <img
+            src="{% static 'img/tutor-logo-light.svg' %}"
+            alt="{{ site_name|default:'tUtoR' }}"
+            width="132"
+            height="42"
+          />
+          <p class="mb-0">
+            {{ site_name|default:"tUtoR" }} is a student and tutor booking page
+            for the {{ campus|default:"university" }}. It is not an official
+            university service.
+          </p>
+        </div>
+      </footer>
+      {% endblock %}
     </div>
-    {% endif %}
-
-    <main id="main">{% block content %}{% endblock %}</main>
-
-    {% block footer %}
-    <footer class="site-footer">
-      <div
-        class="container d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3"
-      >
-        <img
-          src="{% static 'img/tutor-logo-light.svg' %}"
-          alt="{{ site_name|default:'tUtoR' }}"
-          width="132"
-          height="42"
-        />
-        <p class="mb-0">
-          {{ site_name|default:"tUtoR" }} is a student and tutor booking page
-          for the {{ campus|default:"university" }}. It is not an official
-          university service.
-        </p>
-      </div>
-    </footer>
-    {% endblock %}
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
