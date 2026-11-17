@@ -10,15 +10,18 @@ from django.views.decorators.http import (
 )
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from django.urls import reverse
 
 from accounts.constants import FACULTIES
 from accounts.models import Course, StudentProfile, TutorProfile, User
+from accounts.views import check_role_access
 
 from .models import (
     Available_Slots,
     Booking,
     CancellationDeadlinePassedError,
     Rating,
+    TutoringRequest,
 )
 from .pricing import (
     MAX_PRICE,
@@ -28,16 +31,23 @@ from .pricing import (
 )
 from .services import (
     create_rating,
-    create_session_request,
+    create_tutoring_request,
+    get_interested_tutors,
     get_ratings,
-    get_session_requests,
     get_tutor_available_slots,
     get_tutor_schedule,
+    get_tutoring_request_form_data,
     get_user_bookings,
     get_user_details,
+    get_visible_tutoring_requests,
     serialize_slot,
     DoubleBookingError,
     create_booking_request,
+    get_student_tutoring_requests,
+    serialize_tutoring_request,
+    withdraw_tutoring_request,
+    express_tutoring_request_interest,
+    withdraw_tutoring_request_interest,
 )
 
 def filter_courses(request):
@@ -81,39 +91,295 @@ def filter_courses(request):
     
 
 @require_POST
-def create_session_request_view(request):
-    if not request.user.is_authenticated:
-        return JsonResponse({'error': 'Log in to make a request.'}, status=401)
+def create_tutoring_request_view(request):
+    error_response = check_role_access(
+        request,
+        User.Role.STUDENT,
+    )
 
-    tutor_id = request.POST.get('tutor_id')
-    course_id = request.POST.get('course_id')
-    student_note = request.POST.get('student_note', '').strip()
-    session_price = request.POST.get('session_price')
+    if error_response is not None:
+        return error_response
 
-    if not tutor_id:
-        return JsonResponse({'error': 'tutor_id required.'}, status=400)
+    raw_course_id = request.POST.get('course_id', '').strip()
 
-    tutor = get_object_or_404(User, id=tutor_id)
-    course = Course.objects.filter(id=course_id).first() if course_id else None
-    price = Decimal(str(session_price)) if session_price else None
+    if not raw_course_id:
+        return JsonResponse(
+            {'error': 'course_id is required.'},
+            status=400,
+        )
 
     try:
-        booking = create_session_request(
-            student=request.user,
-            tutor=tutor,
-            course=course,
-            student_note=student_note,
-            session_price=price,
+        course_id = int(raw_course_id)
+
+        if course_id <= 0:
+            raise ValueError
+    except (TypeError, ValueError, OverflowError):
+        return JsonResponse(
+            {'error': 'course_id must be a positive integer.'},
+            status=400,
         )
-    except ValueError as e:
-        return JsonResponse({'error': str(e)}, status=400)
+
+    course = get_object_or_404(Course, pk=course_id)
+
+    try:
+        tutoring_request = create_tutoring_request(
+            student=request.user,
+            course=course,
+            description=request.POST.get('description', ''),
+            location_type=request.POST.get(
+                'location_type',
+                TutoringRequest.LocationType.FLEXIBLE,
+            ),
+            visibility=request.POST.get(
+                'visibility',
+                TutoringRequest.Visibility.ALL_TUTORS,
+            ),
+        )
+    except PermissionError as error:
+        return JsonResponse(
+            {'error': str(error)},
+            status=403,
+        )
+    except ValueError as error:
+        return JsonResponse(
+            {'error': str(error)},
+            status=400,
+        )
+
+    return JsonResponse(
+        {
+            'message': 'Tutoring request published.',
+            'request_id': tutoring_request.pk,
+            'status': tutoring_request.status,
+        },
+        status=201,
+    )
+
+@require_GET
+def get_my_tutoring_requests_view(request):
+    error_response = check_role_access(
+        request,
+        User.Role.STUDENT,
+    )
+
+    if error_response is not None:
+        return error_response
+
+    tutoring_requests = get_student_tutoring_requests(request.user)
 
     return JsonResponse({
-        'message': 'Session request submitted.',
-        'booking_id': booking.id,
-        'status': booking.status,
-    }, status=201)
+        'requests': [
+            serialize_tutoring_request(tutoring_request)
+            for tutoring_request in tutoring_requests
+        ],
+    })
 
+
+@require_GET
+def get_my_tutoring_request_view(request, request_id):
+    error_response = check_role_access(
+        request,
+        User.Role.STUDENT,
+    )
+
+    if error_response is not None:
+        return error_response
+
+    tutoring_request = get_object_or_404(
+        get_student_tutoring_requests(request.user),
+        pk=request_id,
+    )
+
+    return JsonResponse({
+        'request': serialize_tutoring_request(tutoring_request),
+    })
+
+
+@require_POST
+def withdraw_tutoring_request_view(request, request_id):
+    error_response = check_role_access(
+        request,
+        User.Role.STUDENT,
+    )
+
+    if error_response is not None:
+        return error_response
+
+    try:
+        tutoring_request = withdraw_tutoring_request(
+            request_id=request_id,
+            student=request.user,
+        )
+    except TutoringRequest.DoesNotExist:
+        return JsonResponse(
+            {'error': 'Tutoring request not found.'},
+            status=404,
+        )
+    except PermissionError as error:
+        return JsonResponse(
+            {'error': str(error)},
+            status=403,
+        )
+    except ValueError as error:
+        return JsonResponse(
+            {'error': str(error)},
+            status=400,
+        )
+
+    return JsonResponse({
+        'message': 'Tutoring request withdrawn.',
+        'request_id': tutoring_request.pk,
+        'status': tutoring_request.status,
+    })
+
+@require_GET
+def get_tutoring_request_form_view(request):
+    error_response = check_role_access(
+        request,
+        User.Role.STUDENT,
+    )
+
+    if error_response is not None:
+        return error_response
+
+    course = None
+    raw_course_id = request.GET.get('course_id')
+
+    if raw_course_id is not None:
+        try:
+            course_id = int(raw_course_id)
+
+            if course_id <= 0:
+                raise ValueError
+        except (TypeError, ValueError, OverflowError):
+            return JsonResponse(
+                {'error': 'course_id must be a positive integer.'},
+                status=400,
+            )
+
+        course = get_object_or_404(Course, pk=course_id)
+
+    return JsonResponse(
+        get_tutoring_request_form_data(
+            student=request.user,
+            course=course,
+        ),
+    )
+
+@require_POST
+def express_tutoring_request_interest_view(request, request_id):
+    error_response = check_role_access(
+        request,
+        User.Role.TUTOR,
+    )
+
+    if error_response is not None:
+        return error_response
+
+    try:
+        interest, created = express_tutoring_request_interest(
+            request_id=request_id,
+            tutor=request.user,
+        )
+    except TutoringRequest.DoesNotExist:
+        return JsonResponse(
+            {'error': 'Tutoring request not found.'},
+            status=404,
+        )
+    except PermissionError as error:
+        return JsonResponse(
+            {'error': str(error)},
+            status=403,
+        )
+    except ValueError as error:
+        return JsonResponse(
+            {'error': str(error)},
+            status=400,
+        )
+
+    return JsonResponse(
+        {
+            'message': 'Interest recorded.',
+            'request_id': interest.tutoring_request_id,
+            'interested': True,
+        },
+        status=201 if created else 200,
+    )
+
+
+@require_POST
+def withdraw_tutoring_request_interest_view(request, request_id):
+    error_response = check_role_access(
+        request,
+        User.Role.TUTOR,
+    )
+
+    if error_response is not None:
+        return error_response
+
+    try:
+        removed = withdraw_tutoring_request_interest(
+            request_id=request_id,
+            tutor=request.user,
+        )
+    except TutoringRequest.DoesNotExist:
+        return JsonResponse(
+            {'error': 'Tutoring request not found.'},
+            status=404,
+        )
+    except PermissionError as error:
+        return JsonResponse(
+            {'error': str(error)},
+            status=403,
+        )
+
+    return JsonResponse({
+        'message': 'Interest withdrawn.',
+        'request_id': request_id,
+        'interested': False,
+        'removed': removed,
+    })
+
+@require_GET
+def get_interested_tutors_view(request, request_id):
+    error_response = check_role_access(
+        request,
+        User.Role.STUDENT,
+    )
+
+    if error_response is not None:
+        return error_response
+
+    tutoring_request = get_object_or_404(
+        get_student_tutoring_requests(request.user),
+        pk=request_id,
+    )
+
+    interests = get_interested_tutors(
+        tutoring_request=tutoring_request,
+    )
+
+    return JsonResponse({
+        'request_id': tutoring_request.pk,
+        'status': tutoring_request.status,
+        'interested_tutors': [
+            {
+                'tutor_id': interest.tutor_id,
+                'first_name': interest.tutor.first_name,
+                'last_name': interest.tutor.last_name,
+                'interested_since': interest.created_at.isoformat(),
+                'profile_url': reverse(
+                    'tutor_details',
+                    kwargs={'user_id': interest.tutor_id},
+                ),
+                'availability_url': reverse(
+                    'tutor_slots',
+                    kwargs={'tutor_id': interest.tutor_id},
+                ),
+            }
+            for interest in interests
+        ],
+    })
 
 @require_POST
 def submit_rating_view(request, booking_id):
@@ -143,51 +409,26 @@ def submit_rating_view(request, booking_id):
         'comment': rating.rating_comment,
     }, status=201)
 
-
 @require_GET
-def get_session_request_view(request):
-    if not request.user.is_authenticated:
-        return JsonResponse({'error': 'Log in to view your session requests.'}, status=401)
+def get_tutoring_request_forum_view(request):
+    error_response = check_role_access(
+        request,
+        User.Role.TUTOR,
+    )
 
-    open_requests = get_session_requests(request.user)
+    if error_response is not None:
+        return error_response
 
-    data = [
-        {
-            'id': booking.id,
-            'student_id': booking.student.id,
-            'student_email': booking.student.email,
-            'course': str(booking.course) if booking.course else None,
-            'student_note': booking.student_note,
-            'session_price': str(booking.session_price),
-            'status': booking.status,
-            'request_time': booking.request_time.isoformat() if booking.request_time else None,
-        }
-        for booking in open_requests
-    ]
-
-    return JsonResponse({'open_requests': data})
-
-
-@require_POST
-def accept_session_request_view(request, booking_id):
-    if not request.user.is_authenticated:
-        return JsonResponse({'error': 'Please log in.'}, status=401)
-
-    booking = get_object_or_404(Booking, id=booking_id)
-
-    if request.user != booking.tutor:
-        return JsonResponse({'error': 'Not your request, only the requested tutor can accept.'}, status=403)
-
-    try:
-        booking.confirm()
-    except ValueError as e:
-        return JsonResponse({'error': str(e)}, status=400)
+    tutoring_requests = get_visible_tutoring_requests(
+        tutor=request.user,
+    )
 
     return JsonResponse({
-        'message': 'Request accepted.',
-        'status': booking.status,
+        'open_requests': [
+            serialize_tutoring_request(tutoring_request)
+            for tutoring_request in tutoring_requests
+        ],
     })
-
 
 @require_GET
 def get_ratings_view(request, user_id, rated_role):
@@ -280,30 +521,6 @@ def get_bookings(request):
         'student_bookings': [serialize_booking(booking) for booking in bookings['student_bookings']],
         'tutor_bookings': [serialize_booking(booking) for booking in bookings['tutor_bookings']],
     })
-
-
-@require_POST
-def decline_session_request_view(request, booking_id):
-    if not request.user.is_authenticated:
-        return JsonResponse({'error': 'Please log in.'}, status=401)
-
-    booking = get_object_or_404(Booking, id=booking_id)
-
-    if request.user != booking.tutor:
-        return JsonResponse({'error': 'Not your request, only the requested tutor can accept.'}, status=403)
-
-    reason = request.POST.get('reason', 'Tutor declined').strip()
-
-    try:
-        booking.cancel(cancelled_by='tutor', reason=reason)
-    except ValueError as e:
-        return JsonResponse({'error': str(e)}, status=400)
-
-    return JsonResponse({
-        'message': 'Request declined.',
-        'status': booking.status,
-    })
-
 
 @require_POST
 def cancel_booking_view(request, booking_id):

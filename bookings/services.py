@@ -1,10 +1,18 @@
 from decimal import Decimal, ROUND_HALF_UP
 
+from django.utils import timezone
 from django.db import transaction
 from django.db.models import Q
+from django.core.exceptions import ValidationError
 
-from accounts.models import StudentProfile, TutorProfile
-from bookings.models import Available_Slots, Booking, Rating
+from accounts.models import Course, StudentProfile, TutorProfile
+from bookings.models import (
+    Available_Slots,
+    Booking,
+    Rating,
+    TutoringRequest,
+    TutoringRequestInterest,
+)
 from bookings.pricing import calc_price_suggestion
 
 from django.utils import timezone
@@ -89,31 +97,262 @@ def get_user_bookings(user):
     
     return {'all_bookings': all_bookings, 'student_bookings': student_bookings, 'tutor_bookings': tutor_bookings}
 
-def create_session_request(student, tutor, course=None, student_note='', session_price=None):
+def create_tutoring_request(
+    *,
+    student,
+    course,
+    description,
+    location_type=TutoringRequest.LocationType.FLEXIBLE,
+    visibility=TutoringRequest.Visibility.ALL_TUTORS,
+):
+    if not student.is_authenticated or not student.has_role(
+        student.Role.STUDENT
+    ):
+        raise PermissionError(
+            'Only users with an active student role can create requests.'
+        )
 
-    if not tutor:
-        raise ValueError("Please select a tutor.")
-    
-    if session_price is None:
-        session_price = calc_price_suggestion(tutor)
+    if not isinstance(description, str) or not description.strip():
+        raise ValueError('Please describe the support you need.')
 
-    if not student_note or not student_note.strip():
-        raise ValueError("Please specify your request in the note field.")
+    if visibility != TutoringRequest.Visibility.ALL_TUTORS:
+        raise ValueError(
+            'Only visibility to all tutors is currently supported.'
+        )
 
-    booking = Booking.objects.create(
+    tutoring_request = TutoringRequest(
         student=student,
-        tutor=tutor,
         course=course,
-        student_note=student_note,
-        session_price=session_price,
-        status=Booking.Status.PENDING,)
-    return booking
+        description=description.strip(),
+        location_type=location_type,
+        visibility=visibility,
+    )
+
+    try:
+        tutoring_request.full_clean()
+    except ValidationError as error:
+        raise ValueError(' '.join(error.messages)) from error
+
+    if get_existing_request_tutors(
+        student=student,
+        course=course,
+    ).exists():
+        raise ValueError(
+            'Tutors already offer this course. '
+            'Please view the existing tutors instead.'
+        )
+
+    tutoring_request.save()
+
+    return tutoring_request
+
+def get_student_tutoring_requests(student):
+    return (
+        TutoringRequest.objects
+        .filter(student=student)
+        .select_related('course')
+    )
 
 
-def get_session_requests(tutor):
-    return Booking.objects.filter(
-        tutor=tutor,
-        status=Booking.Status.PENDING).order_by('-request_time')
+def serialize_tutoring_request(tutoring_request):
+    return {
+        'request_id': tutoring_request.pk,
+        'course_id': tutoring_request.course_id,
+        'course': str(tutoring_request.course),
+        'description': tutoring_request.description,
+        'location_type': tutoring_request.location_type,
+        'visibility': tutoring_request.visibility,
+        'status': tutoring_request.status,
+        'created_at': tutoring_request.created_at.isoformat(),
+    }
+
+
+def withdraw_tutoring_request(*, request_id, student):
+    if not student.is_authenticated or not student.has_role(
+        student.Role.STUDENT
+    ):
+        raise PermissionError(
+            'Only users with an active student role can withdraw requests.'
+        )
+
+    tutoring_request = TutoringRequest.objects.get(
+        pk=request_id,
+        student=student,
+    )
+
+    updated_count = TutoringRequest.objects.filter(
+        pk=tutoring_request.pk,
+        student=student,
+        status=TutoringRequest.Status.OPEN,
+    ).update(
+        status=TutoringRequest.Status.WITHDRAWN,
+    )
+
+    if updated_count == 0:
+        raise ValueError('Only open tutoring requests can be withdrawn.')
+
+    tutoring_request.refresh_from_db()
+
+    return tutoring_request
+
+def get_existing_request_tutors(*, student, course):
+    return (
+        TutorProfile.objects
+        .filter(
+            courses_passed=course,
+            user__is_active=True,
+        )
+        .exclude(user_id=student.pk)
+        .select_related('user')
+        .order_by(
+            'user__first_name',
+            'user__last_name',
+            'user_id',
+        )
+    )
+
+def get_tutoring_request_form_data(*, student, course=None):
+    existing_tutors = []
+
+    if course is not None:
+        tutor_profiles = get_existing_request_tutors(
+            student=student,
+            course=course,
+        )
+
+        existing_tutors = [
+            {
+                'tutor_id': profile.user_id,
+                'first_name': profile.user.first_name,
+                'last_name': profile.user.last_name,
+            }
+            for profile in tutor_profiles
+        ]
+
+    can_create_request = None
+
+    if course is not None:
+        can_create_request = not existing_tutors
+
+    return {
+        'courses': list(
+            Course.objects
+            .order_by('course_code')
+            .values(
+                'id',
+                'course_code',
+                'course_name',
+                'course_faculty',
+            )
+        ),
+        'location_types': [
+            {'value': value, 'label': label}
+            for value, label in TutoringRequest.LocationType.choices
+        ],
+        'visibility_options': [
+            {
+                'value': TutoringRequest.Visibility.ALL_TUTORS,
+                'label': TutoringRequest.Visibility.ALL_TUTORS.label,
+            },
+        ],
+        'description_max_length': (
+            TutoringRequest._meta.get_field('description').max_length
+        ),
+        'selected_course_id': course.pk if course is not None else None,
+        'can_create_request': can_create_request,
+        'existing_tutors': existing_tutors,
+    }
+
+def get_visible_tutoring_requests(*, tutor):
+    if not tutor.is_authenticated or not tutor.has_role(
+        tutor.Role.TUTOR
+    ):
+        raise PermissionError(
+            'Only users with an active tutor role can view the forum.'
+        )
+
+    return (
+        TutoringRequest.objects
+        .filter(
+            status=TutoringRequest.Status.OPEN,
+            visibility=TutoringRequest.Visibility.ALL_TUTORS,
+        )
+        .exclude(student=tutor)
+        .select_related('course', 'student')
+        .order_by('-created_at', '-id')
+    )
+
+def express_tutoring_request_interest(*, request_id, tutor):
+    if not tutor.is_authenticated or not tutor.has_role(
+        tutor.Role.TUTOR
+    ):
+        raise PermissionError(
+            'Only users with an active tutor role can express interest.'
+        )
+
+    with transaction.atomic():
+        tutoring_request = (
+            TutoringRequest.objects
+            .select_for_update()
+            .filter(
+                visibility=TutoringRequest.Visibility.ALL_TUTORS,
+            )
+            .exclude(student=tutor)
+            .get(pk=request_id)
+        )
+
+        if tutoring_request.status != TutoringRequest.Status.OPEN:
+            raise ValueError(
+                'Interest can only be expressed in open tutoring requests.'
+            )
+
+        interest, created = (
+            TutoringRequestInterest.objects.get_or_create(
+                tutoring_request=tutoring_request,
+                tutor=tutor,
+            )
+        )
+
+    return interest, created
+
+
+def withdraw_tutoring_request_interest(*, request_id, tutor):
+    if not tutor.is_authenticated or not tutor.has_role(
+        tutor.Role.TUTOR
+    ):
+        raise PermissionError(
+            'Only users with an active tutor role can withdraw interest.'
+        )
+
+    with transaction.atomic():
+        tutoring_request = (
+            TutoringRequest.objects
+            .select_for_update()
+            .filter(
+                visibility=TutoringRequest.Visibility.ALL_TUTORS,
+            )
+            .exclude(student=tutor)
+            .get(pk=request_id)
+        )
+
+        deleted_count, _ = TutoringRequestInterest.objects.filter(
+            tutoring_request=tutoring_request,
+            tutor=tutor,
+        ).delete()
+
+    return deleted_count > 0
+
+def get_interested_tutors(*, tutoring_request):
+    return (
+        TutoringRequestInterest.objects
+        .filter(
+            tutoring_request=tutoring_request,
+            tutor__is_active=True,
+        )
+        .select_related('tutor')
+        .order_by('created_at', 'id')
+    )
+
 def update_rating(user, rated_role):
     if rated_role == Rating.RatedRole.TUTOR:
         existing_ratings = Rating.objects.filter(tutor=user, rated_role=Rating.RatedRole.TUTOR)
