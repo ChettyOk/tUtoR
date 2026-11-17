@@ -19,8 +19,13 @@ class Booking(models.Model):
 
     course = models.ForeignKey(Course, on_delete=models.SET_NULL, null=True, blank=True, related_name='course_bookings')
 
-    # ----- uncomment as soon as Available_slots is implemented -----
-    # time_slot = models.ForeignKey('Available_Slots', on_delete=models.PROTECT, related_name='bookings') 
+    time_slot = models.ForeignKey(
+        'Available_Slots',
+        on_delete=models.PROTECT,
+        related_name='bookings',
+        null=True,
+        blank=True,
+    )
 
     student_note = models.CharField(max_length=255, blank=True, default='')
 
@@ -38,6 +43,7 @@ class Booking(models.Model):
     cancel_time = models.DateTimeField(null=True, blank=True)
     complete_time = models.DateTimeField(null=True, blank=True)
     cancellation_reason = models.TextField(blank=True, default='')
+    reminder_sent = models.BooleanField(default=False)
 
 
     def __str__(self):
@@ -60,7 +66,7 @@ class Booking(models.Model):
             raise ValueError(f"Booking cannot be cancelled because it was already completed.")
         
         if cancelled_by == 'student':
-            start_time = self.time_slot.start_time if hasattr(self, 'time_slot') and self.time_slot else None
+            start_time = self.time_slot.start_time if self.time_slot else None
             if start_time is not None:
                 time_to_session = start_time - timezone.now()
                 if time_to_session < timedelta(hours=cancel_deadline):
@@ -100,7 +106,7 @@ class Booking(models.Model):
 
 
     def unblock_booking(self):
-        if hasattr(self, 'time_slot') and self.time_slot:
+        if self.time_slot:
             self.time_slot.status = 'available'
             self.time_slot.save()
 
