@@ -1,7 +1,12 @@
-{% extends "base.html" %} {% load static %} {% block extra_head %}
+{% extends "base.html" %}
+{% load static %}
+
+{% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/auth.css' %}" />
-<link rel="stylesheet" href="{% static 'css/profile.css' %}" />
-{% endblock %} {% block content %}
+<link rel="stylesheet" href="{% static 'css/profile.css' %}?v=20261116g" />
+{% endblock %}
+
+{% block content %}
 <section class="auth-shell profile-shell">
   <aside class="auth-aside">
     <div class="auth-aside-inner">
@@ -26,29 +31,34 @@
     <div class="auth-card profile-card">
       <nav class="profile-nav" aria-label="Account sections">
         {% block profile_nav %}
-        <a
+        <button
+          type="button"
           class="profile-nav-link{% if active_section == 'personal' %} is-active{% endif %}"
-          href="{% url 'account_profile' %}"
-          >Personal info</a
+          data-profile-section="personal"
+          aria-controls="section-personal"
         >
-        <a
+          Personal info
+        </button>
+        <button
+          type="button"
           class="profile-nav-link{% if active_section == 'password' %} is-active{% endif %}"
-          href="{% url 'account_password' %}"
-          >Change password</a
+          data-profile-section="password"
+          aria-controls="section-password"
         >
-        <a
+          Change password
+        </button>
+        <button
+          type="button"
           class="profile-nav-link{% if active_section == 'role' %} is-active{% endif %}"
-          href="{% url 'account_role' %}"
-          >Role</a
+          data-profile-section="role"
+          aria-controls="section-role"
         >
+          Role
+        </button>
         {% endblock %}
       </nav>
 
-      {% if success_message %}
-      <div class="alert alert-success" role="status">{{ success_message }}</div>
-      {% endif %} {% if form_error %}
-      <div class="alert alert-danger" role="alert">{{ form_error }}</div>
-      {% endif %} {% block profile_content %}{% endblock %}
+      {% block profile_content %}{% endblock %}
     </div>
   </div>
 </section>

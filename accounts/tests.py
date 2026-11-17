@@ -2639,6 +2639,49 @@ class HomePageTests(TestCase):
         self.assertContains(response, 'Welcome, Sam')
         self.assertContains(response, 'CS 110')
 
+    def test_student_home_includes_matching_tutors_and_slots(self):
+        from datetime import timedelta
+        from decimal import Decimal
+
+        from django.utils import timezone
+
+        from bookings.models import Available_Slots
+
+        StudentProfile.objects.create(user=self.student).courses.add(self.course)
+        TutorProfile.objects.create(
+            user=self.tutor,
+            bio='Passed CS 110 with notes to share.',
+        ).courses_passed.add(self.course)
+
+        start = timezone.now() + timedelta(days=1)
+        Available_Slots.create_slot(
+            tutor=self.tutor,
+            start_time=start,
+            end_time=start + timedelta(hours=1),
+            price_per_hour=Decimal('25.00'),
+            location_type=Available_Slots.LocationType.ONLINE,
+        )
+
+        self.client.force_login(self.student)
+        response = self.client.get(reverse('student_home'))
+
+        self.assertEqual(response.status_code, 200)
+        tutors = response.context['tutors']
+        self.assertEqual(len(tutors), 1)
+        self.assertEqual(tutors[0]['id'], self.tutor.id)
+        self.assertEqual(tutors[0]['bio'], 'Passed CS 110 with notes to share.')
+        self.assertEqual(len(tutors[0]['available_slots']), 1)
+        self.assertEqual(tutors[0]['available_slots'][0]['price_per_hour'], '25.00')
+        self.assertEqual(tutors[0]['available_slots'][0]['location_type'], 'online')
+        self.assertContains(response, 'Tess')
+        self.assertContains(response, 'Passed CS 110 with notes to share.')
+        self.assertContains(response, 'Courses passed')
+        self.assertContains(response, 'Available times')
+        self.assertContains(response, 'Online')
+        self.assertContains(response, '$25.00/hour')
+        self.assertContains(response, '1 open')
+        self.assertContains(response, '1 tutor')
+
     def test_student_without_courses_is_offered_the_picker(self):
         self.client.force_login(self.student)
         response = self.client.get(reverse('student_home'))
