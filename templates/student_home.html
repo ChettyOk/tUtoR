@@ -1,10 +1,12 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}Home · {{ site_name|default:"tUtoR" }}{% endblock %}
 
 {% block content %}
 <div class="home-page">
   <div class="container home-page-inner">
+    {% csrf_token %}
     <header class="student-home-hero mb-4">
       <p class="kicker kicker-green mb-2">Student</p>
       <h1 class="h3 mb-1">Welcome{% if user.first_name %}, {{ user.first_name }}{% endif %}</h1>
@@ -76,11 +78,23 @@
                         {{ tutor.email }}
                       {% endif %}
                     </h3>
-                    {% if tutor.available_slots %}
-                    <span class="tutor-slot-count">
-                      {{ tutor.available_slots|length }} open
-                    </span>
-                    {% endif %}
+                    <div class="tutor-card-actions">
+                      <button
+                        type="button"
+                        class="tutor-favorite-btn{% if tutor.is_favorite %} is-active{% endif %}"
+                        data-favorite-toggle
+                        data-tutor-id="{{ tutor.id }}"
+                        data-toggle-url="{% url 'toggle_favorite_tutor' tutor.id %}"
+                        aria-pressed="{% if tutor.is_favorite %}true{% else %}false{% endif %}"
+                      >
+                        {% if tutor.is_favorite %}Favourited{% else %}Favourite{% endif %}
+                      </button>
+                      {% if tutor.available_slots %}
+                      <span class="tutor-slot-count">
+                        {{ tutor.available_slots|length }} open
+                      </span>
+                      {% endif %}
+                    </div>
                   </div>
                   <p class="tutor-meta mb-0">
                     Rating: {{ tutor.average_rating }}
@@ -148,4 +162,8 @@
     </section>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/student-home.js' %}"></script>
 {% endblock %}
