@@ -1,6 +1,8 @@
-/* Tutor sessions page: the "New session" form and its live summary.
+/* Tutor sessions page: the session form (new or edit) and its live summary.
    Loads the price limits and location choices from the server, checks the form in the
-   browser, then sends the new slot to /tutor/slots/create/. The server checks it again. */
+   browser, then sends the slot to the server, which checks it again.
+   Talks to schedule.js through events: it listens for "slot:edit" and "slot:cancelled"
+   and fires "slot:saved" and "slot:edit-ended". */
 (function () {
   "use strict";
 
@@ -14,6 +16,8 @@
   var submitButton = document.getElementById("slot-submit");
   var suggestButton = document.getElementById("slot-suggest");
   var priceHint = document.getElementById("slot-price-hint");
+  var cancelEditButton = document.getElementById("slot-cancel-edit");
+  var formHeading = document.getElementById("session-form-heading");
   var errorBox = document.getElementById("slot-alert");
   var successBox = document.getElementById("slot-success");
 
@@ -22,6 +26,7 @@
 
   var limits = { min: null, max: null, suggested: null };
   var attempted = false;   // show field errors live only after the first submit
+  var editingId = null;    // the id of the slot being edited, or null for a new slot
 
   // ---------- small helpers ----------
 
@@ -176,7 +181,68 @@
       });
   }
 
-  // ---------- send the new slot ----------
+  // ---------- edit mode ----------
+
+  function clearFieldErrors() {
+    setFieldError(startInput, "");
+    setFieldError(endInput, "");
+    setFieldError(priceInput, "");
+  }
+
+  function enterEditMode(slot) {
+    editingId = slot.id;
+    clearBoxes();
+    attempted = false;
+    clearFieldErrors();
+
+    startInput.value = toInputValue(new Date(slot.start_time));
+    endInput.value = toInputValue(new Date(slot.end_time));
+    priceInput.value = Number(slot.price_per_hour).toFixed(2);
+    locationSelect.value = slot.location_type;
+
+    formHeading.textContent = "2. Edit session";
+    submitButton.textContent = "Save changes";
+    cancelEditButton.hidden = false;
+
+    updateSummary();
+    form.scrollIntoView({ behavior: "smooth", block: "center" });
+    startInput.focus();
+  }
+
+  function leaveEditMode() {
+    var wasEditing = editingId !== null;
+    editingId = null;
+    formHeading.textContent = "2. New session";
+    submitButton.textContent = "Add session";
+    cancelEditButton.hidden = true;
+
+    startInput.value = "";
+    endInput.value = "";
+    if (limits.suggested !== null) priceInput.value = limits.suggested.toFixed(2);
+    locationSelect.selectedIndex = 0;
+    attempted = false;
+    clearFieldErrors();
+    updateSummary();
+
+    if (wasEditing) document.dispatchEvent(new CustomEvent("slot:edit-ended"));
+  }
+
+  document.addEventListener("slot:edit", function (event) { enterEditMode(event.detail); });
+  document.addEventListener("slot:cancelled", function (event) {
+    if (editingId === event.detail.id) leaveEditMode();
+  });
+  cancelEditButton.addEventListener("click", function () {
+    clearBoxes();
+    leaveEditMode();
+  });
+
+  // ---------- send the slot ----------
+
+  // The update URL in the page has 0 where the slot id goes.
+  function slotUrl() {
+    if (editingId === null) return form.getAttribute("data-url");
+    return form.getAttribute("data-update-url").replace("/0/", "/" + editingId + "/");
+  }
 
   function csrfToken() {
     return form.querySelector("[name=csrfmiddlewaretoken]").value;
@@ -208,8 +274,9 @@
       location_type: locationSelect.value
     });
 
+    var wasEditing = editingId !== null;
     submitButton.disabled = true;
-    fetch(form.getAttribute("data-url"), {
+    fetch(slotUrl(), {
       method: "POST",
       credentials: "same-origin",
       headers: { "X-CSRFToken": csrfToken(), Accept: "application/json" },
@@ -223,15 +290,8 @@
           showBox(errorBox, result.data.error || "The session could not be saved.");
           return;
         }
-        showBox(successBox, "Session added: " + describeSlot(start, end) + ".");
-        startInput.value = "";
-        endInput.value = "";
-        attempted = false;
-        validate();
-        setFieldError(startInput, "");
-        setFieldError(endInput, "");
-        setFieldError(priceInput, "");
-        updateSummary();
+        leaveEditMode();
+        showBox(successBox, (wasEditing ? "Session updated: " : "Session added: ") + describeSlot(start, end) + ".");
         // The schedule list listens for this and reloads itself.
         document.dispatchEvent(new CustomEvent("slot:saved", { detail: result.data.slot }));
       })
