@@ -10,8 +10,10 @@ class BookingsConfig(AppConfig):
             ConfirmationMailObserver,
             ReminderMailObserver,
         )
+        from interactions.observers import WebsiteNotificationObserver
         from bookings.subjects import booking_event_manager
 
         booking_event_manager.attach(CancellationMailObserver())
         booking_event_manager.attach(ConfirmationMailObserver())
         booking_event_manager.attach(ReminderMailObserver())
+        booking_event_manager.attach(WebsiteNotificationObserver())
