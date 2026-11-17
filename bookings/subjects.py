@@ -1,6 +1,10 @@
+import logging
 from typing import Any
 
 from bookings.interfaces import BookingEvent, BookingObserver, BookingSubject
+
+
+logger = logging.getLogger(__name__)
 
 
 class BookingEventManager(BookingSubject):
@@ -19,7 +23,14 @@ class BookingEventManager(BookingSubject):
 
     def notify(self, event: BookingEvent, booking: Any) -> None:
         for observer in tuple(self._observers):
-            observer.update(event, booking)
+            try:
+                observer.update(event, booking)
+            except Exception:
+                logger.exception(
+                    "Booking observer failed for event %s and booking %s",
+                    event.value,
+                    getattr(booking, "id", None),
+                )
 
 
 booking_event_manager = BookingEventManager()

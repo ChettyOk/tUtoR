@@ -3,6 +3,8 @@ import time
 from datetime import datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
 from django.db import connection
@@ -10,6 +12,9 @@ from django.test import Client, TestCase, override_settings, RequestFactory
 from django.urls import reverse
 from django.utils import timezone
 from django.middleware.csrf import get_token
+from django.core import mail
+from django.test import SimpleTestCase, override_settings
+
 
 from accounts.models import Course, StudentProfile, TutorProfile, User
 from bookings.models import Available_Slots, Booking, CancellationDeadlinePassedError, Rating
@@ -23,6 +28,14 @@ from bookings.pricing import (
 )
 from bookings.services import DoubleBookingError, create_booking_request, get_tutor_available_slots, get_user_bookings, get_tutor_schedule, serialize_slot
 from tUtoR.views import custom_403, custom_500
+from bookings.interfaces import BookingEvent
+from bookings.observers import (
+    CancellationMailObserver,
+    ConfirmationMailObserver,
+    ReminderMailObserver,
+)
+from bookings.subjects import BookingEventManager
+
 
 class Dummy_Slot: 
     objects = MagicMock()
@@ -2134,3 +2147,92 @@ class test_slot_management_csrf(TestCase):
         self.assertEqual(response.status_code, 200)
         self.slot.refresh_from_db()
         self.assertEqual(self.slot.status, Available_Slots.Status.CANCELLED)
+
+
+
+@override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+class BookingObserverTests(SimpleTestCase):
+    def setUp(self):
+        self.booking = SimpleNamespace(
+            id=42,
+            status='confirmed',
+            cancellation_reason='Tutor unavailable',
+            student=SimpleNamespace(email='student@example.com'),
+            tutor=SimpleNamespace(email='tutor@example.com'),
+        )
+
+    def test_attach_and_detach(self):
+        manager = BookingEventManager()
+        observer = Mock()
+
+        manager.attach(observer)
+        manager.attach(observer)
+        self.assertEqual(manager._observers, [observer])
+
+        manager.detach(observer)
+        manager.detach(observer)
+        self.assertEqual(manager._observers, [])
+
+    def test_observer_failure_does_not_stop_notifications(self):
+        manager = BookingEventManager()
+        failing_observer = Mock()
+        succeeding_observer = Mock()
+        failing_observer.update.side_effect = RuntimeError('mail backend failed')
+
+        manager.attach(failing_observer)
+        manager.attach(succeeding_observer)
+
+        with self.assertLogs('bookings.subjects', level='ERROR'):
+            manager.notify(BookingEvent.BOOKED, self.booking)
+
+        succeeding_observer.update.assert_called_once_with(
+            BookingEvent.BOOKED, self.booking
+        )
+
+    def test_confirmation_mail_event(self):
+        ConfirmationMailObserver().update(BookingEvent.BOOKED, self.booking)
+
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(
+            mail.outbox[0].to,
+            ['student@example.com', 'tutor@example.com'],
+        )
+        self.assertEqual(
+            mail.outbox[0].subject,
+            'Booking confirmation for booking #42',
+        )
+
+    def test_cancellation_mail_event(self):
+        CancellationMailObserver().update(BookingEvent.CANCELLED, self.booking)
+
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(
+            mail.outbox[0].to,
+            ['student@example.com', 'tutor@example.com'],
+        )
+        self.assertEqual(
+            mail.outbox[0].subject,
+            'Booking cancellation for booking #42',
+        )
+
+    def test_reminder_mail_event(self):
+        ReminderMailObserver().update(BookingEvent.REMINDER, self.booking)
+
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(
+            mail.outbox[0].to,
+            ['student@example.com', 'tutor@example.com'],
+        )
+        self.assertEqual(
+            mail.outbox[0].subject,
+            'Reminder: booking #42 starts in 2 hours',
+        )
+
+    @patch('bookings.observers.send_mail')
+    def test_observers_ignore_other_events(self, send_mail):
+        ConfirmationMailObserver().update(BookingEvent.CANCELLED, self.booking)
+        CancellationMailObserver().update(BookingEvent.BOOKED, self.booking)
+        ReminderMailObserver().update(BookingEvent.BOOKED, self.booking)
+
+        send_mail.assert_not_called()
+
