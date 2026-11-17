@@ -14,8 +14,44 @@
   --bs-border-color: rgba(0, 79, 46, 0.16);
 }
 
-html { scroll-behavior: smooth; }
-body { font-size: 1.0625rem; }
+html {
+  scroll-behavior: smooth;
+}
+body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  font-size: 1.0625rem;
+  background: var(--cream);
+}
+
+/* Shell fills the viewport; footer is fixed to the bottom edge */
+.site-shell {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding-bottom: 7.5rem;
+  background: var(--cream);
+}
+.site-shell > #main {
+  width: 100%;
+}
+.site-footer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+}
+
+/* Role home pages */
+.home-page {
+  width: 100%;
+  box-sizing: border-box;
+  padding-top: 3rem;
+  padding-bottom: 3rem;
+}
 
 .kicker {
   font-size: 0.8rem;

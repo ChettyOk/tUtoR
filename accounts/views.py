@@ -481,6 +481,35 @@ def login_page(request):
 
     return render(request, 'login.html', context)
 
+def _tutors_for_student(student_profile):
+    """Build tutor list for the student home using existing booking services."""
+    from bookings.services import get_tutor_available_slots, get_user_details
+
+    tutor_profiles = TutorProfile.objects.select_related('user').prefetch_related(
+        'courses_passed',
+    )
+
+    # Prefer tutors who teach at least one of the student's courses.
+    if student_profile is not None:
+        student_courses = student_profile.courses.all()
+        if student_courses.exists():
+            matched = tutor_profiles.filter(
+                courses_passed__in=student_courses,
+            ).distinct()
+            if matched.exists():
+                tutor_profiles = matched
+
+    tutors = []
+    for tutor_profile in tutor_profiles.order_by('user__first_name', 'user__last_name', 'user__id'):
+        try:
+            details = get_user_details(tutor_profile.user, User.Role.TUTOR)
+        except ValueError:
+            continue
+        details['available_slots'] = get_tutor_available_slots(tutor_profile.user)
+        tutors.append(details)
+    return tutors
+
+
 #Home page/dashboard basic controllers set up for redirection from signup and login
 @login_required
 def student_home(request):
@@ -488,8 +517,13 @@ def student_home(request):
         return redirect('tutor_home')
     profile = StudentProfile.objects.filter(user=request.user).first()
     courses = profile.courses.order_by('course_code') if profile else []
+    tutors = _tutors_for_student(profile)
     return render(request, 'student_home.html', {
-        'site_name': 'tUtoR', 'campus': 'University of Regina', 'courses': courses})
+        'site_name': 'tUtoR',
+        'campus': 'University of Regina',
+        'courses': courses,
+        'tutors': tutors,
+    })
 
 
 @login_required
