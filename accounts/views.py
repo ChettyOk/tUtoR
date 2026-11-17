@@ -488,8 +488,16 @@ def student_home(request):
         return redirect('tutor_home')
     profile = StudentProfile.objects.filter(user=request.user).first()
     courses = profile.courses.order_by('course_code') if profile else []
+    from interactions.models import Notification
+
     return render(request, 'student_home.html', {
-        'site_name': 'tUtoR', 'campus': 'University of Regina', 'courses': courses})
+        'site_name': 'tUtoR',
+        'campus': 'University of Regina',
+        'courses': courses,
+        'notifications': Notification.objects.filter(
+            recipient=request.user,
+        )[:10],
+    })
 
 
 @login_required
@@ -519,6 +527,7 @@ def tutor_home(request):
     price_error = ''
     location_error = ''
     success_message = ''
+    from interactions.models import Notification
 
     if request.method == 'POST':
         raw_price = request.POST.get('price_per_hour', '').strip()
@@ -558,6 +567,9 @@ def tutor_home(request):
         'success_message': success_message,
         'min_price': MIN_PRICE,
         'max_price': MAX_PRICE,
+        'notifications': Notification.objects.filter(
+            recipient=request.user,
+        )[:10],
     })
 
 #     get My Profile()
