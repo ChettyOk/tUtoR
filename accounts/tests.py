@@ -2647,7 +2647,8 @@ class HomePageTests(TestCase):
 
         from bookings.models import Available_Slots
 
-        StudentProfile.objects.create(user=self.student).courses.add(self.course)
+        student_profile = StudentProfile.objects.create(user=self.student)
+        student_profile.courses.add(self.course)
         TutorProfile.objects.create(
             user=self.tutor,
             bio='Passed CS 110 with notes to share.',
@@ -2670,6 +2671,7 @@ class HomePageTests(TestCase):
         self.assertEqual(len(tutors), 1)
         self.assertEqual(tutors[0]['id'], self.tutor.id)
         self.assertEqual(tutors[0]['bio'], 'Passed CS 110 with notes to share.')
+        self.assertFalse(tutors[0]['is_favorite'])
         self.assertEqual(len(tutors[0]['available_slots']), 1)
         self.assertEqual(tutors[0]['available_slots'][0]['price_per_hour'], '25.00')
         self.assertEqual(tutors[0]['available_slots'][0]['location_type'], 'online')
@@ -2681,6 +2683,10 @@ class HomePageTests(TestCase):
         self.assertContains(response, '$25.00/hour')
         self.assertContains(response, '1 open')
         self.assertContains(response, '1 tutor')
+
+        student_profile.add_favorite_tutor(self.tutor)
+        favorited = self.client.get(reverse('student_home'))
+        self.assertTrue(favorited.context['tutors'][0]['is_favorite'])
 
     def test_student_without_courses_is_offered_the_picker(self):
         self.client.force_login(self.student)
