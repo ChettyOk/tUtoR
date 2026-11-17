@@ -219,9 +219,60 @@ h1, h2, h3, .card-title {
 }
 .card-text { color: var(--muted); }
 
-/* Student home tutor list (profiles; slots come next) */
+/* Student home */
+.student-home-hero h1 {
+  max-width: 18ch;
+}
+.student-inline-link {
+  color: var(--green);
+  font-weight: 700;
+  font-size: 0.92rem;
+  text-decoration: none;
+}
+.student-inline-link:hover,
+.student-inline-link:focus {
+  color: var(--green-deep);
+  text-decoration: underline;
+}
+.student-course-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+.student-course-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.75rem;
+  align-items: baseline;
+}
+.student-course-code {
+  font-weight: 700;
+  color: var(--green-deep);
+}
+.student-course-name,
+.student-empty {
+  color: var(--muted);
+}
+
+.tutor-list-header {
+  display: grid;
+  gap: 0.35rem;
+}
+.tutor-list-count {
+  color: var(--green);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
 .tutor-card {
   border: 1px solid var(--bs-border-color);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.tutor-card:hover {
+  border-color: rgba(0, 79, 46, 0.28);
+  box-shadow: 0 12px 28px rgba(0, 40, 24, 0.08);
+  transform: translateY(-1px);
 }
 .tutor-avatar {
   flex: 0 0 auto;
@@ -245,13 +296,32 @@ h1, h2, h3, .card-title {
 .tutor-bio {
   color: var(--ink);
   margin: 0;
+  line-height: 1.45;
 }
-.tutor-courses-label {
+.tutor-bio.is-empty,
+.tutor-empty-note {
+  color: var(--muted);
+  margin: 0;
+}
+.tutor-slot-count {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: rgba(255, 200, 46, 0.28);
+  color: var(--green-deep);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 0.28rem 0.65rem;
+  white-space: nowrap;
+}
+.tutor-section-label {
   font-size: 0.8rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--green);
+  margin: 0;
 }
 .tutor-course-chips {
   display: flex;
@@ -280,7 +350,7 @@ h1, h2, h3, .card-title {
   border: 1px solid var(--bs-border-color);
   border-radius: 0.85rem;
   padding: 0.7rem 0.85rem;
-  background: rgba(255, 253, 248, 0.9);
+  background: rgba(0, 79, 46, 0.03);
 }
 .tutor-slot-when {
   font-weight: 600;
@@ -291,6 +361,24 @@ h1, h2, h3, .card-title {
   color: var(--muted);
   font-size: 0.88rem;
   margin-top: 0.15rem;
+}
+.tutor-empty-card {
+  border: 1px dashed rgba(0, 79, 46, 0.28);
+  background: rgba(255, 253, 248, 0.72);
+}
+.tutor-empty-title {
+  font-family: "Fraunces", Georgia, serif;
+  font-weight: 560;
+  color: var(--green-deep);
+  font-size: 1.15rem;
+}
+.tutor-empty-copy {
+  color: var(--muted);
+  max-width: 42rem;
+}
+.tutor-empty-copy a {
+  color: var(--green);
+  font-weight: 700;
 }
 
 /* Footer */
@@ -304,4 +392,10 @@ h1, h2, h3, .card-title {
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
+  .tutor-card {
+    transition: none;
+  }
+  .tutor-card:hover {
+    transform: none;
+  }
 }

@@ -2679,6 +2679,8 @@ class HomePageTests(TestCase):
         self.assertContains(response, 'Available times')
         self.assertContains(response, 'Online')
         self.assertContains(response, '$25.00/hour')
+        self.assertContains(response, '1 open')
+        self.assertContains(response, '1 tutor')
 
     def test_student_without_courses_is_offered_the_picker(self):
         self.client.force_login(self.student)
