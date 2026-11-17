@@ -5,25 +5,40 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/picker.css' %}">
+<link rel="stylesheet" href="{% static 'css/sessions.css' %}">
 {% endblock %}
 
 {% block content %}
 <div class="container py-5">
 
-  <div class="mb-4">
-    <a href="{% url 'tutor_home' %}" class="small text-decoration-none">&larr; Back to home</a>
-    <p class="kicker kicker-green mt-3 mb-2">Tutor</p>
-    <h1 class="h3 mb-1">Set up tutoring sessions</h1>
-    <p class="text-muted mb-0">
+  <header class="sessions-hero mb-5">
+    <a href="{% url 'tutor_home' %}" class="back-link">&larr; Back to home</a>
+    <p class="kicker mt-3 mb-0">Tutor</p>
+    <h1>Set up tutoring sessions</h1>
+    <p class="hero-text">
       Choose the courses you teach, then add the times you are free. Students
       can book any open time.
     </p>
-  </div>
+    <div class="hero-stats" aria-label="Your summary">
+      <div class="hero-stat">
+        <span class="hero-stat-value">{{ selected_ids|length }}</span>
+        <span class="hero-stat-label">Courses you teach</span>
+      </div>
+      <div class="hero-stat">
+        <span class="hero-stat-value" id="stat-upcoming">&ndash;</span>
+        <span class="hero-stat-label">Upcoming sessions</span>
+      </div>
+      <div class="hero-stat">
+        <span class="hero-stat-value is-text" id="stat-next">&ndash;</span>
+        <span class="hero-stat-label">Next session</span>
+      </div>
+    </div>
+  </header>
 
   <!-- Step 1: courses you teach (search and pick) -->
-  <section class="mb-5" id="courses-section" aria-labelledby="courses-heading">
-    <h2 class="h5" id="courses-heading">1. Courses you teach</h2>
-    <p class="text-muted">Search by course code or name and add every course you have passed and can teach.</p>
+  <section class="step-block" id="courses-section" aria-labelledby="courses-heading">
+    <h2 class="step-title" id="courses-heading"><span class="step-num">1</span>Courses you teach</h2>
+    <p class="step-hint">Search by course code or name and add every course you have passed and can teach.</p>
 
     <noscript>
       <div class="alert alert-warning" role="alert">Turn on JavaScript to search and pick courses.</div>
@@ -80,11 +95,11 @@
 
     <!-- Step 2: the new session form -->
     <div class="col-lg-5">
-      <section class="card" id="session-form-section" aria-labelledby="session-form-heading">
+      <section class="card session-card" id="session-form-section" aria-labelledby="session-form-heading">
         <div class="card-body">
-          <h2 class="h6 mb-3" id="session-form-heading">2. New session</h2>
+          <h2 class="step-title mb-3" id="session-form-heading"><span class="step-num">2</span><span id="session-form-title">New session</span></h2>
 
-          <form id="slot-form" novalidate data-url="{% url 'create_slot' %}">
+          <form id="slot-form" novalidate data-url="{% url 'create_slot' %}" data-update-url="{% url 'update_slot' 0 %}">
             {% csrf_token %}
 
             <noscript>
@@ -122,7 +137,10 @@
               <select id="slot-location" class="form-select" disabled></select>
             </div>
 
-            <button type="submit" id="slot-submit" class="btn btn-green rounded-pill" disabled>Add session</button>
+            <div class="form-actions">
+              <button type="submit" id="slot-submit" class="btn btn-green rounded-pill" disabled>Add session</button>
+              <button type="button" id="slot-cancel-edit" class="btn btn-link" hidden>Cancel editing</button>
+            </div>
           </form>
         </div>
       </section>
@@ -131,31 +149,53 @@
     <!-- Summary and schedule -->
     <div class="col-lg-7">
 
-      <section class="card mb-4" id="session-info-section" aria-labelledby="session-info-heading">
+      <section class="card session-card info-card mb-4" id="session-info-section" aria-labelledby="session-info-heading">
         <div class="card-body">
-          <h2 class="h6" id="session-info-heading">Session information</h2>
-          <p id="info-empty" class="text-muted mb-0">Fill in the start and end time to see a summary of your session.</p>
-          <dl id="info-details" class="row mb-0" hidden>
-            <dt class="col-sm-4">Date</dt>
-            <dd class="col-sm-8" id="info-date"></dd>
-            <dt class="col-sm-4">Time</dt>
-            <dd class="col-sm-8" id="info-time"></dd>
-            <dt class="col-sm-4">Length</dt>
-            <dd class="col-sm-8" id="info-length"></dd>
-            <dt class="col-sm-4">Price</dt>
-            <dd class="col-sm-8" id="info-price"></dd>
-            <dt class="col-sm-4">Estimated total</dt>
-            <dd class="col-sm-8" id="info-total"></dd>
-            <dt class="col-sm-4">Where</dt>
-            <dd class="col-sm-8" id="info-where"></dd>
-          </dl>
+          <h2 class="h6 mb-3" id="session-info-heading">Session information</h2>
+
+          <p id="info-empty" class="empty-note">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+            <span>Fill in the start and end time to see a summary of your session.</span>
+          </p>
+
+          <div id="info-details" hidden>
+            <div class="info-total-box">
+              <span class="info-total-label">Estimated total</span>
+              <strong class="info-total-value" id="info-total"></strong>
+            </div>
+            <dl class="info-list">
+              <dt>Date</dt>
+              <dd id="info-date"></dd>
+              <dt>Time</dt>
+              <dd id="info-time"></dd>
+              <dt>Length</dt>
+              <dd id="info-length"></dd>
+              <dt>Price</dt>
+              <dd id="info-price"></dd>
+              <dt>Where</dt>
+              <dd id="info-where"></dd>
+            </dl>
+          </div>
         </div>
       </section>
 
-      <section class="card" id="schedule-section" aria-labelledby="schedule-heading">
+      <section class="card session-card" id="schedule-section" aria-labelledby="schedule-heading"
+               data-list-url="{% url 'tutor_schedule' %}"
+               data-update-url="{% url 'update_slot' 0 %}"
+               data-delete-url="{% url 'delete_slot' 0 %}">
         <div class="card-body">
-          <h2 class="h6" id="schedule-heading">Your schedule</h2>
-          <p class="text-muted mb-0">Your sessions will be listed here.</p>
+          <div class="schedule-head">
+            <h2 class="step-title" id="schedule-heading"><span class="step-num">3</span>Your schedule</h2>
+            <div class="form-check mb-0">
+              <input class="form-check-input" type="checkbox" id="schedule-show-all">
+              <label class="form-check-label small" for="schedule-show-all">Show past and cancelled</label>
+            </div>
+          </div>
+
+          <div id="schedule-alert" class="alert alert-danger" role="alert" hidden></div>
+          <div id="schedule-success" class="alert alert-success" role="status" hidden></div>
+          <p id="schedule-status" class="empty-note" role="status">Loading your sessions&hellip;</p>
+          <ul id="schedule-list" class="slot-list"></ul>
         </div>
       </section>
 
@@ -170,4 +210,5 @@
 {% block extra_js %}
 <script src="{% static 'js/course-picker.js' %}"></script>
 <script src="{% static 'js/sessions.js' %}"></script>
+<script src="{% static 'js/schedule.js' %}"></script>
 {% endblock %}

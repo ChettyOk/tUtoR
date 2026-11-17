@@ -2190,6 +2190,23 @@ class TutorSessionsPageTests(TestCase):
         self.assertContains(response, 'data-max=""')
         self.assertContains(response, f'action="{reverse("tutor_save_courses")}"')
 
+    def test_page_has_the_new_session_form_wired_to_the_slot_endpoint(self):
+        self.client.force_login(self.tutor)
+        response = self.client.get(self.url)
+        self.assertContains(response, f'data-url="{reverse("create_slot")}"')
+        for field_id in ('slot-start', 'slot-end', 'slot-price', 'slot-location', 'slot-submit'):
+            self.assertContains(response, f'id="{field_id}"')
+        self.assertContains(response, 'js/sessions.js')
+
+    def test_page_has_the_schedule_list_wired_to_the_slot_endpoints(self):
+        self.client.force_login(self.tutor)
+        response = self.client.get(self.url)
+        self.assertContains(response, f'data-list-url="{reverse("tutor_schedule")}"')
+        self.assertContains(response, f'data-update-url="{reverse("update_slot", args=[0])}"')
+        self.assertContains(response, f'data-delete-url="{reverse("delete_slot", args=[0])}"')
+        self.assertContains(response, 'id="schedule-list"')
+        self.assertContains(response, 'js/schedule.js')
+
     def test_tutor_home_links_to_the_page(self):
         self.client.force_login(self.tutor)
         self.assertContains(self.client.get(reverse('tutor_home')), self.url)

@@ -53,9 +53,10 @@
   }
 
   function dayLabel(slot) {
-    return new Date(slot.start_time).toLocaleDateString(undefined, {
-      weekday: "long", month: "long", day: "numeric", year: "numeric"
-    });
+    var start = new Date(slot.start_time);
+    var options = { weekday: "long", month: "long", day: "numeric" };
+    if (start.getFullYear() !== new Date().getFullYear()) options.year = "numeric";   // only show a different year
+    return start.toLocaleDateString(undefined, options);
   }
 
   function timeLabel(slot) {
@@ -64,17 +65,24 @@
       new Date(slot.end_time).toLocaleTimeString(undefined, options);
   }
 
-  function badgeFor(slot) {
-    if (slot.status === "cancelled") return make("span", "badge text-bg-secondary", "Cancelled");
-    if (isPast(slot)) return make("span", "badge text-bg-light border", "Past");
-    if (slot.status === "booked") return make("span", "badge text-bg-primary", "Booked");
-    return make("span", "badge text-bg-success", "Available");
+  // "is-available", "is-booked", "is-cancelled" or "is-past": used for the colours.
+  function stateOf(slot) {
+    if (slot.status === "cancelled") return "is-cancelled";
+    if (isPast(slot)) return "is-past";
+    return slot.status === "booked" ? "is-booked" : "is-available";
   }
+
+  var STATE_LABELS = {
+    "is-available": "Available",
+    "is-booked": "Booked",
+    "is-cancelled": "Cancelled",
+    "is-past": "Past"
+  };
 
   // ---------- drawing the list ----------
 
   function button(label, action, id, className) {
-    var node = make("button", "btn btn-sm " + className, label);
+    var node = make("button", "btn-slot " + className, label);
     node.type = "button";
     node.setAttribute("data-action", action);
     node.setAttribute("data-id", id);
@@ -82,40 +90,73 @@
   }
 
   function buildActions(slot) {
-    var box = make("div", "d-flex flex-wrap align-items-center gap-2");
+    var box = make("div", "slot-actions");
     var open = slot.status === "available" && !isPast(slot);
 
     if (open && confirmingId === slot.id) {
-      box.appendChild(make("span", "small", "Cancel this session?"));
-      box.appendChild(button("Yes, cancel", "confirm", slot.id, "btn-danger"));
-      box.appendChild(button("Keep", "keep", slot.id, "btn-outline-secondary"));
+      box.appendChild(make("span", "slot-note", "Cancel this session?"));
+      box.appendChild(button("Yes, cancel", "confirm", slot.id, "btn-slot-danger"));
+      box.appendChild(button("Keep", "keep", slot.id, "btn-slot-keep"));
     } else if (open) {
-      box.appendChild(button("Edit", "edit", slot.id, "btn-outline-green"));
-      box.appendChild(button("Cancel", "cancel", slot.id, "btn-outline-danger"));
+      box.appendChild(button("Edit", "edit", slot.id, "btn-slot-edit"));
+      box.appendChild(button("Cancel", "cancel", slot.id, "btn-slot-cancel"));
     } else if (slot.status === "booked" && !isPast(slot)) {
-      box.appendChild(make("span", "small text-muted", "A student booked this time"));
+      box.appendChild(make("span", "slot-note", "Booked by a student"));
     }
     return box;
   }
 
+  function buildTile(slot) {
+    var start = new Date(slot.start_time);
+    var tile = make("div", "slot-tile");
+    tile.setAttribute("aria-hidden", "true");
+    tile.appendChild(make("span", "slot-tile-month", start.toLocaleDateString(undefined, { month: "short" })));
+    tile.appendChild(make("span", "slot-tile-day", String(start.getDate())));
+    return tile;
+  }
+
   function buildRow(slot) {
-    var row = make("li", "list-group-item px-0 d-flex flex-wrap justify-content-between align-items-center gap-2");
-    if (slot.id === editingId) row.classList.add("bg-light");
-    if (slot.status === "cancelled" || isPast(slot)) row.classList.add("text-muted");
+    var state = stateOf(slot);
+    var row = make("li", "slot-row " + state);
+    if (slot.id === editingId) row.classList.add("is-editing");
 
-    var info = make("div");
-    info.appendChild(make("div", "fw-semibold", dayLabel(slot)));
-    info.appendChild(make("div", "small",
-      timeLabel(slot) + " · $" + Number(slot.price_per_hour).toFixed(2) + " per hour · " +
-      (LOCATIONS[slot.location_type] || slot.location_type)));
+    var main = make("div", "slot-main");
+    var headline = make("div", "slot-headline");
+    headline.appendChild(make("span", "slot-time", timeLabel(slot)));
+    headline.appendChild(make("span", "slot-badge " + state, STATE_LABELS[state]));
+    main.appendChild(headline);
+    main.appendChild(make("div", "slot-day", dayLabel(slot)));
+    var meta = make("div", "slot-meta");
+    meta.appendChild(make("span", "slot-chip", "$" + Number(slot.price_per_hour).toFixed(2) + " per hour"));
+    meta.appendChild(make("span", "slot-chip", LOCATIONS[slot.location_type] || slot.location_type));
+    main.appendChild(meta);
 
-    var side = make("div", "d-flex flex-wrap align-items-center gap-3");
-    side.appendChild(badgeFor(slot));
+    var side = make("div", "slot-side");
     side.appendChild(buildActions(slot));
 
-    row.appendChild(info);
+    row.appendChild(buildTile(slot));
+    row.appendChild(main);
     row.appendChild(side);
     return row;
+  }
+
+  // The two numbers in the page header: how many upcoming sessions, and which is next.
+  function updateStats() {
+    var upcoming = slots.filter(function (slot) {
+      return slot.status !== "cancelled" && !isPast(slot);
+    });
+    var upcomingEl = document.getElementById("stat-upcoming");
+    var nextEl = document.getElementById("stat-next");
+    if (!upcomingEl || !nextEl) return;
+
+    upcomingEl.textContent = String(upcoming.length);
+    if (!upcoming.length) {
+      nextEl.textContent = "None yet";
+      return;
+    }
+    var next = new Date(upcoming[0].start_time);   // the server sends them in time order
+    nextEl.textContent = next.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) +
+      " · " + next.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   }
 
   function render() {
@@ -150,6 +191,7 @@
       .then(function (data) {
         slots = data.slots;
         render();
+        updateStats();
       })
       .catch(function () {
         statusEl.hidden = true;

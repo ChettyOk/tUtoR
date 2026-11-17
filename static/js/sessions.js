@@ -17,7 +17,7 @@
   var suggestButton = document.getElementById("slot-suggest");
   var priceHint = document.getElementById("slot-price-hint");
   var cancelEditButton = document.getElementById("slot-cancel-edit");
-  var formHeading = document.getElementById("session-form-heading");
+  var formHeading = document.getElementById("session-form-title");
   var errorBox = document.getElementById("slot-alert");
   var successBox = document.getElementById("slot-success");
 
@@ -200,7 +200,7 @@
     priceInput.value = Number(slot.price_per_hour).toFixed(2);
     locationSelect.value = slot.location_type;
 
-    formHeading.textContent = "2. Edit session";
+    formHeading.textContent = "Edit session";
     submitButton.textContent = "Save changes";
     cancelEditButton.hidden = false;
 
@@ -212,7 +212,7 @@
   function leaveEditMode() {
     var wasEditing = editingId !== null;
     editingId = null;
-    formHeading.textContent = "2. New session";
+    formHeading.textContent = "New session";
     submitButton.textContent = "Add session";
     cancelEditButton.hidden = true;
 
