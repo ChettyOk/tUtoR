@@ -481,9 +481,33 @@ def login_page(request):
 
     return render(request, 'login.html', context)
 
+def _format_slot_for_student(slot):
+    """Add readable labels to a serialized slot for the student home template."""
+    from django.utils import timezone
+    from django.utils.formats import date_format
+
+    from bookings.models import Available_Slots
+    from bookings.services import serialize_slot
+
+    data = serialize_slot(slot)
+    start = timezone.localtime(slot.start_time)
+    end = timezone.localtime(slot.end_time)
+    data['when_label'] = (
+        f"{date_format(start, 'D M j, Y · g:i A')} – {date_format(end, 'g:i A')}"
+    )
+    data['location_label'] = dict(Available_Slots.LocationType.choices).get(
+        slot.location_type,
+        slot.location_type,
+    )
+    return data
+
+
 def _tutors_for_student(student_profile):
     """Build tutor list for the student home using existing booking services."""
-    from bookings.services import get_tutor_available_slots, get_user_details
+    from django.utils import timezone
+
+    from bookings.models import Available_Slots
+    from bookings.services import get_user_details
 
     tutor_profiles = TutorProfile.objects.select_related('user').prefetch_related(
         'courses_passed',
@@ -505,7 +529,15 @@ def _tutors_for_student(student_profile):
             details = get_user_details(tutor_profile.user, User.Role.TUTOR)
         except ValueError:
             continue
-        details['available_slots'] = get_tutor_available_slots(tutor_profile.user)
+
+        open_slots = Available_Slots.objects.filter(
+            tutor=tutor_profile.user,
+            status=Available_Slots.Status.AVAILABLE,
+            start_time__gt=timezone.now(),
+        ).order_by('start_time')
+        details['available_slots'] = [
+            _format_slot_for_student(slot) for slot in open_slots
+        ]
         tutors.append(details)
     return tutors
 

@@ -77,7 +77,7 @@
               <p class="tutor-bio text-muted mb-3">No bio yet.</p>
               {% endif %}
 
-              <div class="tutor-courses">
+              <div class="tutor-courses mb-3">
                 <p class="tutor-courses-label mb-2">Courses passed</p>
                 {% if tutor.courses_passed %}
                 <ul class="tutor-course-chips mb-0">
@@ -87,6 +87,25 @@
                 </ul>
                 {% else %}
                 <p class="text-muted mb-0">No courses listed.</p>
+                {% endif %}
+              </div>
+
+              <div class="tutor-slots">
+                <p class="tutor-courses-label mb-2">Available times</p>
+                {% if tutor.available_slots %}
+                <ul class="tutor-slot-list mb-0">
+                  {% for slot in tutor.available_slots %}
+                  <li class="tutor-slot" data-slot-id="{{ slot.id }}">
+                    <div class="tutor-slot-when">{{ slot.when_label }}</div>
+                    <div class="tutor-slot-meta">
+                      {{ slot.location_label }}
+                      · ${{ slot.price_per_hour }}/hour
+                    </div>
+                  </li>
+                  {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-muted mb-0">No open slots right now.</p>
                 {% endif %}
               </div>
             </div>

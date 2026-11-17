@@ -269,6 +269,29 @@ h1, h2, h3, .card-title {
   font-size: 0.86rem;
   font-weight: 600;
 }
+.tutor-slot-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+.tutor-slot {
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.85rem;
+  padding: 0.7rem 0.85rem;
+  background: rgba(255, 253, 248, 0.9);
+}
+.tutor-slot-when {
+  font-weight: 600;
+  color: var(--green-deep);
+  font-size: 0.95rem;
+}
+.tutor-slot-meta {
+  color: var(--muted);
+  font-size: 0.88rem;
+  margin-top: 0.15rem;
+}
 
 /* Footer */
 .site-footer {

@@ -2672,9 +2672,13 @@ class HomePageTests(TestCase):
         self.assertEqual(tutors[0]['bio'], 'Passed CS 110 with notes to share.')
         self.assertEqual(len(tutors[0]['available_slots']), 1)
         self.assertEqual(tutors[0]['available_slots'][0]['price_per_hour'], '25.00')
+        self.assertEqual(tutors[0]['available_slots'][0]['location_type'], 'online')
         self.assertContains(response, 'Tess')
         self.assertContains(response, 'Passed CS 110 with notes to share.')
         self.assertContains(response, 'Courses passed')
+        self.assertContains(response, 'Available times')
+        self.assertContains(response, 'Online')
+        self.assertContains(response, '$25.00/hour')
 
     def test_student_without_courses_is_offered_the_picker(self):
         self.client.force_login(self.student)
