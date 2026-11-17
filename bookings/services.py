@@ -93,6 +93,11 @@ def create_session_request(student, tutor, course=None, student_note='', session
         student_note=student_note,
         session_price=session_price,
         status=Booking.Status.PENDING,)
+    transaction.on_commit(
+        lambda booking=booking: booking_event_manager.notify(
+            BookingEvent.REQUESTED, booking
+        )
+    )
     return booking
 
 

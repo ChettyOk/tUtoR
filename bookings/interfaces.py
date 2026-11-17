@@ -6,6 +6,7 @@ from typing import Any
 class BookingEvent(Enum):
     """Events emitted during a booking's lifecycle."""
 
+    REQUESTED = "requested"
     BOOKED = "booked"
     CANCELLED = "cancelled"
     REMINDER = "reminder"
