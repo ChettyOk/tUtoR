@@ -9,11 +9,11 @@
       <div>
         <p class="kicker kicker-green mb-2">Student</p>
         <h1 class="h3 mb-1">Welcome{% if user.first_name %}, {{ user.first_name }}{% endif %}</h1>
-        <p class="text-muted mb-0">Your courses and bookings will show up here.</p>
+        <p class="text-muted mb-0">Browse tutors for your courses and book a time.</p>
       </div>
     </div>
 
-    <div class="card">
+    <div class="card mb-4">
       <div class="card-body">
         <h2 class="h6">Your courses</h2>
         {% if courses %}
@@ -27,6 +27,86 @@
         {% endif %}
       </div>
     </div>
+
+    <section class="tutor-list" aria-labelledby="tutor-list-heading">
+      <div class="d-flex flex-wrap align-items-end justify-content-between gap-2 mb-3">
+        <div>
+          <h2 class="h5 mb-1" id="tutor-list-heading">Tutors</h2>
+          <p class="text-muted mb-0">
+            {% if courses %}
+            Tutors who have passed courses you are taking.
+            {% else %}
+            Tutors currently offering sessions.
+            {% endif %}
+          </p>
+        </div>
+      </div>
+
+      {% if tutors %}
+      <div class="row g-3">
+        {% for tutor in tutors %}
+        <div class="col-12 col-lg-6">
+          <article class="card tutor-card h-100" data-tutor-id="{{ tutor.id }}">
+            <div class="card-body">
+              <div class="d-flex align-items-start gap-3 mb-3">
+                <span class="tutor-avatar" aria-hidden="true">
+                  {% if tutor.first_name or tutor.last_name %}
+                    {{ tutor.first_name|default:tutor.email|slice:":1"|upper }}{{ tutor.last_name|default:""|slice:":1"|upper }}
+                  {% else %}
+                    {{ tutor.email|slice:":1"|upper }}
+                  {% endif %}
+                </span>
+                <div class="min-w-0">
+                  <h3 class="h5 mb-1">
+                    {% if tutor.first_name or tutor.last_name %}
+                      {{ tutor.first_name }} {{ tutor.last_name }}
+                    {% else %}
+                      {{ tutor.email }}
+                    {% endif %}
+                  </h3>
+                  <p class="tutor-meta mb-0">
+                    Rating: {{ tutor.average_rating }}
+                    · from ${{ tutor.suggested_price }}/hour
+                  </p>
+                </div>
+              </div>
+
+              {% if tutor.bio %}
+              <p class="tutor-bio mb-3">{{ tutor.bio }}</p>
+              {% else %}
+              <p class="tutor-bio text-muted mb-3">No bio yet.</p>
+              {% endif %}
+
+              <div class="tutor-courses">
+                <p class="tutor-courses-label mb-2">Courses passed</p>
+                {% if tutor.courses_passed %}
+                <ul class="tutor-course-chips mb-0">
+                  {% for course in tutor.courses_passed %}
+                  <li>{{ course.course_code }}</li>
+                  {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-muted mb-0">No courses listed.</p>
+                {% endif %}
+              </div>
+            </div>
+          </article>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="card">
+        <div class="card-body">
+          <p class="mb-0">
+            No tutors to show yet.
+            {% if not courses %}
+            <a href="{% url 'personalise' %}">Add your courses</a> to see matching tutors.
+            {% endif %}
+          </p>
+        </div>
+      </div>
+      {% endif %}
+    </section>
   </div>
 </div>
 {% endblock %}
