@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.db.models import Q
+from django.db import OperationalError
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.views.decorators.http import (
@@ -41,6 +42,8 @@ from .services import (
     get_user_details,
     get_visible_tutoring_requests,
     serialize_slot,
+    DoubleBookingError,
+    create_booking_request,
     get_student_tutoring_requests,
     serialize_tutoring_request,
     withdraw_tutoring_request,
@@ -507,6 +510,11 @@ def get_bookings(request):
             'tutor_id': booking.tutor.id,
             'tutor_email': booking.tutor.email,
             'course': str(booking.course) if booking.course else None,
+            'time_slot_id': booking.time_slot_id,
+            'start_time': booking.start_time.isoformat() if booking.start_time else None,
+            'end_time': booking.end_time.isoformat() if booking.end_time else None,
+            'price_per_hour': str(booking.price_per_hour) if booking.price_per_hour is not None else None,
+            'location_type': booking.location_type,
             'session_price': str(booking.session_price),
             'status': booking.status,
             'student_note': booking.student_note,
@@ -789,3 +797,83 @@ def tutor_save_courses(request):
 
     return redirect('tutor_sessions')
 
+@require_POST
+def book_slot_view(request, slot_id):
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'you have to be logged in to book a slot'}, status=401)
+
+    error_response = check_role_access(request, User.Role.STUDENT)
+    if error_response is not None:
+        return error_response
+
+    slot = get_object_or_404(Available_Slots, id=slot_id)
+
+    course_id = request.POST.get('course_id')
+    course = None
+    if course_id:
+        try:
+            course_id = int(course_id)
+            if course_id <= 0:
+                raise ValueError
+        except (TypeError, ValueError, OverflowError):
+            return JsonResponse({'error': 'course_id invalid.'}, status=400)
+        course = get_object_or_404(Course, id=course_id)
+
+    raw_start = request.POST.get('start_time', '').strip()
+    raw_end = request.POST.get('end_time', '').strip()
+    start_time = end_time = None
+    if raw_start or raw_end:
+        if not raw_start or not raw_end:
+            return JsonResponse({'error': 'please prvide start and end time'}, status=400)
+        try:
+            start_time = parse_datetime(raw_start)
+            end_time = parse_datetime(raw_end)
+        except (ValueError, OverflowError):
+            start_time = end_time = None
+        if start_time is None or end_time is None:
+            return JsonResponse({'error': 'please provide a valid start and end time'}, status=400)
+
+    try:
+        booking = create_booking_request(
+            student=request.user,
+            tutor=slot.tutor,
+            slot=slot,
+            course=course,
+            student_note=request.POST.get('student_note', '').strip(),
+            start_time=start_time,
+            end_time=end_time,
+        )
+    except (DoubleBookingError, OperationalError) as e:
+        return JsonResponse({'error': str(e)}, status=409)
+    except ValueError as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+    return JsonResponse({
+        'message': 'Booking confirmed.',
+        'booking_id': booking.id,
+        'status': booking.status,
+        'session_price': str(booking.session_price),
+        'time_slot_id': booking.time_slot_id,
+        'start_time': booking.start_time.isoformat(),
+        'end_time': booking.end_time.isoformat(),
+    }, status=201)
+
+
+@require_POST
+def complete_booking_view(request, booking_id):
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'you must be logged in to complete a booking.'}, status=401)
+
+    booking = get_object_or_404(Booking, id=booking_id)
+    if request.user != booking.tutor and request.user != booking.student:
+        return JsonResponse({'error': 'you can only acces your own bookings'}, status=403)
+
+    try:
+        booking.completed()
+    except ValueError as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+    return JsonResponse({
+        'message': 'Booking marked as completed.',
+        'status': booking.status,
+    })
