@@ -650,6 +650,7 @@ def get_tutor_dashboard(tutor):
         .annotate(
             has_expressed_interest=Exists(own_interest),
         )
+        .filter(has_expressed_interest=True)
     )
 
     schedule = get_tutor_schedule(tutor)
