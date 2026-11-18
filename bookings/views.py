@@ -3,7 +3,8 @@ from decimal import Decimal
 from django.db.models import Q
 from django.db import OperationalError
 from django.http import JsonResponse
-from django.shortcuts import get_object_or_404, render
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import (
     require_GET,
     require_POST,
