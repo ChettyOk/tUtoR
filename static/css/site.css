@@ -14,8 +14,53 @@
   --bs-border-color: rgba(0, 79, 46, 0.16);
 }
 
-html { scroll-behavior: smooth; }
-body { font-size: 1.0625rem; }
+html {
+  scroll-behavior: smooth;
+}
+body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  font-size: 1.0625rem;
+  background: var(--cream);
+}
+
+/* Shell fills the viewport; footer is fixed to the bottom edge */
+.site-shell {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding-bottom: 7.5rem;
+  background: var(--cream);
+}
+.site-shell > #main {
+  width: 100%;
+}
+.site-footer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+}
+
+/* Role home pages */
+.home-page {
+  width: 100%;
+  box-sizing: border-box;
+  padding-top: 3rem;
+  padding-bottom: 3rem;
+}
+
+.kicker {
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin: 0;
+}
+.kicker-green { color: var(--green); }
 
 h1, h2, h3, .card-title {
   font-family: "Fraunces", Georgia, serif;
@@ -37,6 +82,8 @@ h1, h2, h3, .card-title {
 
 /* Header and navigation */
 .site-header {
+  position: relative;
+  z-index: 1030;
   background: rgba(255, 253, 248, 0.94);
   border-bottom: 1px solid var(--bs-border-color);
   backdrop-filter: blur(10px);
@@ -50,6 +97,86 @@ h1, h2, h3, .card-title {
 .nav-link:hover, .nav-link:focus { color: var(--green-deep); background: rgba(0, 79, 46, 0.08); }
 .navbar-toggler { border-color: var(--green); }
 .navbar-toggler:focus { box-shadow: 0 0 0 0.2rem rgba(255, 200, 46, 0.55); }
+
+/* Signed-in account avatar menu */
+.account-menu {
+  position: relative;
+  z-index: 1040;
+  display: flex;
+  align-items: center;
+}
+.account-avatar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  border-radius: 999px;
+}
+.account-avatar-btn::after {
+  display: none;
+}
+.account-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 999px;
+  background: var(--green);
+  color: var(--paper);
+  font-weight: 700;
+  font-size: 0.92rem;
+  letter-spacing: 0.02em;
+  border: 2px solid rgba(255, 200, 46, 0.85);
+  box-shadow: 0 0 0 0 transparent;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+.account-avatar-btn:hover .account-avatar,
+.account-avatar-btn:focus-visible .account-avatar,
+.account-avatar-btn[aria-expanded="true"] .account-avatar {
+  box-shadow: 0 0 0 3px rgba(255, 200, 46, 0.45);
+  transform: translateY(-1px);
+}
+.account-menu-panel {
+  z-index: 1050;
+  min-width: 16.5rem;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 1rem;
+  padding: 0.4rem 0;
+  margin-top: 0.55rem !important;
+  box-shadow: 0 16px 36px rgba(0, 40, 24, 0.12);
+  background: var(--paper);
+}
+.account-menu-name {
+  font-family: "Fraunces", Georgia, serif;
+  font-weight: 560;
+  color: var(--green-deep);
+  font-size: 1.05rem;
+}
+.account-menu-meta {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+.account-menu-panel .dropdown-item {
+  font-weight: 600;
+  color: var(--green);
+  border-radius: 0.65rem;
+  margin: 0 0.4rem;
+  width: calc(100% - 0.8rem);
+}
+.account-menu-panel .dropdown-item:hover,
+.account-menu-panel .dropdown-item:focus {
+  background: rgba(0, 79, 46, 0.08);
+  color: var(--green-deep);
+}
+.account-menu-panel .btn {
+  height: 2.6rem;
+  min-height: 2.6rem;
+  font-size: 0.95rem;
+}
+
 
 /* Buttons */
 .btn-gold,
@@ -97,6 +224,168 @@ h1, h2, h3, .card-title {
 }
 .card-text { color: var(--muted); }
 
+/* Student home */
+.student-home-hero h1 {
+  max-width: 18ch;
+}
+.student-inline-link {
+  color: var(--green);
+  font-weight: 700;
+  font-size: 0.92rem;
+  text-decoration: none;
+}
+.student-inline-link:hover,
+.student-inline-link:focus {
+  color: var(--green-deep);
+  text-decoration: underline;
+}
+.student-course-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+.student-course-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.75rem;
+  align-items: baseline;
+}
+.student-course-code {
+  font-weight: 700;
+  color: var(--green-deep);
+}
+.student-course-name,
+.student-empty {
+  color: var(--muted);
+}
+
+.tutor-list-header {
+  display: grid;
+  gap: 0.35rem;
+}
+.tutor-list-count {
+  color: var(--green);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+.tutor-card {
+  border: 1px solid var(--bs-border-color);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.tutor-card:hover {
+  border-color: rgba(0, 79, 46, 0.28);
+  box-shadow: 0 12px 28px rgba(0, 40, 24, 0.08);
+  transform: translateY(-1px);
+}
+.tutor-avatar {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 999px;
+  background: var(--green);
+  color: var(--paper);
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+  border: 2px solid rgba(255, 200, 46, 0.85);
+}
+.tutor-meta {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+.tutor-bio {
+  color: var(--ink);
+  margin: 0;
+  line-height: 1.45;
+}
+.tutor-bio.is-empty,
+.tutor-empty-note {
+  color: var(--muted);
+  margin: 0;
+}
+.tutor-slot-count {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: rgba(255, 200, 46, 0.28);
+  color: var(--green-deep);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 0.28rem 0.65rem;
+  white-space: nowrap;
+}
+.tutor-section-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--green);
+  margin: 0;
+}
+.tutor-course-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.tutor-course-chips li {
+  background: rgba(0, 79, 46, 0.08);
+  color: var(--green-deep);
+  border-radius: 999px;
+  padding: 0.28rem 0.7rem;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+.tutor-slot-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+.tutor-slot {
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.85rem;
+  padding: 0.7rem 0.85rem;
+  background: rgba(0, 79, 46, 0.03);
+}
+.tutor-slot-when {
+  font-weight: 600;
+  color: var(--green-deep);
+  font-size: 0.95rem;
+}
+.tutor-slot-meta {
+  color: var(--muted);
+  font-size: 0.88rem;
+  margin-top: 0.15rem;
+}
+.tutor-empty-card {
+  border: 1px dashed rgba(0, 79, 46, 0.28);
+  background: rgba(255, 253, 248, 0.72);
+}
+.tutor-empty-title {
+  font-family: "Fraunces", Georgia, serif;
+  font-weight: 560;
+  color: var(--green-deep);
+  font-size: 1.15rem;
+}
+.tutor-empty-copy {
+  color: var(--muted);
+  max-width: 42rem;
+}
+.tutor-empty-copy a {
+  color: var(--green);
+  font-weight: 700;
+}
+
 /* Footer */
 .site-footer {
   background: var(--green-deep);
@@ -108,4 +397,10 @@ h1, h2, h3, .card-title {
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
+  .tutor-card {
+    transition: none;
+  }
+  .tutor-card:hover {
+    transform: none;
+  }
 }
