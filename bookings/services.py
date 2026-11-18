@@ -2,8 +2,9 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from django.utils import timezone
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, F
 from django.core.exceptions import ValidationError
+from django.db.models.functions import Coalesce
 
 from accounts.models import Course, StudentProfile, TutorProfile
 from bookings.models import (
@@ -460,3 +461,33 @@ def get_tutor_schedule(tutor):
     return Available_Slots.objects.filter(
         tutor=tutor,
     ).order_by('start_time', 'id')
+
+def get_student_dashboard(student):
+    user_bookings = get_user_bookings(student)
+
+    booked_sessions = (
+        user_bookings['student_bookings']
+        .filter(status=Booking.Status.CONFIRMED)
+        .select_related('tutor', 'course', 'time_slot')
+        .annotate(
+            session_start=Coalesce(
+                'start_time',
+                'time_slot__start_time',
+            ),
+        )
+        .order_by(
+            F('session_start').asc(nulls_last=True),
+            'pk',
+        )
+    )
+
+    open_requests = (
+        get_student_tutoring_requests(student)
+        .filter(status=TutoringRequest.Status.OPEN)
+        .order_by('-created_at', '-pk')
+    )
+
+    return {
+        'booked_sessions': booked_sessions,
+        'open_requests': open_requests,
+    }
