@@ -49,6 +49,8 @@ from .services import (
     withdraw_tutoring_request,
     express_tutoring_request_interest,
     withdraw_tutoring_request_interest,
+    fulfill_tutoring_request,
+    RequestFulfillmentConflict,
 )
 
 def filter_courses(request):
@@ -381,6 +383,116 @@ def get_interested_tutors_view(request, request_id):
             for interest in interests
         ],
     })
+
+@require_POST
+def fulfill_tutoring_request_view(request, request_id):
+    if not request.user.is_authenticated:
+        return JsonResponse(
+            {'error': 'Log in to fulfill a tutoring request.'},
+            status=401,
+        )
+
+    error_response = check_role_access(
+        request,
+        User.Role.STUDENT,
+    )
+    if error_response is not None:
+        return error_response
+
+    raw_slot_id = request.POST.get('slot_id', '').strip()
+
+    try:
+        slot_id = int(raw_slot_id)
+        if slot_id <= 0:
+            raise ValueError
+    except (TypeError, ValueError, OverflowError):
+        return JsonResponse(
+            {'error': 'slot_id must be a positive integer.'},
+            status=400,
+        )
+
+    raw_start = request.POST.get('start_time', '').strip()
+    raw_end = request.POST.get('end_time', '').strip()
+
+    if not raw_start or not raw_end:
+        return JsonResponse(
+            {'error': 'Please provide start_time and end_time.'},
+            status=400,
+        )
+
+    try:
+        start_time = parse_datetime(raw_start)
+        end_time = parse_datetime(raw_end)
+    except (ValueError, OverflowError):
+        start_time = end_time = None
+
+    if start_time is None or end_time is None:
+        return JsonResponse(
+            {'error': 'Please provide valid ISO start and end times.'},
+            status=400,
+        )
+
+    try:
+        booking, tutoring_request = fulfill_tutoring_request(
+            request_id=request_id,
+            student=request.user,
+            slot_id=slot_id,
+            start_time=start_time,
+            end_time=end_time,
+            student_note=request.POST.get(
+                'student_note', '',
+            ).strip(),
+        )
+    except TutoringRequest.DoesNotExist:
+        return JsonResponse(
+            {'error': 'Tutoring request not found.'},
+            status=404,
+        )
+    except Available_Slots.DoesNotExist:
+        return JsonResponse(
+            {'error': 'Slot not found.'},
+            status=404,
+        )
+    except PermissionError as error:
+        return JsonResponse(
+            {'error': str(error)},
+            status=403,
+        )
+    except (RequestFulfillmentConflict, DoubleBookingError) as error:
+        return JsonResponse(
+            {'error': str(error)},
+            status=409,
+        )
+    except OperationalError:
+        return JsonResponse(
+            {
+                'error': (
+                    'The request could not be processed. '
+                    'Please try again.'
+                ),
+            },
+            status=503,
+        )
+    except ValueError as error:
+        return JsonResponse(
+            {'error': str(error)},
+            status=400,
+        )
+
+    return JsonResponse(
+        {
+            'message': 'Tutoring request fulfilled.',
+            'request_id': tutoring_request.pk,
+            'request_status': tutoring_request.status,
+            'booking_id': booking.pk,
+            'booking_status': booking.status,
+            'time_slot_id': booking.time_slot_id,
+            'start_time': booking.start_time.isoformat(),
+            'end_time': booking.end_time.isoformat(),
+            'session_price': str(booking.session_price),
+        },
+        status=201,
+    )
 
 @require_POST
 def submit_rating_view(request, booking_id):

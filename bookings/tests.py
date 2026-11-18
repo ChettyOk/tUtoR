@@ -2,7 +2,7 @@ import threading
 import time
 from datetime import datetime, timedelta
 from decimal import Decimal
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.db import connection, OperationalError
@@ -14,7 +14,14 @@ from django.middleware.csrf import get_token
 from django.core.exceptions import ValidationError
 
 from accounts.models import Course, StudentProfile, TutorProfile, User
-from bookings.models import Available_Slots, Booking, CancellationDeadlinePassedError, TutoringRequest, Rating, TutoringRequestInterest
+from bookings.models import (
+    Available_Slots,
+    Booking,
+    CancellationDeadlinePassedError,
+    TutoringRequest,
+    Rating,
+    TutoringRequestInterest
+)
 from bookings.pricing import (
     DEFAULT_PRICE_GRAD,
     DEFAULT_PRICE_UNDERGRAD,
@@ -2721,6 +2728,7 @@ class StudentTutoringRequestViewTests(TestCase):
                         TutoringRequest.Visibility.ALL_TUTORS
                     ),
                     'status': TutoringRequest.Status.OPEN,
+                    'fulfilled_booking_id': None,
                     'created_at': (
                         self.tutoring_request.created_at.isoformat()
                     ),
@@ -3226,6 +3234,7 @@ class TutoringRequestForumViewTests(TestCase):
                             TutoringRequest.Visibility.ALL_TUTORS
                         ),
                         'status': TutoringRequest.Status.OPEN,
+                        'fulfilled_booking_id': None,
                         'created_at': (
                             self.tutoring_request.created_at.isoformat()
                         ),
@@ -3934,4 +3943,304 @@ class InterestedTutorsViewTests(TestCase):
         self.assertEqual(
             self.tutoring_request.status,
             TutoringRequest.Status.OPEN,
+        )
+
+class RequestFulfillmentTests(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(
+            email='fulfill-owner@uregina.ca',
+            password='FulfillmentTest123!',
+            role=User.Role.STUDENT,
+        )
+        self.other_student = User.objects.create_user(
+            email='fulfill-other@uregina.ca',
+            password='FulfillmentTest123!',
+            role=User.Role.STUDENT,
+        )
+        self.tutor = User.objects.create_user(
+            email='fulfill-tutor@uregina.ca',
+            password='FulfillmentTest123!',
+            role=User.Role.TUTOR,
+        )
+        self.course = Course.create_course(
+            'CS 476',
+            'Software Development Project',
+        )
+        self.start = timezone.now() + timedelta(days=2)
+
+        self.slot = Available_Slots.create_slot(
+            tutor=self.tutor,
+            start_time=self.start,
+            end_time=self.start + timedelta(hours=3),
+            price_per_hour=Decimal('20.00'),
+        )
+        self.tutoring_request = TutoringRequest.objects.create(
+            student=self.student,
+            course=self.course,
+            description='Help me understand transactions.',
+        )
+        self.interest = TutoringRequestInterest.objects.create(
+            tutoring_request=self.tutoring_request,
+            tutor=self.tutor,
+        )
+
+        self.url = reverse(
+            'fulfill_tutoring_request',
+            kwargs={'request_id': self.tutoring_request.pk},
+        )
+        self.data = {
+            'slot_id': self.slot.pk,
+            'start_time': (
+                self.start + timedelta(hours=1)
+            ).isoformat(),
+            'end_time': (
+                self.start + timedelta(hours=2)
+            ).isoformat(),
+        }
+
+        self.client.force_login(self.student)
+
+    def assert_open_without_booking(self):
+        self.tutoring_request.refresh_from_db()
+        self.assertEqual(
+            self.tutoring_request.status,
+            TutoringRequest.Status.OPEN,
+        )
+        self.assertIsNone(
+            self.tutoring_request.fulfilled_booking_id,
+        )
+        self.assertEqual(Booking.objects.count(), 0)
+
+    def test_owner_can_fulfill_request(self):
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(
+            response.status_code, 201, response.content,
+        )
+
+        booking = Booking.objects.get()
+        self.tutoring_request.refresh_from_db()
+
+        self.assertEqual(booking.student_id, self.student.pk)
+        self.assertEqual(booking.tutor_id, self.tutor.pk)
+        self.assertEqual(booking.course_id, self.course.pk)
+        self.assertEqual(booking.time_slot_id, self.slot.pk)
+        self.assertEqual(booking.status, Booking.Status.CONFIRMED)
+        self.assertEqual(booking.session_price, Decimal('20.00'))
+        self.assertEqual(
+            self.tutoring_request.fulfilled_booking_id,
+            booking.pk,
+        )
+        self.assertEqual(
+            self.tutoring_request.status,
+            TutoringRequest.Status.FULFILLED,
+        )
+        self.assertEqual(
+            response.json()['booking_status'],
+            Booking.Status.CONFIRMED,
+        )
+        self.assertEqual(
+            response.json()['request_status'],
+            TutoringRequest.Status.FULFILLED,
+        )
+
+    def test_get_is_not_allowed(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 405)
+        self.assert_open_without_booking()
+
+    def test_requires_login(self):
+        self.client.logout()
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, 401)
+        self.assert_open_without_booking()
+
+    def test_requires_student_role(self):
+        self.client.force_login(self.tutor)
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, 403)
+        self.assert_open_without_booking()
+
+    def test_other_student_cannot_fulfill_request(self):
+        self.client.force_login(self.other_student)
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, 404)
+        self.assert_open_without_booking()
+
+    def test_unknown_request_is_rejected(self):
+        request_id = self.tutoring_request.pk
+        self.tutoring_request.delete()
+        url = reverse(
+            'fulfill_tutoring_request',
+            kwargs={'request_id': request_id},
+        )
+
+        response = self.client.post(url, self.data)
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(Booking.objects.count(), 0)
+
+    def test_requires_current_interest(self):
+        self.interest.delete()
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, 400)
+        self.assert_open_without_booking()
+
+    def test_inactive_tutor_is_rejected(self):
+        self.tutor.is_active = False
+        self.tutor.save(update_fields=['is_active'])
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, 400)
+        self.assert_open_without_booking()
+
+    def test_closed_requests_are_rejected(self):
+        for status in (
+            TutoringRequest.Status.WITHDRAWN,
+            TutoringRequest.Status.FULFILLED,
+        ):
+            with self.subTest(status=status):
+                self.tutoring_request.status = status
+                self.tutoring_request.save(update_fields=['status'])
+
+                response = self.client.post(self.url, self.data)
+
+                self.assertEqual(response.status_code, 409)
+                self.assertEqual(Booking.objects.count(), 0)
+
+    def test_request_cannot_be_fulfilled_twice(self):
+        first = self.client.post(self.url, self.data)
+        self.assertEqual(first.status_code, 201)
+
+        second = self.client.post(self.url, self.data)
+
+        self.assertEqual(second.status_code, 409)
+        self.assertEqual(Booking.objects.count(), 1)
+
+    def test_invalid_slot_id_is_rejected(self):
+        for value in ('', 'abc', '0', '-1'):
+            with self.subTest(value=value):
+                response = self.client.post(
+                    self.url,
+                    {**self.data, 'slot_id': value},
+                )
+
+                self.assertEqual(response.status_code, 400)
+                self.assert_open_without_booking()
+
+    def test_missing_slot_id_is_rejected(self):
+        data = self.data.copy()
+        del data['slot_id']
+
+        response = self.client.post(self.url, data)
+
+        self.assertEqual(response.status_code, 400)
+        self.assert_open_without_booking()
+
+    def test_unknown_slot_is_rejected(self):
+        slot_id = self.slot.pk
+        self.slot.delete()
+
+        response = self.client.post(
+            self.url,
+            {**self.data, 'slot_id': slot_id},
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assert_open_without_booking()
+
+    def test_missing_or_invalid_times_are_rejected(self):
+        for field in ('start_time', 'end_time'):
+            for value in ('', 'not-a-date'):
+                with self.subTest(field=field, value=value):
+                    response = self.client.post(
+                        self.url,
+                        {**self.data, field: value},
+                    )
+
+                    self.assertEqual(response.status_code, 400)
+                    self.assert_open_without_booking()
+
+    def test_booking_failure_leaves_request_open(self):
+        self.slot.status = Available_Slots.Status.CANCELLED
+        self.slot.save(update_fields=['status'])
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, 409)
+        self.assert_open_without_booking()
+
+    def test_failure_saving_request_rolls_back_booking_and_slot(self):
+        data = {
+            **self.data,
+            'start_time': self.start.isoformat(),
+            'end_time': (
+                self.start + timedelta(hours=3)
+            ).isoformat(),
+        }
+
+        with patch.object(
+            TutoringRequest,
+            'save',
+            side_effect=RuntimeError('Simulated save failure'),
+        ):
+            with self.assertRaises(RuntimeError):
+                self.client.post(self.url, data)
+
+        self.assert_open_without_booking()
+        self.slot.refresh_from_db()
+        self.assertEqual(
+            self.slot.status,
+            Available_Slots.Status.AVAILABLE,
+        )
+
+    def test_fulfilled_request_cannot_be_withdrawn(self):
+        response = self.client.post(self.url, self.data)
+        self.assertEqual(response.status_code, 201)
+
+        url = reverse(
+            'withdraw_tutoring_request',
+            kwargs={'request_id': self.tutoring_request.pk},
+        )
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, 400)
+        self.tutoring_request.refresh_from_db()
+        self.assertEqual(
+            self.tutoring_request.status,
+            TutoringRequest.Status.FULFILLED,
+        )
+
+    def test_regular_booking_does_not_fulfill_request(self):
+        url = reverse(
+            'book_slot',
+            kwargs={'slot_id': self.slot.pk},
+        )
+        data = {
+            'start_time': self.data['start_time'],
+            'end_time': self.data['end_time'],
+        }
+
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Booking.objects.count(), 1)
+
+        self.tutoring_request.refresh_from_db()
+        self.assertEqual(
+            self.tutoring_request.status,
+            TutoringRequest.Status.OPEN,
+        )
+        self.assertIsNone(
+            self.tutoring_request.fulfilled_booking_id,
         )

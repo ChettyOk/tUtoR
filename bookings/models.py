@@ -66,6 +66,14 @@ class TutoringRequest(models.Model):
         default=Status.OPEN,
     )
 
+    fulfilled_booking = models.OneToOneField(
+        'Booking',
+        on_delete=models.PROTECT,
+        related_name='fulfilled_tutoring_request',
+        null=True,
+        blank=True,
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
