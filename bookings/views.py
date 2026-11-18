@@ -25,6 +25,14 @@ from .models import (
     Rating,
     TutoringRequest,
 )
+
+from .search import (
+    SORT_CHOICES,
+    clean_filters,
+    faculty_choices,
+    search_tutors,
+)
+
 from .pricing import (
     MAX_PRICE,
     MIN_PRICE,
@@ -877,4 +885,30 @@ def complete_booking_view(request, booking_id):
     return JsonResponse({
         'message': 'Booking marked as completed.',
         'status': booking.status,
+    })
+
+@login_required
+def find_tutors_page(request):
+   """STU-02.5: search page where students filter tutors and open times."""
+   if request.user.has_role('tutor'):
+        return redirect('tutor_home')
+   
+   filters, errors = clean_filters(request.GET)
+   tutors = search_tutors(filters, viewer=request.user)
+   
+   return render(request, 'student/find_tutors.html', {
+        'site_name': 'tUtoR',
+        'filters': filters,
+        'raw': request.GET,
+        'errors': errors,
+        'tutors': tutors,
+        'faculties': faculty_choices(),
+        'sort_choices': SORT_CHOICES,
+        'min_price': MIN_PRICE,
+        'max_price_limit': MAX_PRICE,
+        'today': timezone.localdate().isoformat(),
+        'is_filtered': any(
+            request.GET.get(k, '').strip()
+            for k in ('q', 'faculty', 'location', 'max_price', 'date', 'part')
+        ),
     })

@@ -404,3 +404,17 @@ h1, h2, h3, .card-title {
     transform: none;
   }
 }
+
+/* Search box on the student home */
+.student-search {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.student-search .form-control { flex: 1 1 auto; }
+
+.student-search .btn { flex: 0 0 auto; white-space: nowrap; }
+
+@media (max-width: 575.98px) {
+  .student-search { flex-direction: column; }
+}
