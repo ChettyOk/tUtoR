@@ -2684,12 +2684,15 @@ class HomePageTests(TestCase):
         self.assertContains(response, '1 open')
         self.assertContains(response, '1 tutor')
         self.assertContains(response, 'Favourite')
+        self.assertContains(response, 'Favourites only')
         self.assertContains(response, reverse('toggle_favorite_tutor', kwargs={'tutor_id': self.tutor.id}))
 
         student_profile.add_favorite_tutor(self.tutor)
         favorited = self.client.get(reverse('student_home'))
         self.assertTrue(favorited.context['tutors'][0]['is_favorite'])
         self.assertContains(favorited, 'Favourited')
+        self.assertContains(favorited, 'data-favorites-filter')
+        self.assertContains(favorited, 'data-is-favorite="true"')
 
     def test_student_without_courses_is_offered_the_picker(self):
         self.client.force_login(self.student)
