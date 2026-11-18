@@ -496,7 +496,7 @@ def student_home(request):
         'courses': courses,
         'notifications': Notification.objects.filter(
             recipient=request.user,
-        )[:10],
+        ).exclude(type='reminder')[:10],
     })
 
 
@@ -569,7 +569,7 @@ def tutor_home(request):
         'max_price': MAX_PRICE,
         'notifications': Notification.objects.filter(
             recipient=request.user,
-        )[:10],
+        ).exclude(type='reminder')[:10],
     })
 
 #     get My Profile()

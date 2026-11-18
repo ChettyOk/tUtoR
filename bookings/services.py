@@ -32,14 +32,14 @@ def create_booking_request(student, tutor, slot, course=None, student_note=''):
             course=course,
             student_note=student_note,
             session_price=session_price,
-            status=Booking.Status.CONFIRMED
+            status=Booking.Status.PENDING,
         )
         if isinstance(slot, Available_Slots):
             booking.time_slot = slot
             booking.save(update_fields=['time_slot'])
         transaction.on_commit(
             lambda booking=booking: booking_event_manager.notify(
-                BookingEvent.BOOKED, booking
+                BookingEvent.REQUESTED, booking
             )
         )
         return booking

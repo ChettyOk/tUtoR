@@ -277,7 +277,7 @@ class test_create_booking(TestCase):
             slot=self.mock_slot,
             course=self.course1,
             student_note="Hilfeeeeeeeeeeeeeeeee wipfi kann nicht erklären")
-        self.assertEqual(booking.status, Booking.Status.CONFIRMED)
+        self.assertEqual(booking.status, Booking.Status.PENDING)
         self.assertEqual(booking.session_price, Decimal('30.00'))
         self.assertEqual(self.mock_slot.status, 'booked')
         self.mock_slot.save.assert_called_once()
@@ -992,7 +992,7 @@ class test_available_slots_interfaces(TestCase):
         slot = self.create_slot()
         booking = create_booking_request(student=self.student, tutor=self.tutor, slot=slot)
         slot.refresh_from_db()
-        self.assertEqual(booking.status, Booking.Status.CONFIRMED)
+        self.assertEqual(booking.status, Booking.Status.PENDING)
         self.assertEqual(booking.session_price, Decimal('20.00'))
         self.assertEqual(slot.status, Available_Slots.Status.BOOKED)
         with self.assertRaises(DoubleBookingError):
@@ -2235,4 +2235,3 @@ class BookingObserverTests(SimpleTestCase):
         ReminderMailObserver().update(BookingEvent.BOOKED, self.booking)
 
         send_mail.assert_not_called()
-

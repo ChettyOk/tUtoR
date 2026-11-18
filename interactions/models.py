@@ -7,7 +7,6 @@ class Notification(models.Model):
         REQUESTED = "requested", "Requested"
         CONFIRMATION = "confirmation", "Confirmation"
         CANCELLATION = "cancellation", "Cancellation"
-        REMINDER = "reminder", "Reminder"
         RATING = "rating", "Rating"
 
     recipient = models.ForeignKey(
@@ -77,7 +76,7 @@ class Notification(models.Model):
         return cls.objects.filter(
             recipient=recipient,
             status_in_web=False,
-        )
+        ).exclude(type="reminder")
 
     def trigger_notification(self):
         return self.save()
