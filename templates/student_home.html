@@ -52,7 +52,7 @@
             </p>
           </div>
           {% if tutors %}
-          <label class="tutor-filter-toggle mb-0">
+          <label class="tutor-filter-toggle mb-0" for="favorites-only-filter">
             <input
               type="checkbox"
               id="favorites-only-filter"
@@ -63,7 +63,7 @@
           {% endif %}
         </div>
         {% if tutors %}
-        <p class="tutor-list-count mb-0" data-tutor-count>
+        <p class="tutor-list-count mb-0" data-tutor-count aria-live="polite">
           {{ tutors|length }} tutor{{ tutors|length|pluralize }}
         </p>
         {% endif %}
@@ -104,8 +104,12 @@
                         data-tutor-id="{{ tutor.id }}"
                         data-toggle-url="{% url 'toggle_favorite_tutor' tutor.id %}"
                         aria-pressed="{% if tutor.is_favorite %}true{% else %}false{% endif %}"
+                        aria-label="{% if tutor.is_favorite %}Remove from favourites{% else %}Add to favourites{% endif %}"
                       >
-                        {% if tutor.is_favorite %}Favourited{% else %}Favourite{% endif %}
+                        <span class="tutor-favorite-mark" aria-hidden="true"></span>
+                        <span data-favorite-label>
+                          {% if tutor.is_favorite %}Favourited{% else %}Favourite{% endif %}
+                        </span>
                       </button>
                       {% if tutor.available_slots %}
                       <span class="tutor-slot-count">
@@ -166,11 +170,19 @@
       <div class="card tutor-empty-card mt-3" data-favorites-empty hidden>
         <div class="card-body">
           <p class="tutor-empty-title mb-2">No favourites yet</p>
-          <p class="tutor-empty-copy mb-0">
-            Favourite a tutor to keep them in this filtered list.
+          <p class="tutor-empty-copy mb-3">
+            Favourite a tutor from the full list, then come back to this filter.
           </p>
+          <button
+            type="button"
+            class="btn btn-outline-secondary rounded-pill"
+            data-clear-favorites-filter
+          >
+            Show all tutors
+          </button>
         </div>
       </div>
+      <p class="visually-hidden" data-favorite-status aria-live="polite"></p>
       {% else %}
       <div class="card tutor-empty-card">
         <div class="card-body">
@@ -191,5 +203,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'js/student-home.js' %}"></script>
+<script src="{% static 'js/student-home.js' %}?v=20261117c"></script>
 {% endblock %}

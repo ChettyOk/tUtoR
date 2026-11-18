@@ -303,6 +303,10 @@ h1, h2, h3, .card-title {
   box-shadow: 0 12px 28px rgba(0, 40, 24, 0.08);
   transform: translateY(-1px);
 }
+.tutor-card.is-favorite {
+  border-color: rgba(255, 200, 46, 0.65);
+  box-shadow: 0 0 0 1px rgba(255, 200, 46, 0.25);
+}
 .tutor-avatar {
   flex: 0 0 auto;
   display: inline-flex;
@@ -342,6 +346,7 @@ h1, h2, h3, .card-title {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 0.35rem;
   border: 1px solid rgba(0, 79, 46, 0.28);
   border-radius: 999px;
   background: var(--paper);
@@ -352,6 +357,14 @@ h1, h2, h3, .card-title {
   padding: 0.28rem 0.75rem;
   white-space: nowrap;
   cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.tutor-favorite-mark {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  border: 1.5px solid currentColor;
+  background: transparent;
 }
 .tutor-favorite-btn:hover,
 .tutor-favorite-btn:focus-visible {
@@ -364,9 +377,16 @@ h1, h2, h3, .card-title {
   background: rgba(255, 200, 46, 0.28);
   color: var(--green-deep);
 }
+.tutor-favorite-btn.is-active .tutor-favorite-mark {
+  background: var(--green-deep);
+  border-color: var(--green-deep);
+}
 .tutor-favorite-btn:disabled {
   opacity: 0.65;
   cursor: wait;
+}
+.tutor-list.is-filtering-favorites .tutor-filter-toggle {
+  box-shadow: 0 0 0 3px rgba(255, 200, 46, 0.28);
 }
 .tutor-slot-count {
   display: inline-flex;
