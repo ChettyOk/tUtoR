@@ -4,13 +4,109 @@ from django.conf import settings
 from django.utils import timezone
 from accounts.models import Course
 from decimal import Decimal, ROUND_HALF_UP
-from django.core.validators import MinValueValidator, MaxValueValidator
+from django.core.validators import (
+    MaxLengthValidator,
+    MaxValueValidator,
+    MinValueValidator,
+)
 from django.core.exceptions import ValidationError
 
 from datetime import datetime, timedelta
 
 class CancellationDeadlinePassedError(Exception):
     pass
+
+class TutoringRequest(models.Model):
+    class Status(models.TextChoices):
+        OPEN = 'open', 'Open'
+        WITHDRAWN = 'withdrawn', 'Withdrawn'
+        FULFILLED = 'fulfilled', 'Fulfilled'
+
+    class Visibility(models.TextChoices):
+        ALL_TUTORS = 'all_tutors', 'All tutors'
+        COURSE_FACULTY = 'course_faculty', 'Course faculty'
+
+    class LocationType(models.TextChoices):
+        ONLINE = 'online', 'Online'
+        IN_PERSON = 'in_person', 'In person'
+        FLEXIBLE = 'flexible', 'Flexible'
+
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='tutoring_requests',
+    )
+
+    course = models.ForeignKey(
+        Course,
+        on_delete=models.PROTECT,
+        related_name='tutoring_requests',
+    )
+
+    description = models.TextField(
+        max_length=2000,
+        validators=[MaxLengthValidator(2000)],
+    )
+
+    location_type = models.CharField(
+        max_length=10,
+        choices=LocationType.choices,
+        default=LocationType.FLEXIBLE,
+    )
+
+    visibility = models.CharField(
+        max_length=20,
+        choices=Visibility.choices,
+        default=Visibility.ALL_TUTORS,
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.OPEN,
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at', '-id']
+
+    def __str__(self):
+        return (
+            f"Tutoring request #{self.pk} | "
+            f"{self.course} ({self.status})"
+        )
+
+class TutoringRequestInterest(models.Model):
+    tutoring_request = models.ForeignKey(
+        TutoringRequest,
+        on_delete=models.CASCADE,
+        related_name='interests',
+    )
+
+    tutor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='tutoring_request_interests',
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['tutoring_request', 'tutor'],
+                name='unique_tutor_interest_per_request',
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"Interest #{self.pk} | "
+            f"request {self.tutoring_request_id}, "
+            f"tutor {self.tutor_id}"
+        )
 
 class Booking(models.Model):
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='student_bookings')
@@ -23,6 +119,26 @@ class Booking(models.Model):
         'Available_Slots',
         on_delete=models.PROTECT,
         related_name='bookings',
+        null=True,
+        blank=True,
+    )
+
+    start_time = models.DateTimeField(null=True, blank=True)
+    end_time = models.DateTimeField(null=True, blank=True)
+
+    price_per_hour = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+
+    location_type = models.CharField(
+        max_length=10,
+        choices=[
+            ('online', 'Online'),
+            ('in_person', 'In person'),
+        ],
         null=True,
         blank=True,
     )
@@ -66,7 +182,11 @@ class Booking(models.Model):
             raise ValueError(f"Booking cannot be cancelled because it was already completed.")
         
         if cancelled_by == 'student':
-            start_time = self.time_slot.start_time if self.time_slot else None
+            start_time = self.start_time
+
+            if start_time is None and self.time_slot_id is not None:
+                start_time = self.time_slot.start_time
+
             if start_time is not None:
                 time_to_session = start_time - timezone.now()
                 if time_to_session < timedelta(hours=cancel_deadline):
@@ -88,6 +208,9 @@ class Booking(models.Model):
     def completed(self):
         if self.status != self.Status.CONFIRMED:
             raise ValueError(f"Booking cannot be marked completed since it has not been confirmed (Current status: '{self.status}').")
+        session_end = self.end_time or (self.time_slot.end_time if self.time_slot_id else None)
+        if session_end is not None and session_end > timezone.now():
+            raise ValueError("Booking cannot be marked compete since the session hasnt happened yet")
         self.status = self.Status.COMPLETED
         self.complete_time = timezone.now()
         self.save()
@@ -104,11 +227,20 @@ class Booking(models.Model):
 
         return price.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
-
     def unblock_booking(self):
-        if self.time_slot:
+        if self.time_slot_id is None:
+            return
+
+        is_full_slot = (
+            self.start_time is None
+            or (
+                self.start_time == self.time_slot.start_time
+                and self.end_time == self.time_slot.end_time
+            )
+        )
+        if is_full_slot and self.time_slot.status == 'booked':
             self.time_slot.status = 'available'
-            self.time_slot.save()
+            self.time_slot.save(update_fields=['status'])
 
 class Rating(models.Model):
     booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name='rating',)
@@ -238,6 +370,14 @@ class Available_Slots(models.Model):
 
         try:
             self._validate()
+            if 'start_time' in fields or 'end_time' in fields:
+                invalid_booking = self.bookings.filter(status=Booking.Status.CONFIRMED).filter(
+                    models.Q(start_time__lt=self.start_time)
+                    | models.Q(end_time__gt=self.end_time)
+                    | models.Q(start_time__isnull=True)
+                ).exists()
+                if invalid_booking:
+                    raise ValueError("You cannot move or delete this slot since a booking exists for this. Cancel first!")
         except ValueError:
             for name, value in old_values.items():
                 setattr(self, name, value)
@@ -250,6 +390,8 @@ class Available_Slots(models.Model):
             raise ValueError("Slot was already cancelled.")
         if self.status == self.Status.BOOKED:
             raise ValueError("Slot is already booked, cancel the booking instead.")
+        if self.bookings.filter(status=Booking.Status.CONFIRMED).exists():
+            raise ValueError("Slot has bookings on it, cancel those first.")
 
         self.status = self.Status.CANCELLED
         self.save()

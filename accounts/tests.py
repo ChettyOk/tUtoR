@@ -22,6 +22,13 @@ from django.core.exceptions import ValidationError
 #personalisation tests imports
 from django.contrib.auth import get_user_model
 
+#imports for course load
+from io import StringIO
+from django.core.management import call_command
+from .course_catalogue import parse_catalogue_lines, read_csv
+from .models import Course
+
+
 # courses tests
 class test_course(TestCase):
 
@@ -2639,6 +2646,49 @@ class HomePageTests(TestCase):
         self.assertContains(response, 'Welcome, Sam')
         self.assertContains(response, 'CS 110')
 
+    def test_student_home_includes_matching_tutors_and_slots(self):
+        from datetime import timedelta
+        from decimal import Decimal
+
+        from django.utils import timezone
+
+        from bookings.models import Available_Slots
+
+        StudentProfile.objects.create(user=self.student).courses.add(self.course)
+        TutorProfile.objects.create(
+            user=self.tutor,
+            bio='Passed CS 110 with notes to share.',
+        ).courses_passed.add(self.course)
+
+        start = timezone.now() + timedelta(days=1)
+        Available_Slots.create_slot(
+            tutor=self.tutor,
+            start_time=start,
+            end_time=start + timedelta(hours=1),
+            price_per_hour=Decimal('25.00'),
+            location_type=Available_Slots.LocationType.ONLINE,
+        )
+
+        self.client.force_login(self.student)
+        response = self.client.get(reverse('student_home'))
+
+        self.assertEqual(response.status_code, 200)
+        tutors = response.context['tutors']
+        self.assertEqual(len(tutors), 1)
+        self.assertEqual(tutors[0]['id'], self.tutor.id)
+        self.assertEqual(tutors[0]['bio'], 'Passed CS 110 with notes to share.')
+        self.assertEqual(len(tutors[0]['available_slots']), 1)
+        self.assertEqual(tutors[0]['available_slots'][0]['price_per_hour'], '25.00')
+        self.assertEqual(tutors[0]['available_slots'][0]['location_type'], 'online')
+        self.assertContains(response, 'Tess')
+        self.assertContains(response, 'Passed CS 110 with notes to share.')
+        self.assertContains(response, 'Courses passed')
+        self.assertContains(response, 'Available times')
+        self.assertContains(response, 'Online')
+        self.assertContains(response, '$25.00/hour')
+        self.assertContains(response, '1 open')
+        self.assertContains(response, '1 tutor')
+
     def test_student_without_courses_is_offered_the_picker(self):
         self.client.force_login(self.student)
         response = self.client.get(reverse('student_home'))
@@ -2679,3 +2729,102 @@ class HomePageTests(TestCase):
 #************************************************************************************************************************************************
 #------------------------------------------------------- END OF HOME TESTS ----------------------------------------------------------------------
 #************************************************************************************************************************************************
+
+#************************************************************************************************************************************************
+#------------------------------------------------ TESTS FOR LOAD COURSES -----------------------------------------------------------------------
+#************************************************************************************************************************************************
+
+class ParseCatalogueTests(SimpleTestCase):
+    def parse(self, text):
+        return dict(parse_catalogue_lines(text.split('\n')))
+
+    def test_reads_code_and_name(self):
+        text = 'CS 110 - Programming and Problem Solving\nA first course.\n3 Credit Hours'
+        self.assertEqual(self.parse(text), {'CS 110': 'Programming and Problem Solving'})
+
+    def test_joins_a_title_that_wrapped_onto_two_lines(self):
+        text = ('ACAD 100 - Academic Discourse: Writing, Research, and Learning\n'
+                'Strategies\nThis course provides first-year students with tools.')
+        self.assertEqual(self.parse(text)['ACAD 100'],
+                         'Academic Discourse: Writing, Research, and Learning Strategies')
+
+    def test_does_not_join_the_description_line(self):
+        text = ('ACSC 041 - Actuarial Science Internship Term 1\n'
+                'First four month term of Actuarial Science Internship Program.')
+        self.assertEqual(self.parse(text)['ACSC 041'], 'Actuarial Science Internship Term 1')
+
+    def test_skips_codes_with_a_letter_suffix(self):
+        text = 'ACSC 390AA - Canadian Pension Plan Review\nA review.'
+        self.assertEqual(self.parse(text), {})
+
+    def test_removes_the_aa_zz_series_tag(self):
+        text = 'ENGL 310 - Studies in Literature - an AA-ZZ series.\nTopics vary.'
+        self.assertEqual(self.parse(text)['ENGL 310'], 'Studies in Literature')
+
+    def test_a_code_inside_another_title_is_not_a_new_course(self):
+        text = ("EDAC 050 - Expériences d'apprentissage hors campus (formerly\n"
+                'EFLD 050 - Bac section only)\nOrganiser des expériences.\n'
+                '0 Lab Hours per Week\n'
+                'EFLD 050 - OCRE (Off-Campus Residential Experience)\nAn off-campus experience.')
+        courses = self.parse(text)
+        self.assertEqual(courses['EFLD 050'], 'OCRE (Off-Campus Residential Experience)')
+        self.assertIn('Bac section only', courses['EDAC 050'])
+
+    def test_a_course_listed_twice_keeps_the_first_name(self):
+        text = 'CS 110 - First name\nText.\nCS 110 - Second name\nText.'
+        self.assertEqual(self.parse(text), {'CS 110': 'First name'})
+
+    def test_prerequisite_lines_are_not_courses(self):
+        text = 'CS 210 - Data Structures\nText.\n***Prerequisite: CS 110 - Programming***'
+        self.assertEqual(list(self.parse(text)), ['CS 210'])
+
+    def test_ligatures_are_turned_into_normal_letters(self):
+        self.assertEqual(self.parse('CS 110 - Scientiﬁc Computing\nText.')['CS 110'], 'Scientific Computing')
+
+
+class SavedCatalogueTests(SimpleTestCase):
+    def test_saved_csv_has_the_courses_the_project_needs(self):
+        courses = dict(read_csv())
+        self.assertGreater(len(courses), 4000)
+        for code in ('CS 110', 'CS 210', 'CS 476', 'MATH 110', 'STAT 100'):
+            self.assertIn(code, courses)
+
+    def test_every_code_is_valid_and_unique(self):
+        rows = read_csv()
+        codes = [code for code, _name in rows]
+        self.assertEqual(len(codes), len(set(codes)))
+        for code, name in rows:
+            self.assertTrue(Course.check_course_code_spelling(code), code)
+            self.assertTrue(name and len(name) <= 200, code)
+
+
+class LoadCoursesCommandTests(TestCase):
+    def run_command(self):
+        out = StringIO()
+        call_command('load_courses', stdout=out)
+        return out.getvalue()
+
+    def test_loads_courses_with_the_right_faculty(self):
+        self.run_command()
+        self.assertGreater(Course.objects.count(), 4000)
+        cs = Course.objects.get(course_code='CS 110')
+        self.assertEqual(cs.course_faculty, Course.FACULTIES['CS'])
+
+    def test_running_twice_adds_nothing_new(self):
+        self.run_command()
+        count = Course.objects.count()
+        output = self.run_command()
+        self.assertEqual(Course.objects.count(), count)
+        self.assertIn('0 added', output)
+
+    def test_keeps_existing_course_ids_and_fixes_changed_names(self):
+        old = Course.create_course('CS 110', 'Old name')
+        self.run_command()
+        old.refresh_from_db()
+        self.assertEqual(old.course_name, 'Programming and Problem Solving')
+        self.assertEqual(Course.objects.filter(course_code='CS 110').count(), 1)
+
+#************************************************************************************************************************************************
+#------------------------------------------------------- END OF LOAD COURSES TESTS ------------------------------------------------------------
+#************************************************************************************************************************************************
+

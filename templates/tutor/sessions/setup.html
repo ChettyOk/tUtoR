@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Set up tutoring sessions · {{ site_name|default:"tUtoR" }}{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/picker.css' %}">
+<link rel="stylesheet" href="{% static 'css/sessions.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+
+  <header class="sessions-hero mb-5">
+    <a href="{% url 'tutor_home' %}" class="back-link">&larr; Back to home</a>
+    <p class="kicker mt-3 mb-0">Tutor</p>
+    <h1>Set up tutoring sessions</h1>
+    <p class="hero-text">
+      Choose the courses you teach, then add the times you are free. Students
+      can book any open time.
+    </p>
+    <div class="hero-stats" aria-label="Your summary">
+      <div class="hero-stat">
+        <span class="hero-stat-value">{{ selected_ids|length }}</span>
+        <span class="hero-stat-label">Courses you teach</span>
+      </div>
+      <div class="hero-stat">
+        <span class="hero-stat-value" id="stat-upcoming">&ndash;</span>
+        <span class="hero-stat-label">Upcoming sessions</span>
+      </div>
+      <div class="hero-stat">
+        <span class="hero-stat-value is-text" id="stat-next">&ndash;</span>
+        <span class="hero-stat-label">Next session</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Step 1: courses you teach (search and pick) -->
+  <section class="step-block" id="courses-section" aria-labelledby="courses-heading">
+    <h2 class="step-title" id="courses-heading"><span class="step-num">1</span>Courses you teach</h2>
+    <p class="step-hint">Search by course code or name and add every course you have passed and can teach.</p>
+
+    <noscript>
+      <div class="alert alert-warning" role="alert">Turn on JavaScript to search and pick courses.</div>
+    </noscript>
+
+    <form method="post" action="{% url 'tutor_save_courses' %}" id="course-picker" data-max="">
+      {% csrf_token %}
+      <div id="picker-inputs"></div>
+
+      <div class="picker-grid">
+
+        <section class="picker-panel" aria-labelledby="search-title">
+          <h3 id="search-title" class="picker-title">Find courses</h3>
+
+          <div class="picker-controls">
+            <div>
+              <label for="picker-search" class="visually-hidden">Search by course code or name</label>
+              <input type="search" id="picker-search" class="form-control" placeholder="Search by code or name, e.g. CS 110" autocomplete="off">
+            </div>
+            <div>
+              <label for="picker-faculty" class="visually-hidden">Faculty</label>
+              <select id="picker-faculty" class="form-select">
+                <option value="">All faculties</option>
+              </select>
+            </div>
+          </div>
+
+          <p id="picker-status" class="picker-status" role="status" aria-live="polite"></p>
+          <ul id="picker-results" class="course-list"></ul>
+          <button type="button" id="picker-more" class="btn-more" hidden>Show more results</button>
+
+          <a class="picker-jump d-lg-none" href="#selected-panel">View your courses (<span id="picker-jump-count">0</span>)</a>
+        </section>
+
+        <section class="picker-panel picker-selected-panel" id="selected-panel" aria-labelledby="selected-title">
+          <div class="picker-selected-head">
+            <h3 id="selected-title" class="picker-title">Your courses</h3>
+            <span id="picker-count" class="picker-count">0</span>
+          </div>
+
+          <p id="picker-empty" class="picker-empty">Nothing selected yet. Press Add on a course and it will show up here.</p>
+          <ul id="picker-selected" class="course-list"></ul>
+
+          <div class="picker-actions">
+            <button type="submit" id="picker-next" class="btn btn-green rounded-pill" disabled>Save courses</button>
+          </div>
+        </section>
+
+      </div>
+    </form>
+  </section>
+
+  <div class="row g-4">
+
+    <!-- Step 2: the new session form -->
+    <div class="col-lg-5">
+      <section class="card session-card" id="session-form-section" aria-labelledby="session-form-heading">
+        <div class="card-body">
+          <h2 class="step-title mb-3" id="session-form-heading"><span class="step-num">2</span><span id="session-form-title">New session</span></h2>
+
+          <form id="slot-form" novalidate data-url="{% url 'create_slot' %}" data-update-url="{% url 'update_slot' 0 %}">
+            {% csrf_token %}
+
+            <noscript>
+              <div class="alert alert-warning" role="alert">Turn on JavaScript to add sessions.</div>
+            </noscript>
+            <div id="slot-alert" class="alert alert-danger" role="alert" hidden></div>
+            <div id="slot-success" class="alert alert-success" role="status" hidden></div>
+
+            <div class="mb-3">
+              <label for="slot-start" class="form-label">Starts</label>
+              <input type="datetime-local" id="slot-start" class="form-control" required aria-describedby="slot-start-error">
+              <div id="slot-start-error" class="form-text text-danger" hidden></div>
+            </div>
+
+            <div class="mb-3">
+              <label for="slot-end" class="form-label">Ends</label>
+              <input type="datetime-local" id="slot-end" class="form-control" required aria-describedby="slot-end-error">
+              <div id="slot-end-error" class="form-text text-danger" hidden></div>
+              <div class="form-text">Times use your computer&rsquo;s time zone.</div>
+            </div>
+
+            <div class="mb-3">
+              <label for="slot-price" class="form-label">Price per hour</label>
+              <div class="input-group">
+                <span class="input-group-text">$</span>
+                <input type="number" id="slot-price" class="form-control" step="0.01" inputmode="decimal" required aria-describedby="slot-price-hint slot-price-error">
+                <button type="button" id="slot-suggest" class="btn btn-outline-green" hidden>Use suggestion</button>
+              </div>
+              <div id="slot-price-error" class="form-text text-danger" hidden></div>
+              <div id="slot-price-hint" class="form-text"></div>
+            </div>
+
+            <div class="mb-4">
+              <label for="slot-location" class="form-label">Where</label>
+              <select id="slot-location" class="form-select" disabled></select>
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" id="slot-submit" class="btn btn-green rounded-pill" disabled>Add session</button>
+              <button type="button" id="slot-cancel-edit" class="btn btn-link" hidden>Cancel editing</button>
+            </div>
+          </form>
+        </div>
+      </section>
+    </div>
+
+    <!-- Summary and schedule -->
+    <div class="col-lg-7">
+
+      <section class="card session-card info-card mb-4" id="session-info-section" aria-labelledby="session-info-heading">
+        <div class="card-body">
+          <h2 class="h6 mb-3" id="session-info-heading">Session information</h2>
+
+          <p id="info-empty" class="empty-note">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+            <span>Fill in the start and end time to see a summary of your session.</span>
+          </p>
+
+          <div id="info-details" hidden>
+            <div class="info-total-box">
+              <span class="info-total-label">Estimated total</span>
+              <strong class="info-total-value" id="info-total"></strong>
+            </div>
+            <dl class="info-list">
+              <dt>Date</dt>
+              <dd id="info-date"></dd>
+              <dt>Time</dt>
+              <dd id="info-time"></dd>
+              <dt>Length</dt>
+              <dd id="info-length"></dd>
+              <dt>Price</dt>
+              <dd id="info-price"></dd>
+              <dt>Where</dt>
+              <dd id="info-where"></dd>
+            </dl>
+          </div>
+        </div>
+      </section>
+
+      <section class="card session-card" id="schedule-section" aria-labelledby="schedule-heading"
+               data-list-url="{% url 'tutor_schedule' %}"
+               data-update-url="{% url 'update_slot' 0 %}"
+               data-delete-url="{% url 'delete_slot' 0 %}">
+        <div class="card-body">
+          <div class="schedule-head">
+            <h2 class="step-title" id="schedule-heading"><span class="step-num">3</span>Your schedule</h2>
+            <div class="form-check mb-0">
+              <input class="form-check-input" type="checkbox" id="schedule-show-all">
+              <label class="form-check-label small" for="schedule-show-all">Show past and cancelled</label>
+            </div>
+          </div>
+
+          <div id="schedule-alert" class="alert alert-danger" role="alert" hidden></div>
+          <div id="schedule-success" class="alert alert-success" role="status" hidden></div>
+          <p id="schedule-status" class="empty-note" role="status">Loading your sessions&hellip;</p>
+          <ul id="schedule-list" class="slot-list"></ul>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+{{ courses|json_script:"course-data" }}
+{{ selected_ids|json_script:"selected-data" }}
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/course-picker.js' %}"></script>
+<script src="{% static 'js/sessions.js' %}"></script>
+<script src="{% static 'js/schedule.js' %}"></script>
+{% endblock %}

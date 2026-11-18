@@ -3,30 +3,149 @@
 {% block title %}Home · {{ site_name|default:"tUtoR" }}{% endblock %}
 
 {% block content %}
-<div class="container py-5">
-  <div class="d-flex flex-wrap align-items-end justify-content-between gap-3 mb-4">
-    <div>
+<div class="home-page">
+  <div class="container home-page-inner">
+    <header class="student-home-hero mb-4">
       <p class="kicker kicker-green mb-2">Student</p>
       <h1 class="h3 mb-1">Welcome{% if user.first_name %}, {{ user.first_name }}{% endif %}</h1>
-      <p class="text-muted mb-0">Your courses and bookings will show up here.</p>
-    </div>
-  </div>
+      <p class="text-muted mb-0">Browse tutors for your courses and pick an open time.</p>
+    </header>
 
-  {% include "notifications.html" %}
+    <section class="student-courses card mb-4" aria-labelledby="student-courses-heading">
+      <div class="card-body">
+        <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-2">
+          <h2 class="h6 mb-0" id="student-courses-heading">Your courses</h2>
+          <a class="student-inline-link" href="{% url 'personalise' %}">
+            {% if courses %}Edit courses{% else %}Pick courses{% endif %}
+          </a>
+        </div>
+        {% if courses %}
+        <ul class="student-course-list mb-0">
+          {% for course in courses %}
+          <li>
+            <span class="student-course-code">{{ course.course_code }}</span>
+            <span class="student-course-name">{{ course.course_name }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="student-empty mb-0">
+          Add the courses you need help with so we can match you to tutors.
+        </p>
+        {% endif %}
+      </div>
+    </section>
 
-  <div class="card">
-    <div class="card-body">
-      <h2 class="h6">Your courses</h2>
-      {% if courses %}
-      <ul class="mb-0">
-        {% for course in courses %}
-        <li>{{ course.course_code }} &ndash; {{ course.course_name }}</li>
+    <section class="tutor-list" aria-labelledby="tutor-list-heading">
+      <div class="tutor-list-header mb-3">
+        <h2 class="h5 mb-1" id="tutor-list-heading">Tutors</h2>
+        <p class="text-muted mb-0">
+          {% if courses %}
+          Tutors who have passed courses you are taking.
+          {% else %}
+          Tutors currently offering sessions. Add your courses for a tighter match.
+          {% endif %}
+        </p>
+        {% if tutors %}
+        <p class="tutor-list-count mb-0">
+          {{ tutors|length }} tutor{{ tutors|length|pluralize }}
+        </p>
+        {% endif %}
+      </div>
+
+      {% if tutors %}
+      <div class="row g-3">
+        {% for tutor in tutors %}
+        <div class="col-12 col-lg-6">
+          <article class="card tutor-card h-100" data-tutor-id="{{ tutor.id }}">
+            <div class="card-body d-flex flex-column">
+              <div class="d-flex align-items-start gap-3 mb-3">
+                <span class="tutor-avatar" aria-hidden="true">
+                  {% if tutor.first_name or tutor.last_name %}
+                    {{ tutor.first_name|default:tutor.email|slice:":1"|upper }}{{ tutor.last_name|default:""|slice:":1"|upper }}
+                  {% else %}
+                    {{ tutor.email|slice:":1"|upper }}
+                  {% endif %}
+                </span>
+                <div class="min-w-0 flex-grow-1">
+                  <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
+                    <h3 class="h5 mb-1">
+                      {% if tutor.first_name or tutor.last_name %}
+                        {{ tutor.first_name }} {{ tutor.last_name }}
+                      {% else %}
+                        {{ tutor.email }}
+                      {% endif %}
+                    </h3>
+                    {% if tutor.available_slots %}
+                    <span class="tutor-slot-count">
+                      {{ tutor.available_slots|length }} open
+                    </span>
+                    {% endif %}
+                  </div>
+                  <p class="tutor-meta mb-0">
+                    Rating: {{ tutor.average_rating }}
+                    · from ${{ tutor.suggested_price }}/hour
+                  </p>
+                </div>
+              </div>
+
+              {% if tutor.bio %}
+              <p class="tutor-bio mb-3">{{ tutor.bio }}</p>
+              {% else %}
+              <p class="tutor-bio is-empty mb-3">No bio yet.</p>
+              {% endif %}
+
+              <div class="tutor-courses mb-3">
+                <p class="tutor-section-label mb-2">Courses passed</p>
+                {% if tutor.courses_passed %}
+                <ul class="tutor-course-chips mb-0">
+                  {% for course in tutor.courses_passed %}
+                  <li>{{ course.course_code }}</li>
+                  {% endfor %}
+                </ul>
+                {% else %}
+                <p class="tutor-empty-note mb-0">No courses listed.</p>
+                {% endif %}
+              </div>
+
+              <div class="tutor-slots mt-auto">
+                <p class="tutor-section-label mb-2">Available times</p>
+                {% if tutor.available_slots %}
+                <ul class="tutor-slot-list mb-0">
+                  {% for slot in tutor.available_slots %}
+                  <li class="tutor-slot" data-slot-id="{{ slot.id }}">
+                    <div class="tutor-slot-when">{{ slot.when_label }}</div>
+                    <div class="tutor-slot-meta">
+                      {{ slot.location_label }}
+                      · ${{ slot.price_per_hour }}/hour
+                    </div>
+                  </li>
+                  {% endfor %}
+                </ul>
+                {% else %}
+                <p class="tutor-empty-note mb-0">No open slots right now.</p>
+                {% endif %}
+              </div>
+            </div>
+          </article>
+        </div>
         {% endfor %}
-      </ul>
+      </div>
       {% else %}
-      <p class="mb-0">None yet. <a href="{% url 'personalise' %}">Pick your courses</a></p>
+      <div class="card tutor-empty-card">
+        <div class="card-body">
+          <p class="tutor-empty-title mb-2">No tutors to show yet</p>
+          <p class="tutor-empty-copy mb-0">
+            {% if not courses %}
+            <a href="{% url 'personalise' %}">Add your courses</a> so we can match you with tutors who already passed them.
+            {% else %}
+            No tutors are offering those courses yet. Check back soon.
+            {% endif %}
+          </p>
+        </div>
+      </div>
       {% endif %}
-    </div>
+    </section>
   </div>
 </div>
 {% endblock %}

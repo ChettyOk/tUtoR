@@ -481,6 +481,67 @@ def login_page(request):
 
     return render(request, 'login.html', context)
 
+def _format_slot_for_student(slot):
+    """Add readable labels to a serialized slot for the student home template."""
+    from django.utils import timezone
+    from django.utils.formats import date_format
+
+    from bookings.models import Available_Slots
+    from bookings.services import serialize_slot
+
+    data = serialize_slot(slot)
+    start = timezone.localtime(slot.start_time)
+    end = timezone.localtime(slot.end_time)
+    data['when_label'] = (
+        f"{date_format(start, 'D M j, Y · g:i A')} – {date_format(end, 'g:i A')}"
+    )
+    data['location_label'] = dict(Available_Slots.LocationType.choices).get(
+        slot.location_type,
+        slot.location_type,
+    )
+    return data
+
+
+def _tutors_for_student(student_profile):
+    """Build tutor list for the student home using existing booking services."""
+    from django.utils import timezone
+
+    from bookings.models import Available_Slots
+    from bookings.services import get_user_details
+
+    tutor_profiles = TutorProfile.objects.select_related('user').prefetch_related(
+        'courses_passed',
+    )
+
+    # Prefer tutors who teach at least one of the student's courses.
+    if student_profile is not None:
+        student_courses = student_profile.courses.all()
+        if student_courses.exists():
+            matched = tutor_profiles.filter(
+                courses_passed__in=student_courses,
+            ).distinct()
+            if matched.exists():
+                tutor_profiles = matched
+
+    tutors = []
+    for tutor_profile in tutor_profiles.order_by('user__first_name', 'user__last_name', 'user__id'):
+        try:
+            details = get_user_details(tutor_profile.user, User.Role.TUTOR)
+        except ValueError:
+            continue
+
+        open_slots = Available_Slots.objects.filter(
+            tutor=tutor_profile.user,
+            status=Available_Slots.Status.AVAILABLE,
+            start_time__gt=timezone.now(),
+        ).order_by('start_time')
+        details['available_slots'] = [
+            _format_slot_for_student(slot) for slot in open_slots
+        ]
+        tutors.append(details)
+    return tutors
+
+
 #Home page/dashboard basic controllers set up for redirection from signup and login
 @login_required
 def student_home(request):
@@ -488,12 +549,17 @@ def student_home(request):
         return redirect('tutor_home')
     profile = StudentProfile.objects.filter(user=request.user).first()
     courses = profile.courses.order_by('course_code') if profile else []
+    tutors = _tutors_for_student(profile)
     from interactions.models import Notification
 
     return render(request, 'student_home.html', {
         'site_name': 'tUtoR',
+       
         'campus': 'University of Regina',
+       
         'courses': courses,
+        'tutors': tutors,
+    
         'notifications': Notification.objects.filter(
             recipient=request.user,
         ).exclude(type='reminder')[:10],

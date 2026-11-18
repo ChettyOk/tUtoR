@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('bookings', '0005_booking_time_slot'),
+        ('bookings', '0005_booking_session_details'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

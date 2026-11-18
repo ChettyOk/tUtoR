@@ -3,11 +3,22 @@ import json
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth import update_session_auth_hash
-from django.shortcuts import render
+from django.shortcuts import redirect, render
+from django.urls import reverse
 
 from accounts.views import get_my_profile, switch_role as api_switch_role
 
 from django.http import JsonResponse
+
+
+ACCOUNT_SECTIONS = ("personal", "password", "role")
+ACCOUNT_TEMPLATE = "profile/account.html"
+
+
+def _account_section(value, default="personal"):
+    if value in ACCOUNT_SECTIONS:
+        return value
+    return default
 
 
 def register(request):
@@ -119,34 +130,45 @@ def _field_errors_from_response(response):
 
 @login_required
 def account_profile(request):
-    """Personal info page backed by get_my_profile."""
-    context = _account_context(request, active_section="personal")
+    """Single account page with personal / password / role sections."""
+    section = _account_section(
+        request.POST.get("section") or request.GET.get("section"),
+        default="personal",
+    )
+    context = _account_context(
+        request,
+        active_section=section,
+        form=PasswordChangeForm(user=request.user),
+    )
 
     if request.method != "POST":
-        return render(request, "profile/personal_info.html", context)
+        return render(request, ACCOUNT_TEMPLATE, context)
 
+    # Personal-info saves only; other sections POST to their own URLs.
     response = get_my_profile(request)
     context["account"].update({
         "first_name": request.POST.get("first_name", "").strip(),
         "last_name": request.POST.get("last_name", "").strip(),
         "phone": request.POST.get("phone", "").strip(),
     })
+    context["active_section"] = "personal"
 
     if response.status_code == 200:
         request.user.refresh_from_db()
         context = _account_context(
             request,
             active_section="personal",
+            form=PasswordChangeForm(user=request.user),
             success_message="Your personal info was saved.",
         )
-        return render(request, "profile/personal_info.html", context)
+        return render(request, ACCOUNT_TEMPLATE, context)
 
     field_errors, form_error = _field_errors_from_response(response)
     context["field_errors"] = field_errors
     context["form_error"] = form_error
     return render(
         request,
-        "profile/personal_info.html",
+        ACCOUNT_TEMPLATE,
         context,
         status=response.status_code,
     )
@@ -154,48 +176,49 @@ def account_profile(request):
 
 @login_required
 def account_password(request):
-    """Change-password page for signed-in users."""
-    form = PasswordChangeForm(user=request.user)
+    """Change-password POST target; GET opens the account page password section."""
+    if request.method != "POST":
+        return redirect(f"{reverse('account_profile')}?section=password")
+
+    form = PasswordChangeForm(user=request.user, data=request.POST)
     context = _account_context(
         request,
         active_section="password",
         form=form,
     )
-
-    if request.method != "POST":
-        return render(request, "profile/change_password.html", context)
-
-    form = PasswordChangeForm(user=request.user, data=request.POST)
-    context["form"] = form
     if form.is_valid():
         user = form.save()
         update_session_auth_hash(request, user)
         context["success_message"] = "Your password was changed."
         context["form"] = PasswordChangeForm(user=request.user)
-        return render(request, "profile/change_password.html", context)
+        return render(request, ACCOUNT_TEMPLATE, context)
 
-    return render(request, "profile/change_password.html", context, status=400)
+    return render(request, ACCOUNT_TEMPLATE, context, status=400)
 
 
 @login_required
 def account_role(request):
-    """Role switch page backed by switch_role."""
-    context = _account_context(request, active_section="role")
-
+    """Role-switch POST target; GET opens the account page role section."""
     if request.method != "POST":
-        return render(request, "profile/role_switch.html", context)
+        return redirect(f"{reverse('account_profile')}?section=role")
 
     response = api_switch_role(request)
     selected_role = request.POST.get("role", "")
+    context = _account_context(
+        request,
+        active_section="role",
+        form=PasswordChangeForm(user=request.user),
+    )
 
     if response.status_code == 200:
         request.user.refresh_from_db()
         context = _account_context(
             request,
             active_section="role",
+            form=PasswordChangeForm(user=request.user),
             success_message="Your active role was updated.",
         )
-        return render(request, "profile/role_switch.html", context)
+        return render(request, ACCOUNT_TEMPLATE, context)
 
     field_errors, form_error = _field_errors_from_response(response)
     context["field_errors"] = field_errors
@@ -203,7 +226,7 @@ def account_role(request):
     context["account"]["role"] = selected_role or context["account"]["role"]
     return render(
         request,
-        "profile/role_switch.html",
+        ACCOUNT_TEMPLATE,
         context,
         status=response.status_code,
     )
