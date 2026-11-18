@@ -207,6 +207,9 @@ class Booking(models.Model):
     def completed(self):
         if self.status != self.Status.CONFIRMED:
             raise ValueError(f"Booking cannot be marked completed since it has not been confirmed (Current status: '{self.status}').")
+        session_end = self.end_time or (self.time_slot.end_time if self.time_slot_id else None)
+        if session_end is not None and session_end > timezone.now():
+            raise ValueError("Booking cannot be marked compete since the session hasnt happened yet")
         self.status = self.Status.COMPLETED
         self.complete_time = timezone.now()
         self.save()
@@ -366,6 +369,14 @@ class Available_Slots(models.Model):
 
         try:
             self._validate()
+            if 'start_time' in fields or 'end_time' in fields:
+                invalid_booking = self.bookings.filter(status=Booking.Status.CONFIRMED).filter(
+                    models.Q(start_time__lt=self.start_time)
+                    | models.Q(end_time__gt=self.end_time)
+                    | models.Q(start_time__isnull=True)
+                ).exists()
+                if invalid_booking:
+                    raise ValueError("You cannot move or delete this slot since a booking exists for this. Cancel first!")
         except ValueError:
             for name, value in old_values.items():
                 setattr(self, name, value)
@@ -378,6 +389,8 @@ class Available_Slots(models.Model):
             raise ValueError("Slot was already cancelled.")
         if self.status == self.Status.BOOKED:
             raise ValueError("Slot is already booked, cancel the booking instead.")
+        if self.bookings.filter(status=Booking.Status.CONFIRMED).exists():
+            raise ValueError("Slot has bookings on it, cancel those first.")
 
         self.status = self.Status.CANCELLED
         self.save()

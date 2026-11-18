@@ -38,6 +38,9 @@ def create_booking_request(student, tutor, slot, course=None, student_note='', s
     if end_time <= start_time:
         raise ValueError("End time cannot be before start time.")
 
+    if isinstance(slot, Available_Slots) and start_time <= timezone.now():
+        raise ValueError("Start time cannot be in past.")
+
     with transaction.atomic():
         slot_model = slot.__class__
         slot = slot_model.objects.select_for_update().get(id=slot.id)
@@ -52,7 +55,7 @@ def create_booking_request(student, tutor, slot, course=None, student_note='', s
         if isinstance(slot, Available_Slots):
             overlap = Booking.objects.filter(
                 tutor_id=tutor.id,
-                status=Booking.Status.CONFIRMED,
+                status__in=[Booking.Status.CONFIRMED, Booking.Status.COMPLETED],
                 start_time__lt=end_time,
                 end_time__gt=start_time,
             ).exists()
@@ -478,16 +481,27 @@ def get_tutor_available_slots(tutor):
     if not hasattr(tutor, 'available_slots'):
         return []
 
+    now = timezone.now()
     slot_list = tutor.available_slots.filter(
         status='available',
-        start_time__gt=timezone.now(),
+        end_time__gt=now,
     ).order_by('start_time')
 
-    booked_intervals = sorted(Booking.objects.filter(tutor=tutor, status=Booking.Status.CONFIRMED, start_time__isnull=False, end_time__isnull=False,).values_list('start_time', 'end_time'))
+    booked_intervals = sorted(
+        Booking.objects.filter(
+            tutor=tutor,
+            status__in=[Booking.Status.CONFIRMED, Booking.Status.COMPLETED],
+            start_time__isnull=False,
+            end_time__isnull=False,
+        ).values_list('start_time', 'end_time')
+    )
 
     available_times = []
     for slot in slot_list:
-        windows = [(slot.start_time, slot.end_time)]
+        effective_start = max(slot.start_time, now)
+        if slot.end_time <= effective_start:
+            continue
+        windows = [(effective_start, slot.end_time)]
         for booking_start, booking_end in booked_intervals:
             next_windows = []
             for window_start, window_end in windows:

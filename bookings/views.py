@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.db.models import Q
+from django.db import OperationalError
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.views.decorators.http import (
@@ -757,6 +758,10 @@ def book_slot_view(request, slot_id):
     if not request.user.is_authenticated:
         return JsonResponse({'error': 'you have to be logged in to book a slot'}, status=401)
 
+    error_response = check_role_access(request, User.Role.STUDENT)
+    if error_response is not None:
+        return error_response
+
     slot = get_object_or_404(Available_Slots, id=slot_id)
 
     course_id = request.POST.get('course_id')
@@ -794,7 +799,7 @@ def book_slot_view(request, slot_id):
             start_time=start_time,
             end_time=end_time,
         )
-    except DoubleBookingError as e:
+    except (DoubleBookingError, OperationalError) as e:
         return JsonResponse({'error': str(e)}, status=409)
     except ValueError as e:
         return JsonResponse({'error': str(e)}, status=400)

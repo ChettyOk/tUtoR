@@ -2086,8 +2086,8 @@ class test_double_booking(TransactionTestCase):
 
 class test_slot_booking_and_completion(TestCase):
     def setUp(self):
-        self.student1 = User.objects.create_user(email="stud1@uregina.ca", password="67676969ahshG!")
-        self.student2 = User.objects.create_user(email="stud2@uregina.ca", password="67676969ahshG!")
+        self.student1 = User.objects.create_user(email="stud1@uregina.ca", password="67676969ahshG!", role=User.Role.STUDENT)
+        self.student2 = User.objects.create_user(email="stud2@uregina.ca", password="67676969ahshG!", role=User.Role.STUDENT)
         self.tutor = User.objects.create_user(email="tutor@uregina.ca", password="67676969ahshG!", role=User.Role.TUTOR)
         self.course = Course.create_course("CS 476", "SW eng")
         self.start = timezone.now() + timedelta(days=2)
@@ -2159,8 +2159,30 @@ class test_slot_booking_and_completion(TestCase):
         self.assertEqual(self.client.post(complete_url).status_code, 403)
 
         self.client.force_login(self.tutor)
-        self.assertEqual(self.client.post(complete_url).status_code, 200)
-        self.assertEqual(Booking.objects.get(id=booking_id).status, Booking.Status.COMPLETED)
+        self.assertEqual(self.client.post(complete_url).status_code, 400)
+
+        past_booking = Booking.objects.create(student=self.student1, tutor=self.tutor, time_slot=self.slot, start_time=timezone.now() - timedelta(hours=2), end_time=timezone.now() - timedelta(hours=1), session_price=Decimal('20.00'), status=Booking.Status.CONFIRMED,)
+        past_complete_url = reverse('complete_booking', kwargs={'booking_id': past_booking.id})
+        self.assertEqual(self.client.post(past_complete_url).status_code, 200)
+        past_booking.refresh_from_db()
+        self.assertEqual(past_booking.status, Booking.Status.COMPLETED)
+
+    def test_update_cancel_slot_with_partial_booking(self):
+        create_booking_request(student=self.student1, tutor=self.tutor, slot=self.slot, start_time=self.start + timedelta(hours=1), end_time=self.start + timedelta(hours=2),)
+        with self.assertRaises(ValueError):
+            self.slot.update_slot(
+                start_time=self.start + timedelta(hours=3),
+                end_time=self.start + timedelta(hours=5),
+            )
+        with self.assertRaises(ValueError):
+            self.slot.cancel_slot()
+
+    def test_ongoing_slot_still_returns_future_window(self):
+        ongoing = Available_Slots(tutor=self.tutor, start_time=timezone.now() - timedelta(hours=1), end_time=timezone.now() + timedelta(hours=2), price_per_hour=Decimal('20.00'),)
+        ongoing.save()
+        slots = get_tutor_available_slots(self.tutor)
+        ongoing_entries = [s for s in slots if s['id'] == ongoing.id]
+        self.assertEqual(len(ongoing_entries), 1)
 
 
 class test_booking_session_details(TestCase):
