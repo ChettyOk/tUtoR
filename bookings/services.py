@@ -2,7 +2,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from django.utils import timezone
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, Exists, OuterRef
 from django.core.exceptions import ValidationError
 
 from accounts.models import Course, StudentProfile, TutorProfile
@@ -640,10 +640,16 @@ def get_tutor_dashboard(tutor):
         .order_by('-request_time', '-pk')
     )
 
+    own_interest = TutoringRequestInterest.objects.filter(
+        tutoring_request_id=OuterRef('pk'),
+        tutor_id=tutor.pk,
+    )
+
     open_requests = (
-        get_session_requests(tutor)
-        .select_related('student', 'course')
-        .order_by('-request_time', '-pk')
+        get_visible_tutoring_requests(tutor=tutor)
+        .annotate(
+            has_expressed_interest=Exists(own_interest),
+        )
     )
 
     schedule = get_tutor_schedule(tutor)
@@ -694,11 +700,18 @@ def serialize_tutor_dashboard(dashboard):
             for booking in dashboard['booked_sessions']
         ],
         'open_requests': [
-            _serialize_dashboard_booking(booking)
-            for booking in dashboard['open_requests']
+            _serialize_dashboard_request(tutoring_request)
+            for tutoring_request in dashboard['open_requests']
         ],
         'schedule': [
             serialize_slot(slot)
             for slot in dashboard['schedule']
         ],
     }
+
+def _serialize_dashboard_request(tutoring_request):
+    data = serialize_tutoring_request(tutoring_request)
+    data['has_expressed_interest'] = (
+        tutoring_request.has_expressed_interest
+    )
+    return data

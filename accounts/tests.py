@@ -21,7 +21,7 @@ from django.core.exceptions import ValidationError
 from datetime import timedelta
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
-from bookings.models import Available_Slots, Booking
+from bookings.models import Available_Slots, Booking, TutoringRequest, TutoringRequestInterest
 
 #personalisation tests imports
 from django.contrib.auth import get_user_model
@@ -2872,12 +2872,12 @@ class TutorDashboardViewTests(TestCase):
         confirmed = self.create_booking(
             status=Booking.Status.CONFIRMED,
         )
-        pending = self.create_booking()
 
         for status in (
-            Booking.Status.CANCELLED_STUDENT,
-            Booking.Status.CANCELLED_TUTOR,
-            Booking.Status.COMPLETED,
+                Booking.Status.PENDING,
+                Booking.Status.CANCELLED_STUDENT,
+                Booking.Status.CANCELLED_TUTOR,
+                Booking.Status.COMPLETED,
         ):
             self.create_booking(status=status)
 
@@ -2885,7 +2885,6 @@ class TutorDashboardViewTests(TestCase):
             tutor=self.other_tutor,
             status=Booking.Status.CONFIRMED,
         )
-        self.create_booking(tutor=self.other_tutor)
         self.create_booking(
             student=self.tutor,
             tutor=self.other_tutor,
@@ -2908,19 +2907,15 @@ class TutorDashboardViewTests(TestCase):
         self.assertEqual(
             response.status_code,
             200,
-            msg=response.content.decode(),
+            response.content,
         )
-
         data = response.json()
 
         self.assertEqual(
             [item['id'] for item in data['booked_sessions']],
             [confirmed.pk],
         )
-        self.assertEqual(
-            [item['id'] for item in data['open_requests']],
-            [pending.pk],
-        )
+        self.assertEqual(data['open_requests'], [])
         self.assertEqual(data['schedule'], [])
 
     def test_legacy_booking_returns_null_session_fields(self):
@@ -2952,204 +2947,41 @@ class TutorDashboardViewTests(TestCase):
             with self.subTest(field=field):
                 self.assertIsNone(session[field])
 
-    def test_accepted_request_moves_to_booked_sessions(self):
-        slot = Available_Slots.create_slot(
-            tutor=self.tutor,
-            start_time=self.start,
-            end_time=self.start + timedelta(hours=3),
-            price_per_hour=Decimal('25.00'),
-            location_type=Available_Slots.LocationType.ONLINE,
+    def test_booked_sessions_are_ordered_by_request_time_then_id(self):
+        older = self.create_booking(
+            status=Booking.Status.CONFIRMED,
         )
-        booking = self.create_booking(
-            time_slot=slot,
-            start_time=self.start + timedelta(hours=1),
-            end_time=self.start + timedelta(hours=2),
-            price_per_hour=Decimal('25.00'),
-            location_type=Available_Slots.LocationType.ONLINE,
+        first_newer = self.create_booking(
+            status=Booking.Status.CONFIRMED,
         )
-        original_booking_count = Booking.objects.count()
-
-        self.client.force_login(self.tutor)
-
-        before_response = self.client.get(self.url)
-
-        self.assertEqual(before_response.status_code, 200)
-        before = before_response.json()
-
-        self.assertEqual(before['booked_sessions'], [])
-        self.assertEqual(
-            [item['id'] for item in before['open_requests']],
-            [booking.pk],
+        second_newer = self.create_booking(
+            status=Booking.Status.CONFIRMED,
         )
 
-        accept_response = self.client.post(
-            reverse(
-                'accept_request',
-                kwargs={'booking_id': booking.pk},
-            ),
+        Booking.objects.filter(pk=older.pk).update(
+            request_time=self.start - timedelta(hours=1),
         )
-
-        self.assertEqual(
-            accept_response.status_code,
-            200,
-            msg=accept_response.content.decode(),
+        Booking.objects.filter(
+            pk__in=[first_newer.pk, second_newer.pk],
+        ).update(
+            request_time=self.start,
         )
-
-        after_response = self.client.get(self.url)
-
-        self.assertEqual(after_response.status_code, 200)
-        after = after_response.json()
-
-        self.assertEqual(after['open_requests'], [])
-        self.assertEqual(
-            [item['id'] for item in after['booked_sessions']],
-            [booking.pk],
-        )
-        self.assertEqual(
-            after['booked_sessions'][0]['status'],
-            Booking.Status.CONFIRMED,
-        )
-        self.assertEqual(
-            after['booked_sessions'][0]['time_slot_id'],
-            slot.pk,
-        )
-        self.assertEqual(
-            after['booked_sessions'][0]['session_price'],
-            '25.00',
-        )
-        self.assertEqual(
-            [item['id'] for item in after['schedule']],
-            [slot.pk],
-        )
-        self.assertEqual(
-            after['schedule'][0]['status'],
-            Available_Slots.Status.AVAILABLE,
-        )
-
-        booking.refresh_from_db()
-        slot.refresh_from_db()
-
-        self.assertEqual(booking.status, Booking.Status.CONFIRMED)
-        self.assertEqual(slot.status, Available_Slots.Status.AVAILABLE)
-        self.assertEqual(
-            Booking.objects.count(),
-            original_booking_count,
-        )
-
-    def test_declined_request_disappears_from_dashboard_lists(self):
-        slot = Available_Slots.create_slot(
-            tutor=self.tutor,
-            start_time=self.start,
-            end_time=self.start + timedelta(hours=3),
-            price_per_hour=Decimal('25.00'),
-        )
-        booking = self.create_booking(
-            time_slot=slot,
-            start_time=self.start + timedelta(hours=1),
-            end_time=self.start + timedelta(hours=2),
-            price_per_hour=Decimal('25.00'),
-            location_type=Available_Slots.LocationType.ONLINE,
-        )
-        original_booking_count = Booking.objects.count()
-
-        self.client.force_login(self.tutor)
-
-        before_response = self.client.get(self.url)
-
-        self.assertEqual(before_response.status_code, 200)
-        self.assertEqual(
-            [
-                item['id']
-                for item in before_response.json()['open_requests']
-            ],
-            [booking.pk],
-        )
-
-        decline_response = self.client.post(
-            reverse(
-                'decline_request',
-                kwargs={'booking_id': booking.pk},
-            ),
-            {'reason': 'I am not available for this session.'},
-        )
-
-        self.assertEqual(
-            decline_response.status_code,
-            200,
-            msg=decline_response.content.decode(),
-        )
-
-        after_response = self.client.get(self.url)
-
-        self.assertEqual(after_response.status_code, 200)
-        after = after_response.json()
-
-        self.assertEqual(after['open_requests'], [])
-        self.assertEqual(after['booked_sessions'], [])
-        self.assertEqual(
-            [item['id'] for item in after['schedule']],
-            [slot.pk],
-        )
-        self.assertEqual(
-            after['schedule'][0]['status'],
-            Available_Slots.Status.AVAILABLE,
-        )
-
-        booking.refresh_from_db()
-        slot.refresh_from_db()
-
-        self.assertEqual(
-            booking.status,
-            Booking.Status.CANCELLED_TUTOR,
-        )
-        self.assertEqual(
-            booking.cancellation_reason,
-            'I am not available for this session.',
-        )
-        self.assertEqual(slot.status, Available_Slots.Status.AVAILABLE)
-        self.assertEqual(
-            Booking.objects.count(),
-            original_booking_count,
-        )
-
-    def test_booking_lists_are_ordered_by_request_time_then_id(self):
-        expected_ids = {}
-
-        for status, key in (
-            (Booking.Status.CONFIRMED, 'booked_sessions'),
-            (Booking.Status.PENDING, 'open_requests'),
-        ):
-            older = self.create_booking(status=status)
-            first_newer = self.create_booking(status=status)
-            second_newer = self.create_booking(status=status)
-
-            Booking.objects.filter(pk=older.pk).update(
-                request_time=self.start - timedelta(hours=1),
-            )
-            Booking.objects.filter(
-                pk__in=[first_newer.pk, second_newer.pk],
-            ).update(
-                request_time=self.start,
-            )
-
-            expected_ids[key] = [
-                second_newer.pk,
-                first_newer.pk,
-                older.pk,
-            ]
 
         self.client.force_login(self.tutor)
         response = self.client.get(self.url)
 
         self.assertEqual(response.status_code, 200)
-        data = response.json()
-
-        for key, ids in expected_ids.items():
-            with self.subTest(section=key):
-                self.assertEqual(
-                    [item['id'] for item in data[key]],
-                    ids,
-                )
+        self.assertEqual(
+            [
+                item['id']
+                for item in response.json()['booked_sessions']
+            ],
+            [
+                second_newer.pk,
+                first_newer.pk,
+                older.pk,
+            ],
+        )
 
     def test_schedule_keeps_cancelled_windows_and_orders_ties_by_id(self):
         later = Available_Slots.create_slot(
@@ -3198,4 +3030,135 @@ class TutorDashboardViewTests(TestCase):
         self.assertEqual(
             cancelled.status,
             Available_Slots.Status.CANCELLED,
+        )
+
+    def create_tutoring_request(self, **overrides):
+        course, _ = Course.objects.get_or_create(
+            course_code='CS 476',
+            defaults={
+                'course_name': 'Software Development Project',
+                'course_faculty': 'other',
+            },
+        )
+        data = {
+            'student': self.student,
+            'course': course,
+            'description': 'Please help me understand transactions.',
+            'status': TutoringRequest.Status.OPEN,
+            'visibility': TutoringRequest.Visibility.ALL_TUTORS,
+        }
+        data.update(overrides)
+        return TutoringRequest.objects.create(**data)
+
+    def test_returns_visible_open_requests_without_requiring_interest(self):
+        visible = self.create_tutoring_request()
+
+        self.create_tutoring_request(student=self.tutor)
+        self.create_tutoring_request(
+            status=TutoringRequest.Status.WITHDRAWN,
+        )
+        self.create_tutoring_request(
+            status=TutoringRequest.Status.FULFILLED,
+        )
+        self.create_tutoring_request(
+            visibility=TutoringRequest.Visibility.COURSE_FACULTY,
+        )
+
+        self.client.force_login(self.tutor)
+        response = self.client.get(self.url)
+
+        self.assertEqual(
+            response.status_code,
+            200,
+            response.content,
+        )
+
+        requests = response.json()['open_requests']
+        self.assertEqual(
+            [item['request_id'] for item in requests],
+            [visible.pk],
+        )
+        self.assertFalse(requests[0]['has_expressed_interest'])
+        self.assertEqual(
+            requests[0]['description'],
+            visible.description,
+        )
+        self.assertEqual(
+            requests[0]['course_id'],
+            visible.course_id,
+        )
+        self.assertEqual(
+            requests[0]['status'],
+            TutoringRequest.Status.OPEN,
+        )
+
+    def test_marks_only_current_tutors_interest_without_duplicates(self):
+        own_interest_request = self.create_tutoring_request()
+        other_interest_request = self.create_tutoring_request()
+
+        TutoringRequestInterest.objects.create(
+            tutoring_request=own_interest_request,
+            tutor=self.tutor,
+        )
+        TutoringRequestInterest.objects.create(
+            tutoring_request=own_interest_request,
+            tutor=self.other_tutor,
+        )
+        TutoringRequestInterest.objects.create(
+            tutoring_request=other_interest_request,
+            tutor=self.other_tutor,
+        )
+
+        self.client.force_login(self.tutor)
+        response = self.client.get(self.url)
+
+        self.assertEqual(
+            response.status_code,
+            200,
+            response.content,
+        )
+
+        requests = response.json()['open_requests']
+        self.assertEqual(len(requests), 2)
+
+        by_id = {
+            item['request_id']: item
+            for item in requests
+        }
+
+        self.assertTrue(
+            by_id[own_interest_request.pk]['has_expressed_interest'],
+        )
+        self.assertFalse(
+            by_id[other_interest_request.pk]['has_expressed_interest'],
+        )
+
+    def test_open_requests_are_ordered_by_created_at_then_id(self):
+        older = self.create_tutoring_request()
+        first_newer = self.create_tutoring_request()
+        second_newer = self.create_tutoring_request()
+
+        TutoringRequest.objects.filter(pk=older.pk).update(
+            created_at=self.start - timedelta(hours=1),
+        )
+        TutoringRequest.objects.filter(
+            pk__in=[first_newer.pk, second_newer.pk],
+        ).update(
+            created_at=self.start,
+        )
+
+        self.client.force_login(self.tutor)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [
+                item['request_id']
+                for item in response.json()['open_requests']
+            ],
+            [
+                second_newer.pk,
+                first_newer.pk,
+                older.pk,
+            ],
         )
