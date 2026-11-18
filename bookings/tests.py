@@ -5,8 +5,8 @@ from decimal import Decimal
 from unittest.mock import MagicMock
 
 from django.contrib.auth import get_user_model
-from django.db import connection
-from django.test import Client, TestCase, override_settings, RequestFactory
+from django.db import connection, OperationalError
+from django.test import Client, TestCase, TransactionTestCase, override_settings, RequestFactory
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -321,39 +321,6 @@ class test_create_booking(TestCase):
         self.assertEqual(user_bookings['tutor_bookings'].count(), 1)
         self.assertEqual(user_bookings['all_bookings'].count(), 3)
         self.assertEqual(user_bookings['tutor_bookings'].first().course, self.course3)
-
-    # uncomment once available_slots becomes available
-    # def test_simultaneous_booking(self):
-    #     slot = Available_Slots.objects.create(
-    #         tutor=self.tutor,
-    #         status='available',
-    #         price_per_hour=Decimal('20.00'),
-    #         start_time=datetime(2026, 11, 1, 14, 0, 0),
-    #         end_time=datetime(2026, 11, 1, 15, 0, 0))
-    
-    #     results = []
-    #     errors = []
-    
-    #     barrier = threading.Barrier(2)
-    #     def book_slot(user):
-    #         connection.close()
-    #         barrier.wait()
-    #         try:
-    #             b = create_booking_request(student=user, tutor=self.tutor, slot=slot)
-    #             results.append(b)
-    #         except DoubleBookingError as e:
-    #             errors.append(e)
-    
-    #     t1 = threading.Thread(target=book_slot, args=(self.student,))
-    #     t2 = threading.Thread(target=book_slot, args=(self.student2,))
-    
-    #     t1.start()
-    #     t2.start()
-    #     t1.join()
-    #     t2.join()
-
-    #     self.assertEqual(len(results), 1)
-    #     self.assertEqual(len(errors), 1)
 
 class test_ratings_system(TestCase):
     def setUp(self):
@@ -2079,6 +2046,144 @@ class test_slot_management_csrf(TestCase):
         self.assertEqual(response.status_code, 200)
         self.slot.refresh_from_db()
         self.assertEqual(self.slot.status, Available_Slots.Status.CANCELLED)
+
+
+class test_double_booking(TransactionTestCase):
+    def setUp(self):
+        self.student1 = User.objects.create_user(email="stud1@uregina.ca", password="67676969ahshG!")
+        self.student2 = User.objects.create_user(email="stud2@uregina.ca", password="67676969ahshG!")
+        self.tutor = User.objects.create_user(email="tutor@uregina.ca", password="67676969ahshG!", role=User.Role.TUTOR)
+        self.start = timezone.now() + timedelta(days=2)
+
+    def test_simultaneous_booking(self):
+        slot = Available_Slots.create_slot(
+            tutor=self.tutor,
+            price_per_hour=Decimal('20.00'),
+            start_time=self.start,
+            end_time=self.start + timedelta(hours=1),
+        )
+        results, errors = [], []
+        barrier = threading.Barrier(2)
+
+        def book_slot(user):
+            connection.close()
+            barrier.wait()
+            try:
+                results.append(create_booking_request(student=user, tutor=self.tutor, slot=slot))
+            except (DoubleBookingError, OperationalError) as e:
+                errors.append(e)
+
+        t1 = threading.Thread(target=book_slot, args=(self.student1,))
+        t2 = threading.Thread(target=book_slot, args=(self.student2,))
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(len(errors), 1)
+
+
+class test_slot_booking_and_completion(TestCase):
+    def setUp(self):
+        self.student1 = User.objects.create_user(email="stud1@uregina.ca", password="67676969ahshG!", role=User.Role.STUDENT)
+        self.student2 = User.objects.create_user(email="stud2@uregina.ca", password="67676969ahshG!", role=User.Role.STUDENT)
+        self.tutor = User.objects.create_user(email="tutor@uregina.ca", password="67676969ahshG!", role=User.Role.TUTOR)
+        self.course = Course.create_course("CS 476", "SW eng")
+        self.start = timezone.now() + timedelta(days=2)
+        self.slot = Available_Slots.create_slot(
+            tutor=self.tutor,
+            start_time=self.start,
+            end_time=self.start + timedelta(hours=3),
+            price_per_hour=Decimal('20.00'),
+            location_type=Available_Slots.LocationType.ONLINE,
+        )
+
+    def test_partial_overlap_and_remaining_timeslot(self):
+        booking = create_booking_request(
+            student=self.student1,
+            tutor=self.tutor,
+            slot=self.slot,
+            course=self.course,
+            start_time=self.start + timedelta(hours=1),
+            end_time=self.start + timedelta(hours=2),
+        )
+        self.slot.refresh_from_db()
+        self.assertEqual(booking.status, Booking.Status.CONFIRMED)
+        self.assertEqual(booking.session_price, Decimal('20.00'))
+        self.assertEqual(self.slot.status, Available_Slots.Status.AVAILABLE)
+
+        with self.assertRaises(DoubleBookingError):
+            create_booking_request(
+                student=self.student2,
+                tutor=self.tutor,
+                slot=self.slot,
+                start_time=self.start + timedelta(hours=1, minutes=30),
+                end_time=self.start + timedelta(hours=2, minutes=30),
+            )
+
+        remaining = get_tutor_available_slots(self.tutor)
+        self.assertEqual(len(remaining), 2)
+        self.assertEqual(remaining[0]['location_type'], Available_Slots.LocationType.ONLINE)
+        self.assertEqual(remaining[0]['end_time'], (self.start + timedelta(hours=1)).isoformat())
+        self.assertEqual(remaining[1]['start_time'], (self.start + timedelta(hours=2)).isoformat())
+
+    def test_cancel_by_tutor_slot_available(self):
+        full = create_booking_request(student=self.student1, tutor=self.tutor, slot=self.slot)
+        self.slot.refresh_from_db()
+        self.assertEqual(self.slot.status, Available_Slots.Status.BOOKED)
+
+        full.cancel(cancelled_by='tutor', reason='Sick')
+        self.slot.refresh_from_db()
+        self.assertEqual(self.slot.status, Available_Slots.Status.AVAILABLE)
+
+    def test_book_slot(self):
+        self.client.force_login(self.student1)
+        book_url = reverse('book_slot', kwargs={'slot_id': self.slot.id})
+
+        res1 = self.client.post(book_url, {
+            'start_time': (self.start + timedelta(hours=1)).isoformat(),
+            'end_time': (self.start + timedelta(hours=2)).isoformat(),
+        })
+        self.assertEqual(res1.status_code, 201)
+        booking_id = res1.json()['booking_id']
+
+        res_conflict = self.client.post(book_url, {
+            'start_time': (self.start + timedelta(hours=1)).isoformat(),
+            'end_time': (self.start + timedelta(hours=2)).isoformat(),
+        })
+        self.assertEqual(res_conflict.status_code, 409)
+
+        complete_url = reverse('complete_booking', kwargs={'booking_id': booking_id})
+        self.client.force_login(self.student2)
+        self.assertEqual(self.client.post(complete_url).status_code, 403)
+
+        self.client.force_login(self.tutor)
+        self.assertEqual(self.client.post(complete_url).status_code, 400)
+
+        past_booking = Booking.objects.create(student=self.student1, tutor=self.tutor, time_slot=self.slot, start_time=timezone.now() - timedelta(hours=2), end_time=timezone.now() - timedelta(hours=1), session_price=Decimal('20.00'), status=Booking.Status.CONFIRMED,)
+        past_complete_url = reverse('complete_booking', kwargs={'booking_id': past_booking.id})
+        self.assertEqual(self.client.post(past_complete_url).status_code, 200)
+        past_booking.refresh_from_db()
+        self.assertEqual(past_booking.status, Booking.Status.COMPLETED)
+
+    def test_update_cancel_slot_with_partial_booking(self):
+        create_booking_request(student=self.student1, tutor=self.tutor, slot=self.slot, start_time=self.start + timedelta(hours=1), end_time=self.start + timedelta(hours=2),)
+        with self.assertRaises(ValueError):
+            self.slot.update_slot(
+                start_time=self.start + timedelta(hours=3),
+                end_time=self.start + timedelta(hours=5),
+            )
+        with self.assertRaises(ValueError):
+            self.slot.cancel_slot()
+
+    def test_ongoing_slot_still_returns_future_window(self):
+        ongoing = Available_Slots(tutor=self.tutor, start_time=timezone.now() - timedelta(hours=1), end_time=timezone.now() + timedelta(hours=2), price_per_hour=Decimal('20.00'),)
+        ongoing.save()
+        slots = get_tutor_available_slots(self.tutor)
+        ongoing_entries = [s for s in slots if s['id'] == ongoing.id]
+        self.assertEqual(len(ongoing_entries), 1)
+
 
 class test_booking_session_details(TestCase):
     def setUp(self):
