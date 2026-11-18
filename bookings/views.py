@@ -46,6 +46,8 @@ from .services import (
     withdraw_tutoring_request,
     express_tutoring_request_interest,
     withdraw_tutoring_request_interest,
+    get_student_dashboard,
+    serialize_student_dashboard,
 )
 
 def filter_courses(request):
@@ -744,3 +746,19 @@ def delete_slot_view(request, slot_id):
         'message': 'Slot cancelled successfully.',
         'slot': serialize_slot(slot),
     })
+
+@require_GET
+def get_student_dashboard_view(request):
+    error_response = check_role_access(
+        request,
+        User.Role.STUDENT,
+    )
+
+    if error_response is not None:
+        return error_response
+
+    dashboard = get_student_dashboard(request.user)
+
+    return JsonResponse(
+        serialize_student_dashboard(dashboard),
+    )
