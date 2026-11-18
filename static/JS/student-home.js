@@ -76,10 +76,18 @@
       "aria-label",
       isFavorite ? "Remove from favourites" : "Add to favourites"
     );
+    button.setAttribute("title", isFavorite ? "Favourited" : "Favourite");
     if (label) {
       label.textContent = isFavorite ? "Favourited" : "Favourite";
+    }
+
+    if (isFavorite) {
+      button.classList.remove("is-popping");
+      // Force restart so repeated favourites still animate.
+      void button.offsetWidth;
+      button.classList.add("is-popping");
     } else {
-      button.textContent = isFavorite ? "Favourited" : "Favourite";
+      button.classList.remove("is-popping");
     }
 
     var item = button.closest("[data-tutor-item]");
