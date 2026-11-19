@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.db.models import Q
+from django.db import OperationalError
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.views.decorators.http import (
@@ -41,6 +42,8 @@ from .services import (
     get_user_details,
     get_visible_tutoring_requests,
     serialize_slot,
+    DoubleBookingError,
+    create_booking_request,
     get_student_tutoring_requests,
     serialize_tutoring_request,
     withdraw_tutoring_request,
@@ -48,7 +51,14 @@ from .services import (
     withdraw_tutoring_request_interest,
     get_student_dashboard,
     serialize_student_dashboard,
+    fulfill_tutoring_request,
+    RequestFulfillmentConflict,
 )
+
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import get_object_or_404, redirect, render
+from django.contrib import messages
+from accounts.forms import CoursePickForm
 
 def filter_courses(request):
     search_query = request.GET.get('q', '').strip()
@@ -382,6 +392,116 @@ def get_interested_tutors_view(request, request_id):
     })
 
 @require_POST
+def fulfill_tutoring_request_view(request, request_id):
+    if not request.user.is_authenticated:
+        return JsonResponse(
+            {'error': 'Log in to fulfill a tutoring request.'},
+            status=401,
+        )
+
+    error_response = check_role_access(
+        request,
+        User.Role.STUDENT,
+    )
+    if error_response is not None:
+        return error_response
+
+    raw_slot_id = request.POST.get('slot_id', '').strip()
+
+    try:
+        slot_id = int(raw_slot_id)
+        if slot_id <= 0:
+            raise ValueError
+    except (TypeError, ValueError, OverflowError):
+        return JsonResponse(
+            {'error': 'slot_id must be a positive integer.'},
+            status=400,
+        )
+
+    raw_start = request.POST.get('start_time', '').strip()
+    raw_end = request.POST.get('end_time', '').strip()
+
+    if not raw_start or not raw_end:
+        return JsonResponse(
+            {'error': 'Please provide start_time and end_time.'},
+            status=400,
+        )
+
+    try:
+        start_time = parse_datetime(raw_start)
+        end_time = parse_datetime(raw_end)
+    except (ValueError, OverflowError):
+        start_time = end_time = None
+
+    if start_time is None or end_time is None:
+        return JsonResponse(
+            {'error': 'Please provide valid ISO start and end times.'},
+            status=400,
+        )
+
+    try:
+        booking, tutoring_request = fulfill_tutoring_request(
+            request_id=request_id,
+            student=request.user,
+            slot_id=slot_id,
+            start_time=start_time,
+            end_time=end_time,
+            student_note=request.POST.get(
+                'student_note', '',
+            ).strip(),
+        )
+    except TutoringRequest.DoesNotExist:
+        return JsonResponse(
+            {'error': 'Tutoring request not found.'},
+            status=404,
+        )
+    except Available_Slots.DoesNotExist:
+        return JsonResponse(
+            {'error': 'Slot not found.'},
+            status=404,
+        )
+    except PermissionError as error:
+        return JsonResponse(
+            {'error': str(error)},
+            status=403,
+        )
+    except (RequestFulfillmentConflict, DoubleBookingError) as error:
+        return JsonResponse(
+            {'error': str(error)},
+            status=409,
+        )
+    except OperationalError:
+        return JsonResponse(
+            {
+                'error': (
+                    'The request could not be processed. '
+                    'Please try again.'
+                ),
+            },
+            status=503,
+        )
+    except ValueError as error:
+        return JsonResponse(
+            {'error': str(error)},
+            status=400,
+        )
+
+    return JsonResponse(
+        {
+            'message': 'Tutoring request fulfilled.',
+            'request_id': tutoring_request.pk,
+            'request_status': tutoring_request.status,
+            'booking_id': booking.pk,
+            'booking_status': booking.status,
+            'time_slot_id': booking.time_slot_id,
+            'start_time': booking.start_time.isoformat(),
+            'end_time': booking.end_time.isoformat(),
+            'session_price': str(booking.session_price),
+        },
+        status=201,
+    )
+
+@require_POST
 def submit_rating_view(request, booking_id):
     if not request.user.is_authenticated:
         return JsonResponse({'error': 'You have to be logged in to submit a rating.'}, status=401)
@@ -504,6 +624,11 @@ def get_bookings(request):
             'tutor_id': booking.tutor.id,
             'tutor_email': booking.tutor.email,
             'course': str(booking.course) if booking.course else None,
+            'time_slot_id': booking.time_slot_id,
+            'start_time': booking.start_time.isoformat() if booking.start_time else None,
+            'end_time': booking.end_time.isoformat() if booking.end_time else None,
+            'price_per_hour': str(booking.price_per_hour) if booking.price_per_hour is not None else None,
+            'location_type': booking.location_type,
             'session_price': str(booking.session_price),
             'status': booking.status,
             'student_note': booking.student_note,
@@ -762,3 +887,122 @@ def get_student_dashboard_view(request):
     return JsonResponse(
         serialize_student_dashboard(dashboard),
     )
+
+@login_required
+def tutor_sessions_page(request):
+    """Page where a tutor sets up sessions: courses, slot form and schedule."""
+    if not request.user.has_role(User.Role.TUTOR):
+        return redirect('student_home')
+
+    profile = TutorProfile.objects.filter(user=request.user).first()
+    selected_ids = list(profile.courses_passed.values_list('pk', flat=True)) if profile else []
+
+    return render(request, 'tutor/sessions/setup.html', {
+        'site_name': 'tUtoR',
+        'campus': 'University of Regina',
+        # every course, for the search box; the page script filters them in the browser
+        'courses': list(
+            Course.objects.order_by('course_code')
+            .values('id', 'course_code', 'course_name', 'course_faculty')
+        ),
+        'selected_ids': selected_ids,
+    })
+
+
+@login_required
+@require_POST
+def tutor_save_courses(request):
+    """Save the courses a tutor teaches (the picker form on the sessions page)."""
+    if not request.user.has_role(User.Role.TUTOR):
+        return redirect('student_home')
+
+    form = CoursePickForm(request.POST)   # no limit for tutors
+    if form.is_valid():
+        profile, _ = TutorProfile.objects.get_or_create(user=request.user)
+        profile.courses_passed.set(form.cleaned_data['courses'])
+        messages.success(request, 'Your courses were saved.')
+    else:
+        messages.error(request, 'Some of the chosen courses do not exist. Please try again.')
+
+    return redirect('tutor_sessions')
+
+@require_POST
+def book_slot_view(request, slot_id):
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'you have to be logged in to book a slot'}, status=401)
+
+    error_response = check_role_access(request, User.Role.STUDENT)
+    if error_response is not None:
+        return error_response
+
+    slot = get_object_or_404(Available_Slots, id=slot_id)
+
+    course_id = request.POST.get('course_id')
+    course = None
+    if course_id:
+        try:
+            course_id = int(course_id)
+            if course_id <= 0:
+                raise ValueError
+        except (TypeError, ValueError, OverflowError):
+            return JsonResponse({'error': 'course_id invalid.'}, status=400)
+        course = get_object_or_404(Course, id=course_id)
+
+    raw_start = request.POST.get('start_time', '').strip()
+    raw_end = request.POST.get('end_time', '').strip()
+    start_time = end_time = None
+    if raw_start or raw_end:
+        if not raw_start or not raw_end:
+            return JsonResponse({'error': 'please prvide start and end time'}, status=400)
+        try:
+            start_time = parse_datetime(raw_start)
+            end_time = parse_datetime(raw_end)
+        except (ValueError, OverflowError):
+            start_time = end_time = None
+        if start_time is None or end_time is None:
+            return JsonResponse({'error': 'please provide a valid start and end time'}, status=400)
+
+    try:
+        booking = create_booking_request(
+            student=request.user,
+            tutor=slot.tutor,
+            slot=slot,
+            course=course,
+            student_note=request.POST.get('student_note', '').strip(),
+            start_time=start_time,
+            end_time=end_time,
+        )
+    except (DoubleBookingError, OperationalError) as e:
+        return JsonResponse({'error': str(e)}, status=409)
+    except ValueError as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+    return JsonResponse({
+        'message': 'Booking confirmed.',
+        'booking_id': booking.id,
+        'status': booking.status,
+        'session_price': str(booking.session_price),
+        'time_slot_id': booking.time_slot_id,
+        'start_time': booking.start_time.isoformat(),
+        'end_time': booking.end_time.isoformat(),
+    }, status=201)
+
+
+@require_POST
+def complete_booking_view(request, booking_id):
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'you must be logged in to complete a booking.'}, status=401)
+
+    booking = get_object_or_404(Booking, id=booking_id)
+    if request.user != booking.tutor and request.user != booking.student:
+        return JsonResponse({'error': 'you can only acces your own bookings'}, status=403)
+
+    try:
+        booking.completed()
+    except ValueError as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+    return JsonResponse({
+        'message': 'Booking marked as completed.',
+        'status': booking.status,
+    })

@@ -16,30 +16,81 @@ from bookings.models import (
 )
 from bookings.pricing import calc_price_suggestion
 
+from django.utils import timezone
+
 
 class DoubleBookingError(Exception):
     pass
 
-def create_booking_request(student, tutor, slot, course=None, student_note=''):
+class RequestFulfillmentConflict(ValueError):
+    pass
+
+def create_booking_request(student, tutor, slot, course=None, student_note='', start_time=None, end_time=None):
+    if (start_time is None) != (end_time is None):
+        raise ValueError("Please provide both start and end time")
+
+    if start_time is None and end_time is None:
+        start_time = slot.start_time
+        end_time = slot.end_time
+
+    if timezone.is_aware(slot.start_time):
+        if timezone.is_naive(start_time):
+            start_time = timezone.make_aware(start_time)
+        if timezone.is_naive(end_time):
+            end_time = timezone.make_aware(end_time)
+
+    if end_time <= start_time:
+        raise ValueError("End time cannot be before start time.")
+
+    if isinstance(slot, Available_Slots) and start_time <= timezone.now():
+        raise ValueError("Start time cannot be in past.")
+
     with transaction.atomic():
         slot_model = slot.__class__
         slot = slot_model.objects.select_for_update().get(id=slot.id)
 
         if hasattr(slot, 'status') and slot.status != 'available':
             raise DoubleBookingError("Booking failed, slot has already been booked.")
-        if hasattr(slot, 'status'):
+        if isinstance(slot, Available_Slots) and slot.tutor_id != tutor.id:
+            raise ValueError("slot must be offered by the tutor.")
+        if start_time < slot.start_time or end_time > slot.end_time:
+            raise ValueError("Booking must be fully within timeslot.")
+
+        if isinstance(slot, Available_Slots):
+            overlap = Booking.objects.filter(
+                tutor_id=tutor.id,
+                status__in=[Booking.Status.CONFIRMED, Booking.Status.COMPLETED],
+                start_time__lt=end_time,
+                end_time__gt=start_time,
+            ).exists()
+
+            if overlap:
+                raise DoubleBookingError("This time is already booked, please choose a different slot")
+
+        is_full_slot = (start_time == slot.start_time and end_time == slot.end_time)
+        
+        if hasattr(slot, 'status') and is_full_slot :
             slot.status = 'booked'
             slot.save()
 
-        session_price = Booking.calc_price_per_session(price_per_hour=slot.price_per_hour, start_time=slot.start_time, end_time=slot.end_time)
+        session_price = Booking.calc_price_per_session(
+            price_per_hour=slot.price_per_hour,
+            start_time=start_time,
+            end_time=end_time,
+        )
 
         booking = Booking.objects.create(
             student=student,
             tutor=tutor,
             course=course,
+            time_slot=slot if isinstance(slot, Available_Slots) else None,
+            start_time=start_time if isinstance(slot, Available_Slots) else None,
+            end_time=end_time if isinstance(slot, Available_Slots) else None,
+            price_per_hour=slot.price_per_hour if isinstance(slot, Available_Slots) else None,
+            location_type=getattr(slot, 'location_type', None) if isinstance(slot, Available_Slots) else None,
             student_note=student_note,
             session_price=session_price,
-            status=Booking.Status.CONFIRMED
+            status=Booking.Status.CONFIRMED,
         )
         return booking
 
@@ -119,6 +170,7 @@ def serialize_tutoring_request(tutoring_request):
         'location_type': tutoring_request.location_type,
         'visibility': tutoring_request.visibility,
         'status': tutoring_request.status,
+        'fulfilled_booking_id': tutoring_request.fulfilled_booking_id,
         'created_at': tutoring_request.created_at.isoformat(),
     }
 
@@ -131,23 +183,23 @@ def withdraw_tutoring_request(*, request_id, student):
             'Only users with an active student role can withdraw requests.'
         )
 
-    tutoring_request = TutoringRequest.objects.get(
-        pk=request_id,
-        student=student,
-    )
+    with transaction.atomic():
+        tutoring_request = (
+            TutoringRequest.objects
+            .select_for_update()
+            .get(
+                pk=request_id,
+                student=student,
+            )
+        )
 
-    updated_count = TutoringRequest.objects.filter(
-        pk=tutoring_request.pk,
-        student=student,
-        status=TutoringRequest.Status.OPEN,
-    ).update(
-        status=TutoringRequest.Status.WITHDRAWN,
-    )
+        if tutoring_request.status != TutoringRequest.Status.OPEN:
+            raise ValueError(
+                'Only open tutoring requests can be withdrawn.'
+            )
 
-    if updated_count == 0:
-        raise ValueError('Only open tutoring requests can be withdrawn.')
-
-    tutoring_request.refresh_from_db()
+        tutoring_request.status = TutoringRequest.Status.WITHDRAWN
+        tutoring_request.save(update_fields=['status'])
 
     return tutoring_request
 
@@ -309,6 +361,91 @@ def get_interested_tutors(*, tutoring_request):
         .order_by('created_at', 'id')
     )
 
+def fulfill_tutoring_request(
+    *,
+    request_id,
+    student,
+    slot_id,
+    start_time,
+    end_time,
+    student_note='',
+):
+    if not student.is_authenticated or not student.has_role(
+        student.Role.STUDENT
+    ):
+        raise PermissionError(
+            'Only users with an active student role can fulfill requests.'
+        )
+
+    if start_time is None or end_time is None:
+        raise ValueError(
+            'Please select a start and end time for this request.'
+        )
+
+    with transaction.atomic():
+        tutoring_request = (
+            TutoringRequest.objects
+            .select_for_update()
+            .get(
+                pk=request_id,
+                student=student,
+            )
+        )
+
+        if (
+            tutoring_request.status != TutoringRequest.Status.OPEN
+            or tutoring_request.fulfilled_booking_id is not None
+        ):
+            raise RequestFulfillmentConflict(
+                'Only open, unfulfilled requests can be booked.'
+            )
+
+        slot = (
+            Available_Slots.objects
+            .select_for_update()
+            .get(pk=slot_id)
+        )
+        tutor = slot.tutor
+
+        if tutor.pk == student.pk:
+            raise ValueError(
+                'You cannot fulfill your request with your own slot.'
+            )
+
+        if not tutor.is_active:
+            raise ValueError(
+                'The selected tutor is no longer active.'
+            )
+
+        has_interest = TutoringRequestInterest.objects.filter(
+            tutoring_request=tutoring_request,
+            tutor_id=slot.tutor_id,
+        ).exists()
+
+        if not has_interest:
+            raise ValueError(
+                'The selected tutor has not expressed interest '
+                'in this request.'
+            )
+
+        booking = create_booking_request(
+            student=student,
+            tutor=tutor,
+            slot=slot,
+            course=tutoring_request.course,
+            student_note=student_note,
+            start_time=start_time,
+            end_time=end_time,
+        )
+
+        tutoring_request.fulfilled_booking = booking
+        tutoring_request.status = TutoringRequest.Status.FULFILLED
+        tutoring_request.save(
+            update_fields=['fulfilled_booking', 'status'],
+        )
+
+    return booking, tutoring_request
+
 def update_rating(user, rated_role):
     if rated_role == Rating.RatedRole.TUTOR:
         existing_ratings = Rating.objects.filter(tutor=user, rated_role=Rating.RatedRole.TUTOR)
@@ -431,20 +568,53 @@ def get_user_details(user, role):
 
 
 def get_tutor_available_slots(tutor):
-    if hasattr(tutor, 'available_slots'):
-        slot_list = tutor.available_slots.filter(status='available').order_by('start_time')
+    if not hasattr(tutor, 'available_slots'):
+        return []
 
-        return [
-            {
+    now = timezone.now()
+    slot_list = tutor.available_slots.filter(
+        status='available',
+        end_time__gt=now,
+    ).order_by('start_time')
+
+    booked_intervals = sorted(
+        Booking.objects.filter(
+            tutor=tutor,
+            status__in=[Booking.Status.CONFIRMED, Booking.Status.COMPLETED],
+            start_time__isnull=False,
+            end_time__isnull=False,
+        ).values_list('start_time', 'end_time')
+    )
+
+    available_times = []
+    for slot in slot_list:
+        effective_start = max(slot.start_time, now)
+        if slot.end_time <= effective_start:
+            continue
+        windows = [(effective_start, slot.end_time)]
+        for booking_start, booking_end in booked_intervals:
+            next_windows = []
+            for window_start, window_end in windows:
+                if booking_end <= window_start or booking_start >= window_end:
+                    next_windows.append((window_start, window_end))
+                else:
+                    if booking_start > window_start:
+                        next_windows.append((window_start, booking_start))
+                    if booking_end < window_end:
+                        next_windows.append((booking_end, window_end))
+            windows = next_windows
+
+        for window_start, window_end in windows:
+            available_times.append({
                 'id': slot.id,
-                'start_time': slot.start_time.isoformat() if hasattr(slot, 'start_time') and slot.start_time else None,
-                'end_time': slot.end_time.isoformat() if hasattr(slot, 'end_time') and slot.end_time else None,
+                'start_time': window_start.isoformat() if window_start else None,
+                'end_time': window_end.isoformat() if window_end else None,
                 'price_per_hour': str(getattr(slot, 'price_per_hour', '0.00')),
+                'location_type': getattr(slot, 'location_type', None),
                 'status': getattr(slot, 'status', 'available'),
-            }
-            for slot in slot_list
-        ]
-    return []
+            })
+
+    return available_times
 
 def serialize_slot(slot):
     return {
@@ -455,7 +625,6 @@ def serialize_slot(slot):
         'location_type': slot.location_type,
         'status': slot.status,
     }
-
 
 def get_tutor_schedule(tutor):
     return Available_Slots.objects.filter(
