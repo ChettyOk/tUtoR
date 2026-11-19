@@ -41,6 +41,7 @@ from bookings.services import (
     serialize_student_dashboard,
 )
 from tUtoR.views import custom_403, custom_500
+from bookings.search import clean_filters, search_tutors
 
 class Dummy_Slot: 
     objects = MagicMock()
@@ -5324,3 +5325,246 @@ class TutorSaveCoursesTests(TestCase):
         self.client.force_login(self.tutor)
         self.client.post(self.url, {'courses': [c.pk for c in courses]})
         self.assertEqual(len(self.saved()), 25)
+
+def make_user(email, first, role=User.Role.TUTOR):
+    user = User.objects.create_user(
+        email=email, password='pass12345!', first_name=first, last_name='Test',
+    )
+    user.role = role
+    user.save()
+    return user
+
+
+def future_slot(tutor, days=2, hour=10, hours=1, price='20.00',
+                location='online'):
+    """Create an open slot `days` from now at the given LOCAL hour."""
+    base = timezone.localtime(timezone.now()) + timedelta(days=days)
+    start = base.replace(hour=hour, minute=0, second=0, microsecond=0)
+    return Available_Slots.objects.create(
+        tutor=tutor,
+        start_time=start,
+        end_time=start + timedelta(hours=hours),
+        price_per_hour=Decimal(price),
+        location_type=location,
+    )
+
+
+class FindTutorsBase(TestCase):
+    def setUp(self):
+        self.cs = Course.objects.create(
+            course_code='CS110', course_name='Intro to Programming',
+            course_faculty='Science')
+        self.eng = Course.objects.create(
+            course_code='ENGL100', course_name='Academic Writing',
+            course_faculty='Arts')
+
+        self.student = make_user('stu@uregina.ca', 'Sam', User.Role.STUDENT)
+        StudentProfile.objects.get_or_create(user=self.student)
+
+        self.alice = make_user('alice@uregina.ca', 'Alice')
+        self.alice_profile, _ = TutorProfile.objects.get_or_create(user=self.alice)
+        self.alice_profile.courses_passed.add(self.cs)
+        self.alice_profile.average_rating = Decimal('4.50')
+        self.alice_profile.save()
+
+        self.bob = make_user('bob@uregina.ca', 'Bob')
+        self.bob_profile, _ = TutorProfile.objects.get_or_create(user=self.bob)
+        self.bob_profile.courses_passed.add(self.eng)
+
+        self.alice_slot = future_slot(self.alice, days=2, hour=9, price='30.00')
+        self.bob_slot = future_slot(
+            self.bob, days=3, hour=18, price='18.00', location='in_person')
+
+        self.client.force_login(self.student)
+        self.url = reverse('find_tutors')
+
+    def names(self, response):
+        return [t['first_name'] for t in response.context['tutors']]
+
+
+class FindTutorsPageTests(FindTutorsBase):
+    def test_requires_login(self):
+        self.client.logout()
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('login', response.url)
+
+    def test_tutor_role_redirected_home(self):
+        self.client.force_login(self.alice)
+        response = self.client.get(self.url)
+        self.assertRedirects(response, reverse('tutor_home'))
+
+    def test_lists_all_tutors_with_open_times(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertCountEqual(self.names(response), ['Alice', 'Bob'])
+
+    def test_tutor_without_open_slots_is_hidden(self):
+        self.alice_slot.status = Available_Slots.Status.BOOKED
+        self.alice_slot.save()
+        self.assertEqual(self.names(self.client.get(self.url)), ['Bob'])
+
+    def test_past_slots_do_not_count(self):
+        Available_Slots.objects.filter(pk=self.bob_slot.pk).update(
+            start_time=timezone.now() - timedelta(days=2),
+            end_time=timezone.now() - timedelta(days=2) + timedelta(hours=1),
+        )
+        self.assertEqual(self.names(self.client.get(self.url)), ['Alice'])
+
+    def test_viewer_never_sees_themselves(self):
+        both = make_user('both@uregina.ca', 'Both', User.Role.STUDENT)
+        TutorProfile.objects.get_or_create(user=both)
+        future_slot(both, days=4)
+        self.client.force_login(both)
+        self.assertNotIn('Both', self.names(self.client.get(self.url)))
+
+    def test_empty_state_message(self):
+        response = self.client.get(self.url, {'q': 'zzzzzz'})
+        self.assertContains(response, 'No tutors match')
+        self.assertContains(response, 'Clear all filters')
+
+    def test_card_shows_time_price_and_course(self):
+        response = self.client.get(self.url)
+        self.assertContains(response, 'CS110')
+        self.assertContains(response, '$30.00/hour')
+
+    def test_student_home_has_search_box(self):
+        response = self.client.get(reverse('student_home'))
+        self.assertContains(response, 'action="%s"' % self.url)
+
+
+class FindTutorsFilterTests(FindTutorsBase):
+    def test_search_by_tutor_name(self):
+        self.assertEqual(
+            self.names(self.client.get(self.url, {'q': 'alic'})), ['Alice'])
+
+    def test_search_by_course_code(self):
+        self.assertEqual(
+            self.names(self.client.get(self.url, {'q': 'engl'})), ['Bob'])
+
+    def test_search_by_course_name(self):
+        self.assertEqual(
+            self.names(self.client.get(self.url, {'q': 'programming'})),
+            ['Alice'])
+
+    def test_faculty_filter(self):
+        self.assertEqual(
+            self.names(self.client.get(self.url, {'faculty': 'Arts'})), ['Bob'])
+
+    def test_location_filter(self):
+        self.assertEqual(
+            self.names(self.client.get(self.url, {'location': 'in_person'})),
+            ['Bob'])
+
+    def test_max_price_filter(self):
+        self.assertEqual(
+            self.names(self.client.get(self.url, {'max_price': '25'})), ['Bob'])
+
+    def test_max_price_is_inclusive(self):
+        self.assertCountEqual(
+            self.names(self.client.get(self.url, {'max_price': '30'})),
+            ['Alice', 'Bob'])
+
+    def test_day_filter(self):
+        day = timezone.localtime(self.alice_slot.start_time).date().isoformat()
+        self.assertEqual(
+            self.names(self.client.get(self.url, {'date': day})), ['Alice'])
+
+    def test_part_of_day_morning(self):
+        self.assertEqual(
+            self.names(self.client.get(self.url, {'part': 'morning'})),
+            ['Alice'])
+
+    def test_part_of_day_evening(self):
+        self.assertEqual(
+            self.names(self.client.get(self.url, {'part': 'evening'})), ['Bob'])
+
+    def test_filters_combine(self):
+        response = self.client.get(
+            self.url, {'faculty': 'Science', 'location': 'in_person'})
+        self.assertEqual(self.names(response), [])
+
+    def test_only_matching_times_are_shown_on_card(self):
+        future_slot(self.alice, days=5, hour=19, price='45.00')
+        response = self.client.get(self.url, {'part': 'evening'})
+        tutor = [t for t in response.context['tutors']
+                 if t['first_name'] == 'Alice'][0]
+        self.assertEqual(len(tutor['available_slots']), 1)
+        self.assertEqual(tutor['lowest_price'], Decimal('45.00'))
+
+    def test_partially_booked_slot_uses_remaining_window(self):
+        from bookings.models import Booking
+        self.alice_slot.end_time = self.alice_slot.start_time + timedelta(hours=3)
+        self.alice_slot.save()
+        Booking.objects.create(
+            student=self.student, tutor=self.alice, course=self.cs,
+            start_time=self.alice_slot.start_time,
+            end_time=self.alice_slot.start_time + timedelta(hours=3),
+            session_price=Decimal('30.00'),
+            status=Booking.Status.CONFIRMED,
+        )
+        self.assertEqual(self.names(self.client.get(self.url)), ['Bob'])
+
+
+class FindTutorsSortTests(FindTutorsBase):
+    def test_sort_soonest_default(self):
+        self.assertEqual(self.names(self.client.get(self.url)), ['Alice', 'Bob'])
+
+    def test_sort_by_price(self):
+        self.assertEqual(
+            self.names(self.client.get(self.url, {'sort': 'price'})),
+            ['Bob', 'Alice'])
+
+    def test_sort_by_rating_puts_unrated_last(self):
+        self.assertEqual(
+            self.names(self.client.get(self.url, {'sort': 'rating'})),
+            ['Alice', 'Bob'])
+
+    def test_unknown_sort_falls_back(self):
+        filters, _ = clean_filters({'sort': 'nonsense'})
+        self.assertEqual(filters['sort'], 'soonest')
+
+
+class CleanFiltersTests(TestCase):
+    def test_bad_price_gives_message_and_is_ignored(self):
+        filters, errors = clean_filters({'max_price': 'abc'})
+        self.assertIsNone(filters['max_price'])
+        self.assertEqual(len(errors), 1)
+
+    def test_price_out_of_range(self):
+        _, errors = clean_filters({'max_price': '5'})
+        self.assertEqual(len(errors), 1)
+        _, errors = clean_filters({'max_price': '9999'})
+        self.assertEqual(len(errors), 1)
+
+    def test_bad_date_gives_message(self):
+        filters, errors = clean_filters({'date': 'not-a-date'})
+        self.assertIsNone(filters['date'])
+        self.assertEqual(errors, ['Pick a valid date.'])
+
+    def test_impossible_date_gives_message(self):
+        _, errors = clean_filters({'date': '2026-02-31'})
+        self.assertEqual(errors, ['Pick a valid date.'])
+
+    def test_past_date_gives_message(self):
+        _, errors = clean_filters({'date': '2001-01-01'})
+        self.assertEqual(errors, ['That date has already passed.'])
+
+    def test_unknown_location_and_part_are_dropped(self):
+        filters, errors = clean_filters({'location': 'moon', 'part': 'night'})
+        self.assertEqual(filters['location'], '')
+        self.assertEqual(filters['part'], '')
+        self.assertEqual(errors, [])
+
+    def test_q_is_trimmed_and_capped(self):
+        filters, _ = clean_filters({'q': '  ' + 'x' * 500 + '  '})
+        self.assertEqual(len(filters['q']), 100)
+
+    def test_page_survives_garbage_and_shows_error(self):
+        student = make_user('s2@uregina.ca', 'Sam2', User.Role.STUDENT)
+        self.client.force_login(student)
+        response = self.client.get(
+            reverse('find_tutors'), {'max_price': 'x', 'date': 'y'})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Max price must be a number')
+        self.assertContains(response, 'Pick a valid date.')

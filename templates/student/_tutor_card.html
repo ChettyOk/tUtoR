@@ -1,0 +1,62 @@
+{# One tutor card for the Find tutors page. Same look as the student home card. #}
+<article class="card tutor-card h-100" data-tutor-id="{{ tutor.id }}">
+  <div class="card-body d-flex flex-column">
+    <div class="d-flex align-items-start gap-3 mb-3">
+      <span class="tutor-avatar" aria-hidden="true">
+        {% if tutor.first_name or tutor.last_name %}
+          {{ tutor.first_name|default:tutor.email|slice:":1"|upper }}{{ tutor.last_name|default:""|slice:":1"|upper }}
+        {% else %}
+          {{ tutor.email|slice:":1"|upper }}
+        {% endif %}
+      </span>
+      <div class="min-w-0 flex-grow-1">
+        <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
+          <h3 class="h5 mb-1">
+            {% if tutor.first_name or tutor.last_name %}{{ tutor.first_name }} {{ tutor.last_name }}{% else %}{{ tutor.email }}{% endif %}
+          </h3>
+          <span class="tutor-slot-count">{{ tutor.available_slots|length }} open</span>
+        </div>
+        <p class="tutor-meta mb-0">
+          Rating: {{ tutor.average_rating }} · from ${{ tutor.lowest_price }}/hour
+        </p>
+      </div>
+    </div>
+
+    {% if tutor.bio %}
+    <p class="tutor-bio mb-3">{{ tutor.bio|truncatechars:160 }}</p>
+    {% else %}
+    <p class="tutor-bio is-empty mb-3">No bio yet.</p>
+    {% endif %}
+
+    <div class="tutor-courses mb-3">
+      <p class="tutor-section-label mb-2">Courses passed</p>
+      {% if tutor.courses_passed %}
+      <ul class="tutor-course-chips mb-0">
+        {% for course in tutor.courses_passed|slice:":8" %}
+        <li title="{{ course.course_name }}">{{ course.course_code }}</li>
+        {% endfor %}
+        {% if tutor.courses_passed|length > 8 %}
+        <li class="chip-more">+{{ tutor.courses_passed|length|add:"-8" }} more</li>
+        {% endif %}
+      </ul>
+      {% else %}
+      <p class="tutor-empty-note mb-0">No courses listed.</p>
+      {% endif %}
+    </div>
+
+    <div class="tutor-slots mt-auto">
+      <p class="tutor-section-label mb-2">Matching times</p>
+      <ul class="tutor-slot-list mb-0">
+        {% for slot in tutor.available_slots|slice:":3" %}
+        <li class="tutor-slot" data-slot-id="{{ slot.id }}">
+          <div class="tutor-slot-when">{{ slot.when_label }}</div>
+          <div class="tutor-slot-meta">{{ slot.location_label }} · ${{ slot.price_per_hour }}/hour</div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% if tutor.available_slots|length > 3 %}
+      <p class="tutor-more-times mb-0">+{{ tutor.available_slots|length|add:"-3" }} more time{{ tutor.available_slots|length|add:"-3"|pluralize }}</p>
+      {% endif %}
+    </div>
+  </div>
+</article>
