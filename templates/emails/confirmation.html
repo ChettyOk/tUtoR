@@ -8,5 +8,10 @@
       <li><strong>Student:</strong> {{ booking.student.email }}</li>
       <li><strong>Tutor:</strong> {{ booking.tutor.email }}</li>
     </ul>
+    <h2>Contact details</h2>
+    <ul>
+      <li><strong>Student phone:</strong> {{ booking.student.phone|default:"Not provided" }}</li>
+      <li><strong>Tutor phone:</strong> {{ booking.tutor.phone|default:"Not provided" }}</li>
+    </ul>
   </body>
 </html>

@@ -15,10 +15,14 @@ from bookings.models import (
     TutoringRequestInterest,
 )
 from bookings.pricing import calc_price_suggestion
+from bookings.interfaces import BookingEvent, TutoringRequestEvent
+from bookings.subjects import (
+    booking_event_manager,
+    tutoring_request_event_manager,
+)
 
 from django.utils import timezone
-from bookings.interfaces import BookingEvent
-from bookings.subjects import booking_event_manager
+
 
 
 class DoubleBookingError(Exception):
@@ -26,6 +30,21 @@ class DoubleBookingError(Exception):
 
 class RequestFulfillmentConflict(ValueError):
     pass
+
+
+def cancel_booking(booking, *, cancelled_by, reason=''):
+    booking.cancel(
+        cancelled_by=cancelled_by,
+        reason=reason,
+    )
+    transaction.on_commit(
+        lambda: booking_event_manager.notify(
+            BookingEvent.CANCELLED,
+            booking,
+        )
+    )
+    return booking
+
 
 def create_booking_request(student, tutor, slot, course=None, student_note='', start_time=None, end_time=None):
     if (start_time is None) != (end_time is None):
@@ -92,37 +111,10 @@ def create_booking_request(student, tutor, slot, course=None, student_note='', s
             location_type=getattr(slot, 'location_type', None) if isinstance(slot, Available_Slots) else None,
             student_note=student_note,
             session_price=session_price,
-            status=Booking.Status.CONFIRMED
-        )
-        transaction.on_commit(
-            lambda booking=booking: booking_event_manager.notify(
-                BookingEvent.BOOKED,
-                booking,
-            )
+            status=Booking.Status.CONFIRMED,
         )
         return booking
 
-def confirm_booking(booking):
-    with transaction.atomic():
-        booking.confirm()
-        transaction.on_commit(
-            lambda booking=booking: booking_event_manager.notify(
-                BookingEvent.BOOKED, booking
-            )
-        )
-    return booking
-
-def cancel_booking(booking, cancelled_by, reason=''):
-    with transaction.atomic():
-        booking.cancel(cancelled_by=cancelled_by, reason=reason)
-        transaction.on_commit(
-            lambda booking=booking: booking_event_manager.notify(
-                BookingEvent.CANCELLED, booking
-            )
-        )
-    return booking
-
-    
 def get_user_bookings(user):
 
     sort_by = 'request_time'        # once available model -> 'time_slot__start_time'
@@ -350,6 +342,12 @@ def express_tutoring_request_interest(*, request_id, tutor):
             )
         )
 
+        if created:
+            tutoring_request_event_manager.notify(
+                TutoringRequestEvent.INTEREST_EXPRESSED,
+                interest,
+            )
+
     return interest, created
 
 
@@ -473,6 +471,7 @@ def fulfill_tutoring_request(
             update_fields=['fulfilled_booking', 'status'],
         )
 
+    booking_event_manager.notify(BookingEvent.BOOKED, booking)
     return booking, tutoring_request
 
 def update_rating(user, rated_role):
@@ -751,7 +750,10 @@ def _serialize_dashboard_booking(booking):
         'price_per_hour': (
             str(booking.price_per_hour)
             if booking.price_per_hour is not None
-          ),
+            else None
+        ),
+
+            
         'session_price': str(booking.session_price),
         'location_type': booking.location_type,
     }

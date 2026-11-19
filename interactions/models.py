@@ -5,6 +5,7 @@ from django.core.mail import send_mail
 class Notification(models.Model):
     class Type(models.TextChoices):
         REQUESTED = "requested", "Requested"
+        INTEREST = "interest", "Tutoring request interest"
         CONFIRMATION = "confirmation", "Confirmation"
         CANCELLATION = "cancellation", "Cancellation"
         RATING = "rating", "Rating"

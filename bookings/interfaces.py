@@ -12,6 +12,12 @@ class BookingEvent(Enum):
     REMINDER = "reminder"
 
 
+class TutoringRequestEvent(Enum):
+    """Events emitted during a tutoring request's lifecycle."""
+
+    INTEREST_EXPRESSED = "interest_expressed"
+
+
 # Descriptive aliases keep the event type easy to discover for callers.
 BookingEventType = BookingEvent
 EventType = BookingEvent
@@ -35,3 +41,9 @@ class BookingSubject(ABC):
     @abstractmethod
     def notify(self, event: BookingEvent, booking: Any) -> None:
         """Notify all subscribed observers."""
+
+
+class TutoringRequestObserver(ABC):
+    @abstractmethod
+    def update(self, event: TutoringRequestEvent, interest: Any) -> None:
+        """React to a tutoring request event."""

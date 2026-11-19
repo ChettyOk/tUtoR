@@ -1,7 +1,13 @@
 import logging
 from typing import Any
 
-from bookings.interfaces import BookingEvent, BookingObserver, BookingSubject
+from bookings.interfaces import (
+    BookingEvent,
+    BookingObserver,
+    BookingSubject,
+    TutoringRequestEvent,
+    TutoringRequestObserver,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -34,3 +40,32 @@ class BookingEventManager(BookingSubject):
 
 
 booking_event_manager = BookingEventManager()
+
+
+class TutoringRequestEventManager:
+    """Central subject for tutoring request lifecycle events."""
+
+    def __init__(self) -> None:
+        self._observers: list[TutoringRequestObserver] = []
+
+    def attach(self, observer: TutoringRequestObserver) -> None:
+        if observer not in self._observers:
+            self._observers.append(observer)
+
+    def detach(self, observer: TutoringRequestObserver) -> None:
+        if observer in self._observers:
+            self._observers.remove(observer)
+
+    def notify(self, event: TutoringRequestEvent, interest: Any) -> None:
+        for observer in tuple(self._observers):
+            try:
+                observer.update(event, interest)
+            except Exception:
+                logger.exception(
+                    "Tutoring request observer failed for event %s and interest %s",
+                    event.value,
+                    getattr(interest, "id", None),
+                )
+
+
+tutoring_request_event_manager = TutoringRequestEventManager()

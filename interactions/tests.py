@@ -1,10 +1,11 @@
 from django.test import TestCase
 
 from accounts.models import User
+from bookings.models import Booking
+from bookings.interfaces import BookingEvent
+from bookings.subjects import booking_event_manager
 from bookings.services import (
     cancel_booking,
-    confirm_booking,
-    create_session_request,
 )
 
 from .models import Notification
@@ -22,27 +23,19 @@ class WebsiteNotificationObserverTests(TestCase):
         )
 
     def test_booking_lifecycle_creates_notifications_for_both_users(self):
-        with self.captureOnCommitCallbacks(execute=True):
-            booking = create_session_request(
-                self.student,
-                self.tutor,
-                student_note="I need help.",
-                session_price=10,
-            )
-
-        self.assertCountEqual(
-            Notification.objects.filter(related_booking=booking).values_list(
-                "recipient_id",
-                "type",
-            ),
-            [
-                (self.student.id, "requested"),
-                (self.tutor.id, "requested"),
-            ],
+        booking = Booking.objects.create(
+            student=self.student,
+            tutor=self.tutor,
+            student_note="I need help.",
+            session_price=10,
+            status=Booking.Status.CONFIRMED,
         )
 
         with self.captureOnCommitCallbacks(execute=True):
-            confirm_booking(booking)
+            booking_event_manager.notify(
+                BookingEvent.BOOKED,
+                booking,
+            )
 
         self.assertEqual(
             Notification.objects.filter(

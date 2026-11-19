@@ -1,4 +1,9 @@
-from bookings.interfaces import BookingEvent, BookingObserver
+from bookings.interfaces import (
+    BookingEvent,
+    BookingObserver,
+    TutoringRequestEvent,
+    TutoringRequestObserver,
+)
 
 from .models import Notification
 
@@ -39,4 +44,25 @@ class WebsiteNotificationObserver(BookingObserver):
                 message=message,
             )
             for recipient, title, message in messages
+        )
+
+
+class TutoringRequestInterestNotificationObserver(TutoringRequestObserver):
+    """Persists a notification when a tutor expresses request interest."""
+
+    def update(self, event: TutoringRequestEvent, interest) -> None:
+        if event != TutoringRequestEvent.INTEREST_EXPRESSED:
+            return
+
+        tutor = interest.tutor
+        tutoring_request = interest.tutoring_request
+        Notification.create_notification(
+            recipient=tutoring_request.student,
+            sender=tutor,
+            notification_type=Notification.Type.INTEREST,
+            title="New tutor interest",
+            message=(
+                f"{tutor.get_full_name() or tutor.email} is interested "
+                f"in your tutoring request #{tutoring_request.pk}."
+            ),
         )
