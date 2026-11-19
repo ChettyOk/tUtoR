@@ -2724,6 +2724,42 @@ class HomePageTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'tutor_home.html')
         self.assertContains(response, 'CS 110')
+        self.assertContains(response, 'Tutor overview')
+        self.assertContains(response, 'Courses you teach')
+        self.assertContains(response, reverse('tutor_sessions'))
+        self.assertNotContains(response, 'name="price_per_hour"')
+        self.assertNotContains(response, 'id="slot-start"')
+
+    def test_tutor_home_shows_overview_stats_and_upcoming_slots(self):
+        from datetime import timedelta
+        from decimal import Decimal
+
+        from django.utils import timezone
+
+        from bookings.models import Available_Slots
+
+        TutorProfile.objects.create(user=self.tutor).courses_passed.add(self.course)
+        start = timezone.now() + timedelta(days=2)
+        Available_Slots.create_slot(
+            tutor=self.tutor,
+            start_time=start,
+            end_time=start + timedelta(hours=1),
+            price_per_hour=Decimal('30.00'),
+            location_type=Available_Slots.LocationType.ONLINE,
+        )
+
+        self.client.force_login(self.tutor)
+        response = self.client.get(reverse('tutor_home'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['course_count'], 1)
+        self.assertEqual(response.context['open_slot_count'], 1)
+        self.assertEqual(response.context['booked_count'], 0)
+        self.assertEqual(len(response.context['upcoming_slots']), 1)
+        self.assertContains(response, 'Upcoming open slots')
+        self.assertContains(response, '$30.00/hour')
+        self.assertContains(response, 'Online')
+        self.assertContains(response, 'Set up tutoring sessions')
 
     def test_tutor_is_redirected_away_from_student_home(self):
         self.client.force_login(self.tutor)
