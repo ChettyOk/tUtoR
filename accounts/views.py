@@ -523,6 +523,12 @@ def _tutors_for_student(student_profile):
             if matched.exists():
                 tutor_profiles = matched
 
+    favorite_ids = set()
+    if student_profile is not None:
+        favorite_ids = set(
+            student_profile.favorite_tutors.values_list('id', flat=True)
+        )
+
     tutors = []
     for tutor_profile in tutor_profiles.order_by('user__first_name', 'user__last_name', 'user__id'):
         try:
@@ -538,6 +544,7 @@ def _tutors_for_student(student_profile):
         details['available_slots'] = [
             _format_slot_for_student(slot) for slot in open_slots
         ]
+        details['is_favorite'] = tutor_profile.user_id in favorite_ids
         tutors.append(details)
     return tutors
 
