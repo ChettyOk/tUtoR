@@ -2,8 +2,9 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from django.utils import timezone
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, F
 from django.core.exceptions import ValidationError
+from django.db.models.functions import Coalesce
 
 from accounts.models import Course, StudentProfile, TutorProfile
 from bookings.models import (
@@ -629,3 +630,83 @@ def get_tutor_schedule(tutor):
     return Available_Slots.objects.filter(
         tutor=tutor,
     ).order_by('start_time', 'id')
+
+def get_student_dashboard(student):
+    user_bookings = get_user_bookings(student)
+
+    booked_sessions = (
+        user_bookings['student_bookings']
+        .filter(status=Booking.Status.CONFIRMED)
+        .select_related('tutor', 'course', 'time_slot')
+        .annotate(
+            session_start=Coalesce(
+                'start_time',
+                'time_slot__start_time',
+            ),
+        )
+        .order_by(
+            F('session_start').asc(nulls_last=True),
+            'pk',
+        )
+    )
+
+    open_requests = (
+        get_student_tutoring_requests(student)
+        .filter(status=TutoringRequest.Status.OPEN)
+        .order_by('-created_at', '-pk')
+    )
+
+    return {
+        'booked_sessions': booked_sessions,
+        'open_requests': open_requests,
+    }
+
+def _serialize_student_dashboard_booking(booking):
+    start_time = booking.start_time
+    end_time = booking.end_time
+
+    if booking.time_slot_id is not None:
+        if start_time is None:
+            start_time = booking.time_slot.start_time
+
+        if end_time is None:
+            end_time = booking.time_slot.end_time
+
+    return {
+        'id': booking.pk,
+        'status': booking.status,
+        'tutor_id': booking.tutor_id,
+        'tutor_first_name': booking.tutor.first_name,
+        'tutor_last_name': booking.tutor.last_name,
+        'course_id': booking.course_id,
+        'course': (
+            str(booking.course)
+            if booking.course is not None
+            else None
+        ),
+        'start_time': (
+            start_time.isoformat()
+            if start_time is not None
+            else None
+        ),
+        'end_time': (
+            end_time.isoformat()
+            if end_time is not None
+            else None
+        ),
+        'session_price': str(booking.session_price),
+        'location_type': booking.location_type,
+    }
+
+
+def serialize_student_dashboard(dashboard):
+    return {
+        'booked_sessions': [
+            _serialize_student_dashboard_booking(booking)
+            for booking in dashboard['booked_sessions']
+        ],
+        'open_requests': [
+            serialize_tutoring_request(tutoring_request)
+            for tutoring_request in dashboard['open_requests']
+        ],
+    }
