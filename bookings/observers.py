@@ -3,6 +3,7 @@ from django.core.mail import send_mail
 from django.template.loader import render_to_string
 
 from bookings.interfaces import BookingEvent, BookingObserver
+from interactions.factories import NotificationFactory
 
 
 class ConfirmationMailObserver(BookingObserver):
@@ -15,9 +16,15 @@ class ConfirmationMailObserver(BookingObserver):
     def sendConfirmationMail(self, booking) -> None:
         recipient_list = [booking.student.email, booking.tutor.email]
         context = {"booking": booking}
-        send_mail(
-            subject=f"Booking confirmation for booking #{booking.id}",
+        notification = NotificationFactory.create(
+            "confirmation",
+            booking=booking,
+            title=f"Booking confirmation for booking #{booking.id}",
             message=render_to_string("emails/confirmation.txt", context).strip(),
+        )
+        send_mail(
+            subject=notification.title,
+            message=notification.message,
             from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
             recipient_list=recipient_list,
             html_message=render_to_string("emails/confirmation.html", context),
@@ -35,9 +42,15 @@ class CancellationMailObserver(BookingObserver):
     def sendCancellationMail(self, booking) -> None:
         recipient_list = [booking.student.email, booking.tutor.email]
         context = {"booking": booking}
-        send_mail(
-            subject=f"Booking cancellation for booking #{booking.id}",
+        notification = NotificationFactory.create(
+            "cancellation",
+            booking=booking,
+            title=f"Booking cancellation for booking #{booking.id}",
             message=render_to_string("emails/cancellation.txt", context).strip(),
+        )
+        send_mail(
+            subject=notification.title,
+            message=notification.message,
             from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
             recipient_list=recipient_list,
             html_message=render_to_string("emails/cancellation.html", context),
@@ -63,9 +76,15 @@ class ReminderMailObserver(BookingObserver):
     def sendReminderMail(self, booking) -> None:
         recipient_list = [booking.student.email, booking.tutor.email]
         context = {"booking": booking}
-        send_mail(
-            subject=f"Reminder: booking #{booking.id} starts in 2 hours",
+        notification = NotificationFactory.create(
+            "reminder",
+            booking=booking,
+            title=f"Reminder: booking #{booking.id} starts in 2 hours",
             message=render_to_string("emails/reminder.txt", context).strip(),
+        )
+        send_mail(
+            subject=notification.title,
+            message=notification.message,
             from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
             recipient_list=recipient_list,
             html_message=render_to_string("emails/reminder.html", context),

@@ -9,6 +9,7 @@ from bookings.services import (
 )
 
 from .models import Notification
+from .factories import NotificationFactory
 
 
 class WebsiteNotificationObserverTests(TestCase):

@@ -8,6 +8,7 @@ class Notification(models.Model):
         INTEREST = "interest", "Tutoring request interest"
         CONFIRMATION = "confirmation", "Confirmation"
         CANCELLATION = "cancellation", "Cancellation"
+        REMINDER = "reminder", "Reminder"
         RATING = "rating", "Rating"
 
     recipient = models.ForeignKey(
