@@ -2,7 +2,7 @@ from decimal import Decimal
 
 from django.db.models import Q
 from django.db import OperationalError
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import (
@@ -1040,4 +1040,81 @@ def find_tutors_page(request):
             request.GET.get(k, '').strip()
             for k in ('q', 'faculty', 'location', 'max_price', 'date', 'part')
         ),
+    })
+
+
+@login_required
+def book_slot_page(request, slot_id):
+    """STU-03.3: confirmation page for booking (part of) one open slot.
+
+    The page itself only shows the form. The booking is made by the existing
+    JSON endpoint book_slot (slots/<id>/book/), called from booking.js.
+    """
+    if request.user.has_role(User.Role.TUTOR):
+        return redirect('tutor_home')
+
+    slot = get_object_or_404(
+        Available_Slots.objects.select_related('tutor'), id=slot_id,
+    )
+    tutor_profile = TutorProfile.objects.filter(user=slot.tutor).first()
+    if tutor_profile is None:
+        raise Http404('No tutor profile for this slot.')
+
+    # Free windows of this slot (already minus bookings, from now on).
+    windows = []
+    if slot.status == Available_Slots.Status.AVAILABLE:
+        windows = [
+            w for w in get_tutor_available_slots(slot.tutor)
+            if w['id'] == slot.id
+        ]
+
+    # ?start=... picks which window the student clicked on.
+    wanted = None
+    try:
+        wanted = parse_datetime(request.GET.get('start', ''))
+    except (ValueError, OverflowError):
+        wanted = None
+    window = None
+    for w in windows:
+        if wanted is not None and parse_datetime(w['start_time']) == wanted:
+            window = w
+            break
+    if window is None and windows:
+        window = windows[0]
+
+    my_course_ids = set()
+    student_profile = StudentProfile.objects.filter(user=request.user).first()
+    if student_profile is not None:
+        my_course_ids = set(student_profile.courses.values_list('id', flat=True))
+
+    course_options = [
+        {
+            'id': c.id,
+            'code': c.course_code,
+            'name': c.course_name,
+            'mine': c.id in my_course_ids,
+        }
+        for c in tutor_profile.courses_passed.order_by('course_code')
+    ]
+    course_options.sort(key=lambda c: (not c['mine'], c['code']))
+
+    booking_data = None
+    if window is not None:
+        booking_data = {
+            'window_start': window['start_time'],
+            'window_end': window['end_time'],
+            'price_per_hour': window['price_per_hour'],
+            'post_url': reverse('book_slot', kwargs={'slot_id': slot.id}),
+            'find_url': reverse('find_tutors'),
+            'home_url': reverse('student_home'),
+        }
+
+    return render(request, 'student/book_slot.html', {
+        'site_name': 'tUtoR',
+        'slot': slot,
+        'tutor': get_user_details(slot.tutor, User.Role.TUTOR),
+        'window': window,
+        'booking_data': booking_data,
+        'course_options': course_options,
+        'location_label': slot.get_location_type_display(),
     })
