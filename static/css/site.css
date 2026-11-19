@@ -550,3 +550,20 @@ h1, h2, h3, .card-title {
 @media (max-width: 575.98px) {
   .student-search { flex-direction: column; }
 }
+
+
+/* Book button inside an open-time row */
+.tutor-slot-bookable {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.tutor-slot-info { min-width: 0; }
+.btn-book {
+  flex: 0 0 auto;
+  padding: 0.35rem 1.1rem;
+  font-size: 0.9rem;
+  min-height: 0;
+  height: auto;
+}
