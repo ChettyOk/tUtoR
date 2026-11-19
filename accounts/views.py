@@ -567,73 +567,82 @@ def student_home(request):
     })
 
 
+def _tutor_home_overview(user):
+    """Summary data for the tutor overview page (not the sessions setup page)."""
+    from django.utils import timezone
+    from django.utils.formats import date_format
+
+    from bookings.models import Available_Slots
+
+    profile = TutorProfile.objects.filter(user=user).first()
+    courses = (
+        list(profile.courses_passed.order_by('course_code'))
+        if profile is not None
+        else []
+    )
+    dashboard = get_tutor_dashboard(user)
+    now = timezone.now()
+
+    upcoming_slots = []
+    for slot in dashboard['schedule']:
+        if slot.status != Available_Slots.Status.AVAILABLE:
+            continue
+        if slot.start_time <= now:
+            continue
+        start = timezone.localtime(slot.start_time)
+        end = timezone.localtime(slot.end_time)
+        upcoming_slots.append({
+            'id': slot.id,
+            'when_label': (
+                f"{date_format(start, 'D M j, Y · g:i A')} – "
+                f"{date_format(end, 'g:i A')}"
+            ),
+            'location_label': dict(Available_Slots.LocationType.choices).get(
+                slot.location_type,
+                slot.location_type,
+            ),
+            'price_per_hour': str(slot.price_per_hour),
+        })
+
+    recent_bookings = []
+    for booking in dashboard['booked_sessions'][:5]:
+        start_label = ''
+        if booking.start_time is not None:
+            start_label = date_format(
+                timezone.localtime(booking.start_time),
+                'D M j, Y · g:i A',
+            )
+        recent_bookings.append({
+            'student': booking.student,
+            'course': str(booking.course) if booking.course else '',
+            'session_price': str(booking.session_price),
+            'start_time': booking.start_time,
+            'start_label': start_label,
+        })
+
+    return {
+        'courses': courses,
+        'course_count': len(courses),
+        'open_slot_count': len(upcoming_slots),
+        'booked_count': dashboard['booked_sessions'].count(),
+        'interest_count': dashboard['open_requests'].count(),
+        'upcoming_slots': upcoming_slots[:4],
+        'recent_bookings': recent_bookings,
+    }
+
+
 @login_required
 def tutor_home(request):
+    """Tutor overview dashboard. Session setup lives on /tutor/sessions/."""
     if not request.user.has_role('tutor'):
         return redirect('student_home')
 
-    from bookings.pricing import (
-        MIN_PRICE,
-        MAX_PRICE,
-        calc_price_suggestion,
-        custom_pricing,
-    )
-
-    location_choices = (
-        ('online', 'Online'),
-        ('in_person', 'In person'),
-    )
-    valid_locations = {value for value, _label in location_choices}
-
-    profile = TutorProfile.objects.filter(user=request.user).first()
-    courses = profile.courses_passed.order_by('course_code') if profile else []
-    suggested_price = calc_price_suggestion(request.user)
-
-    price_value = request.session.get('tutor_hourly_price', str(suggested_price))
-    location_value = request.session.get('tutor_location_type', 'online')
-    price_error = ''
-    location_error = ''
-    success_message = ''
-
-    if request.method == 'POST':
-        raw_price = request.POST.get('price_per_hour', '').strip()
-        raw_location = request.POST.get('location_type', '').strip()
-        price_value = raw_price
-        location_value = raw_location or location_value
-
-        try:
-            saved_price = custom_pricing(raw_price)
-        except ValueError as error:
-            price_error = str(error)
-            saved_price = None
-
-        if raw_location not in valid_locations:
-            location_error = 'Choose Online or In person.'
-
-        if saved_price is not None and not location_error:
-            price_value = str(saved_price)
-            location_value = raw_location
-            request.session['tutor_hourly_price'] = price_value
-            request.session['tutor_location_type'] = location_value
-            location_label = dict(location_choices)[location_value]
-            success_message = (
-                f'Slot details saved: ${saved_price}/hour, {location_label}.'
-            )
-
-    return render(request, 'tutor_home.html', {
+    context = {
         'site_name': 'tUtoR',
         'campus': 'University of Regina',
-        'courses': courses,
-        'suggested_price': suggested_price,
-        'price_value': price_value,
-        'price_error': price_error,
-        'location_choices': location_choices,
-        'location_value': location_value,
-        'location_error': location_error,
-        'success_message': success_message,
-        'min_price': MIN_PRICE,
-        'max_price': MAX_PRICE,
-    })
+    }
+    context.update(_tutor_home_overview(request.user))
+    return render(request, 'tutor_home.html', context)
 
 @require_GET
 def get_tutor_dashboard_view(request):
