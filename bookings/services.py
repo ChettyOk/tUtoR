@@ -2,7 +2,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from django.utils import timezone
 from django.db import transaction
-from django.db.models import Q, F
+from django.db.models import Q, Exists, OuterRef, F
 from django.core.exceptions import ValidationError
 from django.db.models.functions import Coalesce
 
@@ -631,6 +631,37 @@ def get_tutor_schedule(tutor):
         tutor=tutor,
     ).order_by('start_time', 'id')
 
+def get_tutor_dashboard(tutor):
+    user_bookings = get_user_bookings(tutor)
+
+    booked_sessions = (
+        user_bookings['tutor_bookings']
+        .filter(status=Booking.Status.CONFIRMED)
+        .select_related('student', 'course')
+        .order_by('-request_time', '-pk')
+    )
+
+    own_interest = TutoringRequestInterest.objects.filter(
+        tutoring_request_id=OuterRef('pk'),
+        tutor_id=tutor.pk,
+    )
+
+    open_requests = (
+        get_visible_tutoring_requests(tutor=tutor)
+        .annotate(
+            has_expressed_interest=Exists(own_interest),
+        )
+        .filter(has_expressed_interest=True)
+    )
+
+    schedule = get_tutor_schedule(tutor)
+    
+    return {
+       'booked_sessions': booked_sessions,
+       'open_requests': open_requests,
+       'schedule': schedule,
+    }
+  
 def get_student_dashboard(student):
     user_bookings = get_user_bookings(student)
 
@@ -655,11 +686,47 @@ def get_student_dashboard(student):
         .filter(status=TutoringRequest.Status.OPEN)
         .order_by('-created_at', '-pk')
     )
-
+    
     return {
         'booked_sessions': booked_sessions,
         'open_requests': open_requests,
     }
+
+   
+       
+
+def _serialize_dashboard_booking(booking):
+    return {
+        'id': booking.pk,
+        'student_id': booking.student_id,
+        'student_email': booking.student.email,
+        'course': str(booking.course) if booking.course else None,
+        'student_note': booking.student_note,
+        'status': booking.status,
+        'request_time': (
+            booking.request_time.isoformat()
+            if booking.request_time is not None
+            else None
+        ),
+        'time_slot_id': booking.time_slot_id,
+        'start_time': (
+            booking.start_time.isoformat()
+            if booking.start_time is not None
+            else None
+        ),
+        'end_time': (
+            booking.end_time.isoformat()
+            if booking.end_time is not None
+            else None
+        ),
+        'price_per_hour': (
+            str(booking.price_per_hour)
+            if booking.price_per_hour is not None
+          ),
+        'session_price': str(booking.session_price),
+        'location_type': booking.location_type,
+    }
+    
 
 def _serialize_student_dashboard_booking(booking):
     start_time = booking.start_time
@@ -698,6 +765,28 @@ def _serialize_student_dashboard_booking(booking):
         'location_type': booking.location_type,
     }
 
+def serialize_tutor_dashboard(dashboard):
+    return {
+        'booked_sessions': [
+            _serialize_dashboard_booking(booking)
+            for booking in dashboard['booked_sessions']
+        ],
+        'open_requests': [
+            _serialize_dashboard_request(tutoring_request)
+            for tutoring_request in dashboard['open_requests']
+        ],
+        'schedule': [
+            serialize_slot(slot)
+            for slot in dashboard['schedule']
+        ],
+    }
+
+def _serialize_dashboard_request(tutoring_request):
+    data = serialize_tutoring_request(tutoring_request)
+    data['has_expressed_interest'] = (
+        tutoring_request.has_expressed_interest
+    )
+    return data
 
 def serialize_student_dashboard(dashboard):
     return {

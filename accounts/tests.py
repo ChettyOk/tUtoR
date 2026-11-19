@@ -18,9 +18,17 @@ from django.contrib.auth.models import AnonymousUser
 from accounts.models import TutorProfile
 from decimal import Decimal
 from django.core.exceptions import ValidationError
+from datetime import timedelta
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
+from bookings.models import Available_Slots, Booking, TutoringRequest, TutoringRequestInterest
 
 #personalisation tests imports
 from django.contrib.auth import get_user_model
+from bookings.services import (
+    get_tutor_dashboard,
+    serialize_tutor_dashboard,
+)
 
 #imports for course load
 from io import StringIO
@@ -2745,6 +2753,493 @@ class HomePageTests(TestCase):
 #------------------------------------------------------- END OF HOME TESTS ----------------------------------------------------------------------
 #************************************************************************************************************************************************
 
+# tutor dashboard tests
+class TutorDashboardViewTests(TestCase):
+    def setUp(self):
+        self.tutor = User.objects.create_user(
+            email='dashboard-tutor@example.com',
+            password='DashboardTestPassword123!',
+            role=User.Role.TUTOR,
+        )
+        self.other_tutor = User.objects.create_user(
+            email='dashboard-other-tutor@example.com',
+            password='DashboardTestPassword123!',
+            role=User.Role.TUTOR,
+        )
+        self.student = User.objects.create_user(
+            email='dashboard-student@example.com',
+            password='DashboardTestPassword123!',
+            role=User.Role.STUDENT,
+        )
+        self.course = Course.create_course(
+            'CS 476',
+            'Software Development Project',
+        )
+        self.start = (
+            timezone.now() + timedelta(days=3)
+        ).replace(microsecond=0)
+        self.url = reverse('tutor_dashboard')
+        self.client.force_login(self.tutor)
+
+    def _get_dashboard(self, params=None):
+        response = self.client.get(self.url, params or {})
+        self.assertEqual(response.status_code, 200, response.content)
+        return response.json()
+
+    def _slot(self, **overrides):
+        values = {
+            'tutor': self.tutor,
+            'start_time': self.start,
+            'end_time': self.start + timedelta(hours=3),
+            'price_per_hour': Decimal('20.00'),
+            'location_type': Available_Slots.LocationType.ONLINE,
+            'status': Available_Slots.Status.AVAILABLE,
+        }
+        values.update(overrides)
+        return Available_Slots.objects.create(**values)
+
+    def _booking(self, **overrides):
+        values = {
+            'student': self.student,
+            'tutor': self.tutor,
+            'course': self.course,
+            'status': Booking.Status.CONFIRMED,
+            'session_price': Decimal('20.00'),
+        }
+        values.update(overrides)
+        return Booking.objects.create(**values)
+
+    def _request(self, interested=False, **overrides):
+        values = {
+            'student': self.student,
+            'course': self.course,
+            'description': 'Help with software development.',
+            'status': TutoringRequest.Status.OPEN,
+            'visibility': TutoringRequest.Visibility.ALL_TUTORS,
+        }
+        values.update(overrides)
+        tutoring_request = TutoringRequest.objects.create(**values)
+
+        if interested:
+            TutoringRequestInterest.objects.create(
+                tutoring_request=tutoring_request,
+                tutor=self.tutor,
+            )
+
+        return tutoring_request
+
+    def _request_ids(self):
+        return [
+            item['request_id']
+            for item in self._get_dashboard()['open_requests']
+        ]
+
+    def _post_action(self, name, request_id, data=None, status=200):
+        response = self.client.post(
+            reverse(name, kwargs={'request_id': request_id}),
+            data or {},
+        )
+        self.assertEqual(response.status_code, status, response.content)
+        return response.json()
+
+    def _domain_snapshot(self):
+        models = (
+            User,
+            StudentProfile,
+            TutorProfile,
+            Available_Slots,
+            Booking,
+            TutoringRequest,
+            TutoringRequestInterest,
+        )
+        return {
+            model._meta.label: list(
+                model.objects.order_by('pk').values()
+            )
+            for model in models
+        }
+
+    def test_requires_login(self):
+        self.client.logout()
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 401)
+        self.assertIn('error', response.json())
+
+    def test_requires_active_tutor_role_even_with_tutor_profile(self):
+        TutorProfile.objects.get_or_create(user=self.student)
+        self.client.force_login(self.student)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn('error', response.json())
+
+    def test_rejects_non_get_methods(self):
+        for method in ('post', 'put', 'patch', 'delete'):
+            with self.subTest(method=method):
+                response = getattr(self.client, method)(self.url)
+                self.assertEqual(response.status_code, 405)
+
+    def test_empty_dashboard_has_three_empty_lists(self):
+        self.assertEqual(
+            self._get_dashboard(),
+            {
+                'booked_sessions': [],
+                'open_requests': [],
+                'schedule': [],
+            },
+        )
+
+    def test_only_own_confirmed_tutor_bookings_are_returned(self):
+        own = self._booking()
+
+        for status in Booking.Status.values:
+            if status != Booking.Status.CONFIRMED:
+                self._booking(status=status)
+
+        self._booking(tutor=self.other_tutor)
+        self._booking(
+            student=self.tutor,
+            tutor=self.other_tutor,
+        )
+
+        data = self._get_dashboard(
+            {'tutor_id': self.other_tutor.pk}
+        )
+
+        self.assertEqual(
+            [item['id'] for item in data['booked_sessions']],
+            [own.pk],
+        )
+
+    def test_booking_contract_uses_stored_session_details(self):
+        slot = self._slot()
+        session_start = self.start + timedelta(hours=1)
+        session_end = session_start + timedelta(minutes=45)
+
+        booking = self._booking(
+            time_slot=slot,
+            start_time=session_start,
+            end_time=session_end,
+            price_per_hour=Decimal('20.00'),
+            session_price=Decimal('15.00'),
+            location_type=Available_Slots.LocationType.ONLINE,
+            student_note='Focus on testing.',
+        )
+
+        Available_Slots.objects.filter(pk=slot.pk).update(
+            price_per_hour=Decimal('25.00'),
+            location_type=Available_Slots.LocationType.IN_PERSON,
+        )
+
+        data = self._get_dashboard()
+
+        self.assertEqual(
+            set(data),
+            {'booked_sessions', 'open_requests', 'schedule'},
+        )
+        self.assertEqual(
+            data['booked_sessions'],
+            [{
+                'id': booking.pk,
+                'student_id': self.student.pk,
+                'student_email': self.student.email,
+                'course': str(self.course),
+                'student_note': 'Focus on testing.',
+                'status': Booking.Status.CONFIRMED,
+                'request_time': booking.request_time.isoformat(),
+                'time_slot_id': slot.pk,
+                'start_time': session_start.isoformat(),
+                'end_time': session_end.isoformat(),
+                'price_per_hour': '20.00',
+                'session_price': '15.00',
+                'location_type': 'online',
+            }],
+        )
+        self.assertEqual(
+            data['schedule'],
+            [{
+                'id': slot.pk,
+                'start_time': self.start.isoformat(),
+                'end_time': (
+                    self.start + timedelta(hours=3)
+                ).isoformat(),
+                'price_per_hour': '25.00',
+                'location_type': 'in_person',
+                'status': Available_Slots.Status.AVAILABLE,
+            }],
+        )
+
+    def test_legacy_bookings_keep_missing_details_null(self):
+        slot = self._slot()
+        without_slot = self._booking(course=None)
+        with_slot = self._booking(time_slot=slot)
+
+        sessions = {
+            item['id']: item
+            for item in self._get_dashboard()['booked_sessions']
+        }
+
+        for booking in (without_slot, with_slot):
+            with self.subTest(booking_id=booking.pk):
+                item = sessions[booking.pk]
+                self.assertEqual(
+                    item['time_slot_id'],
+                    booking.time_slot_id,
+                )
+                for field in (
+                    'start_time',
+                    'end_time',
+                    'price_per_hour',
+                    'location_type',
+                ):
+                    self.assertIsNone(item[field])
+                self.assertEqual(item['session_price'], '20.00')
+
+        self.assertIsNone(sessions[without_slot.pk]['course'])
+
+    def test_booking_order_uses_request_time_then_descending_id(self):
+        older = self._booking()
+        tied_first = self._booking()
+        tied_second = self._booking()
+        timestamp = timezone.now().replace(microsecond=0)
+
+        Booking.objects.filter(pk=older.pk).update(
+            request_time=timestamp - timedelta(days=1),
+        )
+        Booking.objects.filter(
+            pk__in=[tied_first.pk, tied_second.pk],
+        ).update(request_time=timestamp)
+
+        self.assertEqual(
+            [
+                item['id']
+                for item in self._get_dashboard()['booked_sessions']
+            ],
+            [tied_second.pk, tied_first.pk, older.pk],
+        )
+
+    def test_schedule_keeps_own_statuses_and_deterministic_order(self):
+        later = self._slot(
+            start_time=self.start + timedelta(days=1),
+            end_time=self.start + timedelta(days=1, hours=3),
+        )
+        earlier = [
+            self._slot(status=status)
+            for status in Available_Slots.Status.values
+        ]
+        self._slot(tutor=self.other_tutor)
+
+        data = self._get_dashboard(
+            {'tutor_id': self.other_tutor.pk}
+        )
+        schedule = data['schedule']
+
+        self.assertEqual(
+            [item['id'] for item in schedule],
+            [slot.pk for slot in earlier] + [later.pk],
+        )
+        self.assertEqual(
+            {item['status'] for item in schedule},
+            set(Available_Slots.Status.values),
+        )
+
+    def test_requests_require_own_interest_and_exclude_hidden_entries(self):
+        included = self._request(interested=True)
+        self._request()
+
+        other_interest = self._request()
+        TutoringRequestInterest.objects.create(
+            tutoring_request=other_interest,
+            tutor=self.other_tutor,
+        )
+
+        # Several interested tutors must not duplicate the request.
+        TutoringRequestInterest.objects.create(
+            tutoring_request=included,
+            tutor=self.other_tutor,
+        )
+
+        self._request(interested=True, student=self.tutor)
+        self._request(
+            interested=True,
+            status=TutoringRequest.Status.WITHDRAWN,
+        )
+        self._request(
+            interested=True,
+            status=TutoringRequest.Status.FULFILLED,
+        )
+        self._request(
+            interested=True,
+            visibility=TutoringRequest.Visibility.COURSE_FACULTY,
+        )
+
+        data = self._get_dashboard(
+            {'tutor_id': self.other_tutor.pk}
+        )
+
+        self.assertEqual(
+            data['open_requests'],
+            [{
+                'request_id': included.pk,
+                'course_id': self.course.pk,
+                'course': str(self.course),
+                'description': included.description,
+                'location_type': included.location_type,
+                'visibility': TutoringRequest.Visibility.ALL_TUTORS,
+                'status': TutoringRequest.Status.OPEN,
+                'fulfilled_booking_id': None,
+                'created_at': included.created_at.isoformat(),
+                'has_expressed_interest': True,
+            }],
+        )
+
+    def test_request_order_uses_creation_time_then_descending_id(self):
+        older = self._request(interested=True)
+        tied_first = self._request(interested=True)
+        tied_second = self._request(interested=True)
+        timestamp = timezone.now().replace(microsecond=0)
+
+        TutoringRequest.objects.filter(pk=older.pk).update(
+            created_at=timestamp - timedelta(days=1),
+        )
+        TutoringRequest.objects.filter(
+            pk__in=[tied_first.pk, tied_second.pk],
+        ).update(created_at=timestamp)
+
+        self.assertEqual(
+            self._request_ids(),
+            [tied_second.pk, tied_first.pk, older.pk],
+        )
+
+    def test_interest_lifecycle_adds_and_removes_dashboard_request(self):
+        tutoring_request = self._request()
+
+        self.assertEqual(self._request_ids(), [])
+
+        self._post_action(
+            'express_tutoring_request_interest',
+            tutoring_request.pk,
+            status=201,
+        )
+        self.assertEqual(
+            self._request_ids(),
+            [tutoring_request.pk],
+        )
+
+        # Repeating the action is idempotent.
+        self._post_action(
+            'express_tutoring_request_interest',
+            tutoring_request.pk,
+        )
+        self.assertEqual(
+            self._request_ids(),
+            [tutoring_request.pk],
+        )
+
+        self._post_action(
+            'withdraw_tutoring_request_interest',
+            tutoring_request.pk,
+        )
+        self.assertEqual(self._request_ids(), [])
+        self.assertEqual(Booking.objects.count(), 0)
+
+    def test_student_withdrawal_removes_interested_request(self):
+        tutoring_request = self._request(interested=True)
+        self.assertEqual(
+            self._request_ids(),
+            [tutoring_request.pk],
+        )
+
+        self.client.force_login(self.student)
+        self._post_action(
+            'withdraw_tutoring_request',
+            tutoring_request.pk,
+        )
+
+        self.client.force_login(self.tutor)
+        self.assertEqual(self._request_ids(), [])
+        self.assertEqual(Booking.objects.count(), 0)
+
+    def test_fulfillment_adds_session_only_to_selected_tutor(self):
+        tutoring_request = self._request(interested=True)
+        TutoringRequestInterest.objects.create(
+            tutoring_request=tutoring_request,
+            tutor=self.other_tutor,
+        )
+        slot = self._slot()
+        session_start = self.start + timedelta(hours=1)
+        session_end = session_start + timedelta(hours=1)
+
+        for tutor in (self.tutor, self.other_tutor):
+            self.client.force_login(tutor)
+            self.assertEqual(
+                self._request_ids(),
+                [tutoring_request.pk],
+            )
+
+        self.client.force_login(self.student)
+        result = self._post_action(
+            'fulfill_tutoring_request',
+            tutoring_request.pk,
+            {
+                'slot_id': slot.pk,
+                'start_time': session_start.isoformat(),
+                'end_time': session_end.isoformat(),
+            },
+            status=201,
+        )
+
+        tutoring_request.refresh_from_db()
+        self.assertEqual(
+            tutoring_request.status,
+            TutoringRequest.Status.FULFILLED,
+        )
+        self.assertEqual(
+            tutoring_request.fulfilled_booking_id,
+            result['booking_id'],
+        )
+
+        self.client.force_login(self.tutor)
+        own_data = self._get_dashboard()
+
+        self.assertEqual(own_data['open_requests'], [])
+        self.assertEqual(
+            [item['id'] for item in own_data['booked_sessions']],
+            [result['booking_id']],
+        )
+        self.assertEqual(
+            own_data['booked_sessions'][0]['status'],
+            Booking.Status.CONFIRMED,
+        )
+        self.assertEqual(
+            own_data['booked_sessions'][0]['start_time'],
+            session_start.isoformat(),
+        )
+        self.assertEqual(
+            own_data['booked_sessions'][0]['session_price'],
+            '20.00',
+        )
+
+        self.client.force_login(self.other_tutor)
+        other_data = self._get_dashboard()
+
+        self.assertEqual(other_data['open_requests'], [])
+        self.assertEqual(other_data['booked_sessions'], [])
+
+    def test_dashboard_get_does_not_modify_domain_data(self):
+        slot = self._slot()
+        self._booking(time_slot=slot)
+        self._request(interested=True)
+
+        before = self._domain_snapshot()
+
+        self._get_dashboard()
+        self._get_dashboard({'tutor_id': self.other_tutor.pk})
+
+        self.assertEqual(self._domain_snapshot(), before)
 #************************************************************************************************************************************************
 #------------------------------------------------ TESTS FOR LOAD COURSES -----------------------------------------------------------------------
 #************************************************************************************************************************************************
