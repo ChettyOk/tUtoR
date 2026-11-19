@@ -162,13 +162,16 @@
                 {% if tutor.available_slots %}
                 <ul class="tutor-slot-list mb-0">
                   {% for slot in tutor.available_slots %}
-                  <li class="tutor-slot" data-slot-id="{{ slot.id }}">
-                    <div class="tutor-slot-when">{{ slot.when_label }}</div>
-                    <div class="tutor-slot-meta">
-                      {{ slot.location_label }}
-                      · ${{ slot.price_per_hour }}/hour
-                    </div>
-                  </li>
+                   <li class="tutor-slot tutor-slot-bookable" data-slot-id="{{ slot.id }}">
+                    <div class="tutor-slot-info">
+                      <div class="tutor-slot-when">{{ slot.when_label }}</div>
+                      <div class="tutor-slot-meta">
+                        {{ slot.location_label }}
+                        · ${{ slot.price_per_hour }}/hour
+                      </div>
+                     </div>
+                    <a class="btn btn-green btn-book" href="{% url 'book_confirm' slot.id %}?start={{ slot.start_time|urlencode }}">Book</a>
+                   </li>
                   {% endfor %}
                 </ul>
                 {% else %}
