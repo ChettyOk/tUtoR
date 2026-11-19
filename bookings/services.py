@@ -722,6 +722,7 @@ def _serialize_dashboard_booking(booking):
         'price_per_hour': (
             str(booking.price_per_hour)
             if booking.price_per_hour is not None
+            else None
           ),
         'session_price': str(booking.session_price),
         'location_type': booking.location_type,
