@@ -49,9 +49,16 @@ from .services import (
     withdraw_tutoring_request,
     express_tutoring_request_interest,
     withdraw_tutoring_request_interest,
+    get_student_dashboard,
+    serialize_student_dashboard,
     fulfill_tutoring_request,
     RequestFulfillmentConflict,
 )
+
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import get_object_or_404, redirect, render
+from django.contrib import messages
+from accounts.forms import CoursePickForm
 
 def filter_courses(request):
     search_query = request.GET.get('q', '').strip()
@@ -864,6 +871,60 @@ def delete_slot_view(request, slot_id):
         'message': 'Slot cancelled successfully.',
         'slot': serialize_slot(slot),
     })
+
+@require_GET
+def get_student_dashboard_view(request):
+    error_response = check_role_access(
+        request,
+        User.Role.STUDENT,
+    )
+
+    if error_response is not None:
+        return error_response
+
+    dashboard = get_student_dashboard(request.user)
+
+    return JsonResponse(
+        serialize_student_dashboard(dashboard),
+    )
+
+@login_required
+def tutor_sessions_page(request):
+    """Page where a tutor sets up sessions: courses, slot form and schedule."""
+    if not request.user.has_role(User.Role.TUTOR):
+        return redirect('student_home')
+
+    profile = TutorProfile.objects.filter(user=request.user).first()
+    selected_ids = list(profile.courses_passed.values_list('pk', flat=True)) if profile else []
+
+    return render(request, 'tutor/sessions/setup.html', {
+        'site_name': 'tUtoR',
+        'campus': 'University of Regina',
+        # every course, for the search box; the page script filters them in the browser
+        'courses': list(
+            Course.objects.order_by('course_code')
+            .values('id', 'course_code', 'course_name', 'course_faculty')
+        ),
+        'selected_ids': selected_ids,
+    })
+
+
+@login_required
+@require_POST
+def tutor_save_courses(request):
+    """Save the courses a tutor teaches (the picker form on the sessions page)."""
+    if not request.user.has_role(User.Role.TUTOR):
+        return redirect('student_home')
+
+    form = CoursePickForm(request.POST)   # no limit for tutors
+    if form.is_valid():
+        profile, _ = TutorProfile.objects.get_or_create(user=request.user)
+        profile.courses_passed.set(form.cleaned_data['courses'])
+        messages.success(request, 'Your courses were saved.')
+    else:
+        messages.error(request, 'Some of the chosen courses do not exist. Please try again.')
+
+    return redirect('tutor_sessions')
 
 @require_POST
 def book_slot_view(request, slot_id):

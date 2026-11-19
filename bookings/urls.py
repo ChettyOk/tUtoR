@@ -16,6 +16,8 @@ urlpatterns = [
     path('favorites/<int:tutor_id>/toggle/', account_views.favorite_tutor_view, name='toggle_favorite_tutor'),
     path('bookings/', views.get_bookings, name='my_bookings'),
     path('bookings/<int:booking_id>/cancel/', views.cancel_booking_view, name='cancel_booking'),
+    path('tutor/sessions/', views.tutor_sessions_page, name='tutor_sessions'),
+    path('tutor/sessions/courses/', views.tutor_save_courses, name='tutor_save_courses'),
     path('tutor/slots/', views.get_tutor_schedule_view, name='tutor_schedule',),
     path('tutor/slots/create/', views.create_slot_view, name='create_slot',),
     path('tutor/slots/<int:slot_id>/update/', views.update_slot_view, name='update_slot',),
@@ -29,5 +31,7 @@ urlpatterns = [
     path('requests/<int:request_id>/interest/', views.express_tutoring_request_interest_view, name='express_tutoring_request_interest'),
     path('requests/<int:request_id>/interest/withdraw/', views.withdraw_tutoring_request_interest_view, name='withdraw_tutoring_request_interest'),
     path('requests/mine/<int:request_id>/interests/', views.get_interested_tutors_view, name='interested_tutors'),
+    path('dashboard/', views.get_student_dashboard_view, name='student_dashboard'),
+    path('dashboard/', views.get_student_dashboard_view, name='student_dashboard'),
     path('requests/mine/<int:request_id>/fulfill/', views.fulfill_tutoring_request_view, name='fulfill_tutoring_request'),
 ]

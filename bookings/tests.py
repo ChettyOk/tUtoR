@@ -37,6 +37,8 @@ from bookings.services import (
     get_user_bookings,
     get_tutor_schedule,
     serialize_slot,
+    get_student_dashboard,
+    serialize_student_dashboard,
 )
 from tUtoR.views import custom_403, custom_500
 
@@ -3945,6 +3947,22 @@ class InterestedTutorsViewTests(TestCase):
             TutoringRequest.Status.OPEN,
         )
 
+class StudentDashboardEndpointTests(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(
+            email='dashboard-api-student@uregina.ca',
+            role=User.Role.STUDENT,
+        )
+        self.tutor = User.objects.create_user(
+            email='dashboard-api-tutor@uregina.ca',
+            role=User.Role.TUTOR,
+            first_name='Sara',
+            last_name='Smith',
+        )
+        self.other_student = User.objects.create_user(
+            email='dashboard-api-other@uregina.ca',
+            role=User.Role.STUDENT,
+        )
 class RequestFulfillmentTests(TestCase):
     def setUp(self):
         self.student = User.objects.create_user(
@@ -3967,6 +3985,256 @@ class RequestFulfillmentTests(TestCase):
             'Software Development Project',
         )
         self.start = timezone.now() + timedelta(days=2)
+        self.url = reverse('student_dashboard')
+
+    def create_booking(self, **changes):
+        fields = {
+            'student': self.student,
+            'tutor': self.tutor,
+            'course': self.course,
+            'status': Booking.Status.CONFIRMED,
+            'start_time': self.start,
+            'end_time': self.start + timedelta(hours=1),
+            'session_price': Decimal('25.00'),
+            'location_type': 'online',
+        }
+        fields.update(changes)
+        return Booking.objects.create(**fields)
+
+    def create_request(self, **changes):
+        fields = {
+            'student': self.student,
+            'course': self.course,
+            'description': 'I need help preparing for the exam.',
+            'status': TutoringRequest.Status.OPEN,
+        }
+        fields.update(changes)
+        return TutoringRequest.objects.create(**fields)
+
+    def test_serializes_dashboard_fields(self):
+        booking = self.create_booking()
+        tutoring_request = self.create_request()
+
+        data = serialize_student_dashboard(
+            get_student_dashboard(self.student),
+        )
+
+        self.assertEqual(
+            data['booked_sessions'],
+            [{
+                'id': booking.pk,
+                'status': Booking.Status.CONFIRMED,
+                'tutor_id': self.tutor.pk,
+                'tutor_first_name': 'Sara',
+                'tutor_last_name': 'Smith',
+                'course_id': self.course.pk,
+                'course': str(self.course),
+                'start_time': booking.start_time.isoformat(),
+                'end_time': booking.end_time.isoformat(),
+                'session_price': '25.00',
+                'location_type': 'online',
+            }],
+        )
+        self.assertEqual(
+            data['open_requests'],
+            [{
+                'request_id': tutoring_request.pk,
+                'course_id': self.course.pk,
+                'course': str(self.course),
+                'description': tutoring_request.description,
+                'location_type': tutoring_request.location_type,
+                'visibility': tutoring_request.visibility,
+                'status': TutoringRequest.Status.OPEN,
+                'created_at': tutoring_request.created_at.isoformat(),
+            }],
+        )
+
+    def test_serialization_prefers_booking_times(self):
+        slot = Available_Slots.objects.create(
+            tutor=self.tutor,
+            start_time=self.start,
+            end_time=self.start + timedelta(hours=4),
+            price_per_hour=Decimal('40.00'),
+        )
+        booking = self.create_booking(
+            time_slot=slot,
+            start_time=self.start + timedelta(hours=1),
+            end_time=self.start + timedelta(hours=2),
+        )
+
+        data = serialize_student_dashboard(
+            get_student_dashboard(self.student),
+        )
+        session = data['booked_sessions'][0]
+
+        self.assertEqual(
+            session['start_time'],
+            booking.start_time.isoformat(),
+        )
+        self.assertEqual(
+            session['end_time'],
+            booking.end_time.isoformat(),
+        )
+        self.assertEqual(session['session_price'], '25.00')
+
+    def test_serialization_uses_legacy_slot_times(self):
+        slot = Available_Slots.objects.create(
+            tutor=self.tutor,
+            start_time=self.start,
+            end_time=self.start + timedelta(hours=1),
+            price_per_hour=Decimal('25.00'),
+        )
+        self.create_booking(
+            time_slot=slot,
+            start_time=None,
+            end_time=None,
+        )
+
+        data = serialize_student_dashboard(
+            get_student_dashboard(self.student),
+        )
+        session = data['booked_sessions'][0]
+
+        self.assertEqual(
+            session['start_time'],
+            slot.start_time.isoformat(),
+        )
+        self.assertEqual(
+            session['end_time'],
+            slot.end_time.isoformat(),
+        )
+
+    def test_missing_optional_values_become_json_null(self):
+        self.create_booking(
+            course=None,
+            start_time=None,
+            end_time=None,
+            location_type=None,
+        )
+        self.client.force_login(self.student)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        session = response.json()['booked_sessions'][0]
+
+        for field in (
+            'course_id',
+            'course',
+            'start_time',
+            'end_time',
+            'location_type',
+        ):
+            with self.subTest(field=field):
+                self.assertIsNone(session[field])
+
+    def test_get_returns_only_own_dashboard_data(self):
+        own_booking = self.create_booking()
+        own_request = self.create_request()
+
+        self.create_booking(student=self.other_student)
+        self.create_booking(
+            student=self.other_student,
+            tutor=self.student,
+        )
+        self.create_request(student=self.other_student)
+
+        self.client.force_login(self.student)
+
+        response = self.client.get(
+            self.url,
+            {'student_id': self.other_student.pk},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response['Content-Type'],
+            'application/json',
+        )
+        data = response.json()
+
+        self.assertEqual(set(data), {'booked_sessions', 'open_requests'})
+        self.assertEqual(
+            [item['id'] for item in data['booked_sessions']],
+            [own_booking.pk],
+        )
+        self.assertEqual(
+            [item['request_id'] for item in data['open_requests']],
+            [own_request.pk],
+        )
+
+    def test_get_returns_empty_lists(self):
+        self.client.force_login(self.student)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                'booked_sessions': [],
+                'open_requests': [],
+            },
+        )
+
+    def test_requires_authentication(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(
+            response.json(),
+            {'error': 'Authentication required.'},
+        )
+
+    def test_rejects_active_tutor_role(self):
+        self.client.force_login(self.tutor)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.json(),
+            {'error': 'Your active role does not allow this action.'},
+        )
+
+    def test_rejects_non_get_methods(self):
+        self.client.force_login(self.student)
+
+        for method in ('post', 'put', 'patch', 'delete', 'head'):
+            with self.subTest(method=method):
+                response = getattr(self.client, method)(self.url)
+
+                self.assertEqual(response.status_code, 405)
+
+    def test_dashboard_url(self):
+        self.assertEqual(self.url, '/dashboard/')
+
+    def test_get_does_not_change_dashboard_records(self):
+        slot = Available_Slots.objects.create(
+            tutor=self.tutor,
+            start_time=self.start,
+            end_time=self.start + timedelta(hours=1),
+            price_per_hour=Decimal('25.00'),
+        )
+        self.create_booking(time_slot=slot)
+        self.create_request()
+
+        models = (Booking, TutoringRequest, Available_Slots)
+        before = [
+            list(model.objects.order_by('pk').values())
+            for model in models
+        ]
+
+        self.client.force_login(self.student)
+        response = self.client.get(self.url)
+
+        after = [
+            list(model.objects.order_by('pk').values())
+            for model in models
+        ]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(before, after)
 
         self.slot = Available_Slots.create_slot(
             tutor=self.tutor,
@@ -4925,3 +5193,134 @@ class TutorRequestResponseFlowTests(TestCase):
         )
         self.assertIsNone(open_request.fulfilled_booking_id)
         self.assertEqual(Booking.objects.count(), 1)
+
+
+class TutorSessionsPageTests(TestCase):
+    def setUp(self):
+        self.url = reverse('tutor_sessions')
+        self.tutor = User.objects.create_user(
+            email='tutor@example.com', password='pw-12345-xyz', role='tutor')
+        self.student = User.objects.create_user(
+            email='student@example.com', password='pw-12345-xyz', role='student')
+        self.undecided = User.objects.create_user(
+            email='new@example.com', password='pw-12345-xyz')
+
+    def test_anonymous_user_is_sent_to_login(self):
+        response = self.client.get(self.url)
+        self.assertRedirects(response, f"{reverse('login')}?next={self.url}",
+                             fetch_redirect_response=False)
+
+    def test_student_is_sent_to_student_home(self):
+        self.client.force_login(self.student)
+        self.assertRedirects(self.client.get(self.url), reverse('student_home'),
+                             fetch_redirect_response=False)
+
+    def test_user_without_a_role_is_sent_to_student_home(self):
+        self.client.force_login(self.undecided)
+        self.assertRedirects(self.client.get(self.url), reverse('student_home'),
+                             fetch_redirect_response=False)
+
+    def test_tutor_sees_the_page(self):
+        self.client.force_login(self.tutor)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'tutor/sessions/setup.html')
+        self.assertContains(response, 'Set up tutoring sessions')
+
+    def test_page_preselects_the_tutors_saved_courses(self):
+        course = Course.create_course('CS 110', 'Programming and Problem Solving')
+        TutorProfile.objects.create(user=self.tutor).courses_passed.add(course)
+        self.client.force_login(self.tutor)
+        response = self.client.get(self.url)
+        self.assertEqual(response.context['selected_ids'], [course.pk])
+        self.assertContains(response, 'CS 110')   # the search list holds every course
+
+    def test_page_without_saved_courses_still_loads(self):
+        Course.create_course('CS 110', 'Programming and Problem Solving')
+        self.client.force_login(self.tutor)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['selected_ids'], [])
+
+    def test_picker_has_no_course_limit_and_posts_to_the_save_view(self):
+        self.client.force_login(self.tutor)
+        response = self.client.get(self.url)
+        self.assertContains(response, 'data-max=""')
+        self.assertContains(response, f'action="{reverse("tutor_save_courses")}"')
+
+    def test_page_has_the_new_session_form_wired_to_the_slot_endpoint(self):
+        self.client.force_login(self.tutor)
+        response = self.client.get(self.url)
+        self.assertContains(response, f'data-url="{reverse("create_slot")}"')
+        for field_id in ('slot-start', 'slot-end', 'slot-price', 'slot-location', 'slot-submit'):
+            self.assertContains(response, f'id="{field_id}"')
+        self.assertContains(response, 'js/sessions.js')
+
+    def test_page_has_the_schedule_list_wired_to_the_slot_endpoints(self):
+        self.client.force_login(self.tutor)
+        response = self.client.get(self.url)
+        self.assertContains(response, f'data-list-url="{reverse("tutor_schedule")}"')
+        self.assertContains(response, f'data-update-url="{reverse("update_slot", args=[0])}"')
+        self.assertContains(response, f'data-delete-url="{reverse("delete_slot", args=[0])}"')
+        self.assertContains(response, 'id="schedule-list"')
+        self.assertContains(response, 'js/schedule.js')
+
+    def test_tutor_home_links_to_the_page(self):
+        self.client.force_login(self.tutor)
+        self.assertContains(self.client.get(reverse('tutor_home')), self.url)
+
+
+class TutorSaveCoursesTests(TestCase):
+    def setUp(self):
+        self.url = reverse('tutor_save_courses')
+        self.tutor = User.objects.create_user(
+            email='tutor@example.com', password='pw-12345-xyz', role='tutor')
+        self.student = User.objects.create_user(
+            email='student@example.com', password='pw-12345-xyz', role='student')
+        self.cs110 = Course.create_course('CS 110', 'Programming and Problem Solving')
+        self.cs210 = Course.create_course('CS 210', 'Data Structures')
+
+    def saved(self):
+        return set(TutorProfile.objects.get(user=self.tutor).courses_passed
+                   .values_list('course_code', flat=True))
+
+    def test_anonymous_user_is_sent_to_login(self):
+        response = self.client.post(self.url, {'courses': [self.cs110.pk]})
+        self.assertRedirects(response, f"{reverse('login')}?next={self.url}",
+                             fetch_redirect_response=False)
+
+    def test_only_post_is_allowed(self):
+        self.client.force_login(self.tutor)
+        self.assertEqual(self.client.get(self.url).status_code, 405)
+
+    def test_student_cannot_save_tutor_courses(self):
+        self.client.force_login(self.student)
+        response = self.client.post(self.url, {'courses': [self.cs110.pk]})
+        self.assertRedirects(response, reverse('student_home'), fetch_redirect_response=False)
+        self.assertFalse(TutorProfile.objects.filter(user=self.student).exists())
+
+    def test_tutor_saves_courses_and_returns_to_the_page(self):
+        self.client.force_login(self.tutor)
+        response = self.client.post(self.url, {'courses': [self.cs110.pk, self.cs210.pk]}, follow=True)
+        self.assertRedirects(response, reverse('tutor_sessions'))
+        self.assertContains(response, 'Your courses were saved.')
+        self.assertEqual(self.saved(), {'CS 110', 'CS 210'})
+
+    def test_saving_replaces_the_old_choice(self):
+        TutorProfile.objects.create(user=self.tutor).courses_passed.add(self.cs110)
+        self.client.force_login(self.tutor)
+        self.client.post(self.url, {'courses': [self.cs210.pk]})
+        self.assertEqual(self.saved(), {'CS 210'})
+
+    def test_unknown_course_is_rejected_and_nothing_changes(self):
+        TutorProfile.objects.create(user=self.tutor).courses_passed.add(self.cs110)
+        self.client.force_login(self.tutor)
+        response = self.client.post(self.url, {'courses': [self.cs210.pk, 99999]}, follow=True)
+        self.assertContains(response, 'do not exist')
+        self.assertEqual(self.saved(), {'CS 110'})
+
+    def test_tutors_have_no_course_limit(self):
+        courses = [Course.create_course(f'MATH {n}', f'Course {n}') for n in range(100, 125)]
+        self.client.force_login(self.tutor)
+        self.client.post(self.url, {'courses': [c.pk for c in courses]})
+        self.assertEqual(len(self.saved()), 25)
