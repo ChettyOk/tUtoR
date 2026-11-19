@@ -39,19 +39,19 @@
         background: #f4f1e8;
       }
       .site-shell {
-        box-sizing: border-box;
-        width: 100%;
-        min-height: 100vh;
-        min-height: 100dvh;
-        padding-bottom: 7.5rem; /* room for fixed footer */
-        background: #f4f1e8;
+         box-sizing: border-box;
+         width: 100%;
+         min-height: 100vh;
+         min-height: 100dvh;
+         display: flex;
+         flex-direction: column;
+         background: #f4f1e8;
+      }
+      .site-shell > main {
+        flex: 1 0 auto;
       }
       .site-shell > .site-footer {
-        position: fixed;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        z-index: 20;
+        flex-shrink: 0;
       }
     </style>
     {% block extra_head %}{% endblock %}

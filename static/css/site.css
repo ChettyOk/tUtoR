@@ -31,18 +31,16 @@ body {
   width: 100%;
   min-height: 100vh;
   min-height: 100dvh;
-  padding-bottom: 7.5rem;
+  display: flex;
+  flex-direction: column;
   background: var(--cream);
 }
 .site-shell > #main {
   width: 100%;
+  flex: 1 0 auto;
 }
 .site-footer {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 20;
+  flex-shrink: 0;
 }
 
 /* Role home pages */
