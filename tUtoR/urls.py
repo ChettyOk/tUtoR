@@ -64,6 +64,7 @@ urlpatterns = [
     ),
     path('student-home/', account_views.student_home, name='student_home'),
     path('tutor-home/', account_views.tutor_home, name='tutor_home'),
+    path('tutor/dashboard/', account_views.get_tutor_dashboard_view, name='tutor_dashboard',),
 ]
 
 handler403 = 'tUtoR.views.custom_403'

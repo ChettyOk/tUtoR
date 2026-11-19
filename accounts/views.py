@@ -1,23 +1,32 @@
-from django.contrib import messages
-from django.contrib.auth.decorators import login_required
-from django.shortcuts import redirect, render
-from django.db import IntegrityError, transaction
-from django.utils.http import url_has_allowed_host_and_scheme
+from decimal import Decimal
 
+from django.contrib import messages
+from django.contrib.auth import (
+    authenticate,
+    login as auth_login,
+    logout as auth_logout,
+)
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.forms import PasswordResetForm
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
+from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.http import JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import (
     require_GET,
     require_POST,
     require_http_methods,
 )
-from django.contrib.auth import authenticate, login as auth_login, logout as auth_logout
-from django.contrib.auth.forms import PasswordResetForm
-from django.db import transaction
-from decimal import Decimal
 
-from .models import Course, User, StudentProfile, TutorProfile
+from bookings.services import (
+    get_tutor_dashboard,
+    serialize_tutor_dashboard,
+)
+
+from .constants import FACULTIES
 from .forms import (
     AccountProfileForm,
     CoursePickForm,
@@ -25,14 +34,7 @@ from .forms import (
     StudentProfileForm,
     TutorProfileForm,
 )
-
-from django.shortcuts import render, get_object_or_404
-from django.db.models import Q
-from django.http import JsonResponse
-from django.views.decorators.http import require_GET, require_POST
-
-from accounts.models import Course, User, StudentProfile, TutorProfile
-from accounts.constants import FACULTIES
+from .models import Course, StudentProfile, TutorProfile, User
 
 # Auth Controller
 @require_POST
@@ -644,6 +646,21 @@ def tutor_home(request):
             recipient=request.user,
         ).exclude(type='reminder')[:10],
     })
+
+@require_GET
+def get_tutor_dashboard_view(request):
+    error_response = check_role_access(
+        request,
+        User.Role.TUTOR,
+    )
+
+    if error_response is not None:
+        return error_response
+
+    dashboard = get_tutor_dashboard(request.user)
+    data = serialize_tutor_dashboard(dashboard)
+
+    return JsonResponse(data)
 
 #     get My Profile()
 #     update Student Profil()
