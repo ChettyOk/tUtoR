@@ -117,6 +117,8 @@ def _format_window(window):
     return {
         'id': window['id'],
         'start': start,
+        'start_iso': window['start_time'],
+        'end_iso': window['end_time'],
         'price_per_hour': Decimal(window['price_per_hour']),
         'location_type': window['location_type'],
         'location_label': LOCATION_LABELS.get(

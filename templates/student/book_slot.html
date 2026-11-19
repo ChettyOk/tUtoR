@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Book a session · {{ site_name|default:"tUtoR" }}{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/booking.css' %}?v=1" />
+{% endblock %}
+
+{% block content %}
+<div class="home-page">
+  <div class="container home-page-inner book-page">
+    <a class="book-back" href="{% url 'find_tutors' %}">&larr; Back to tutors</a>
+
+    <header class="mb-4 mt-2">
+      <p class="kicker kicker-green mb-2">Student</p>
+      <h1 class="h3 mb-1">Book a session</h1>
+      <p class="text-muted mb-0">Check the details, choose your exact time and confirm.</p>
+    </header>
+
+    {% if not window %}
+    <div class="card book-unavailable">
+      <div class="card-body">
+        <p class="tutor-empty-title mb-2">This time is no longer available</p>
+        <p class="tutor-empty-copy mb-3">
+          Someone may have booked it, or {{ tutor.first_name|default:"the tutor" }} removed it.
+          Other times are still open.
+        </p>
+        <a class="btn btn-green" href="{% url 'find_tutors' %}">Find another time</a>
+      </div>
+    </div>
+    {% else %}
+    <div class="row g-4">
+      <div class="col-12 col-lg-5 order-lg-2">
+        <aside class="card book-summary" aria-label="Session summary">
+          <div class="card-body">
+            <div class="d-flex align-items-center gap-3 mb-3">
+              <span class="tutor-avatar" aria-hidden="true">{{ tutor.first_name|slice:":1"|upper }}{{ tutor.last_name|slice:":1"|upper }}</span>
+              <div>
+                <h2 class="h5 mb-0">{{ tutor.first_name }} {{ tutor.last_name }}</h2>
+                <p class="tutor-meta mb-0">Rating: {{ tutor.average_rating }}</p>
+              </div>
+            </div>
+            <dl class="book-facts mb-0">
+              <div><dt>Where</dt><dd>{{ location_label }}</dd></div>
+              <div><dt>Rate</dt><dd>${{ window.price_per_hour }}/hour</dd></div>
+              <div><dt>Open window</dt><dd id="window-label">&nbsp;</dd></div>
+              <div><dt>Your session</dt><dd id="sum-when">&nbsp;</dd></div>
+              <div><dt>Length</dt><dd id="sum-length">&ndash;</dd></div>
+            </dl>
+            <div class="book-total">
+              <span>Total</span>
+              <strong id="sum-total">&ndash;</strong>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <div class="col-12 col-lg-7 order-lg-1">
+        <form class="card book-form" id="book-form" novalidate>
+          {% csrf_token %}
+          <div class="card-body">
+            <fieldset class="mb-4">
+              <legend class="book-legend">1. Choose your time</legend>
+              <p class="book-hint">You can book all of the open window or just part of it.</p>
+              <div class="row g-3">
+                <div class="col-12 col-sm-6">
+                  <label class="form-label find-label" for="book-start">Start</label>
+                  <input id="book-start" class="form-control" type="datetime-local" step="900" required />
+                </div>
+                <div class="col-12 col-sm-6">
+                  <label class="form-label find-label" for="book-end">End</label>
+                  <input id="book-end" class="form-control" type="datetime-local" step="900" required />
+                </div>
+              </div>
+              <p class="book-error" id="time-error" role="alert" hidden></p>
+            </fieldset>
+
+            <fieldset class="mb-4">
+              <legend class="book-legend">2. What do you need help with?</legend>
+              {% if course_options %}
+              <label class="form-label find-label" for="book-course">Course</label>
+              <select id="book-course" class="form-select">
+                {% for c in course_options %}
+                <option value="{{ c.id }}"{% if forloop.first %} selected{% endif %}>
+                  {{ c.code }} · {{ c.name }}{% if c.mine %} (your course){% endif %}
+                </option>
+                {% endfor %}
+              </select>
+              {% else %}
+              <p class="book-hint mb-0">This tutor hasn't listed courses, so tell them in the note.</p>
+              {% endif %}
+            </fieldset>
+
+            <fieldset class="mb-4">
+              <legend class="book-legend">3. Note for your tutor <span class="book-optional">(optional)</span></legend>
+              <label class="visually-hidden" for="book-note">Note for your tutor</label>
+              <textarea id="book-note" class="form-control" rows="3" maxlength="255"
+                        placeholder="e.g. Midterm review: recursion and linked lists"></textarea>
+              <p class="book-counter" id="note-counter" aria-hidden="true">0 / 255</p>
+            </fieldset>
+
+            <p class="book-error" id="form-error" role="alert" hidden></p>
+
+            <div class="d-flex flex-wrap gap-2">
+              <button class="btn btn-green btn-lg" type="submit" id="book-submit">Confirm booking</button>
+              <a class="btn btn-find-clear btn-lg" href="{% url 'find_tutors' %}">Cancel</a>
+            </div>
+          </div>
+        </form>
+
+        <section class="card book-success" id="book-success" tabindex="-1" hidden aria-live="polite">
+          <div class="card-body">
+            <p class="book-success-mark" aria-hidden="true">&#10003;</p>
+            <h2 class="h4 mb-2">You're booked!</h2>
+            <p class="text-muted mb-3">Your session with {{ tutor.first_name }} {{ tutor.last_name }} is confirmed.</p>
+            <dl class="book-facts mb-4">
+              <div><dt>When</dt><dd id="ok-when"></dd></div>
+              <div><dt>Where</dt><dd>{{ location_label }}</dd></div>
+              <div><dt>Total</dt><dd id="ok-total"></dd></div>
+              <div><dt>Booking</dt><dd id="ok-id"></dd></div>
+            </dl>
+            <div class="d-flex flex-wrap gap-2">
+              <a class="btn btn-green" href="{% url 'find_tutors' %}">Find more tutors</a>
+              <a class="btn btn-find-clear" href="{% url 'student_home' %}">Back to home</a>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="modal fade" id="gone-modal" tabindex="-1" aria-labelledby="gone-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <h2 class="modal-title h5" id="gone-title">This time is no longer available</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        Someone else booked it just before you. Nothing was charged or saved. Pick another open time and you're set.
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <a class="btn btn-green" href="{% url 'find_tutors' %}">Find another time</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if booking_data %}
+{{ booking_data|json_script:"booking-data" }}
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% if booking_data %}
+<script src="{% static 'js/booking.js' %}?v=1"></script>
+{% endif %}
+{% endblock %}
