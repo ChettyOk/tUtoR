@@ -2,8 +2,9 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from django.utils import timezone
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, F
 from django.core.exceptions import ValidationError
+from django.db.models.functions import Coalesce
 
 from accounts.models import Course, StudentProfile, TutorProfile
 from bookings.models import (
@@ -21,6 +22,9 @@ from bookings.subjects import booking_event_manager
 
 
 class DoubleBookingError(Exception):
+    pass
+
+class RequestFulfillmentConflict(ValueError):
     pass
 
 def create_booking_request(student, tutor, slot, course=None, student_note='', start_time=None, end_time=None):
@@ -195,6 +199,7 @@ def serialize_tutoring_request(tutoring_request):
         'location_type': tutoring_request.location_type,
         'visibility': tutoring_request.visibility,
         'status': tutoring_request.status,
+        'fulfilled_booking_id': tutoring_request.fulfilled_booking_id,
         'created_at': tutoring_request.created_at.isoformat(),
     }
 
@@ -207,23 +212,23 @@ def withdraw_tutoring_request(*, request_id, student):
             'Only users with an active student role can withdraw requests.'
         )
 
-    tutoring_request = TutoringRequest.objects.get(
-        pk=request_id,
-        student=student,
-    )
+    with transaction.atomic():
+        tutoring_request = (
+            TutoringRequest.objects
+            .select_for_update()
+            .get(
+                pk=request_id,
+                student=student,
+            )
+        )
 
-    updated_count = TutoringRequest.objects.filter(
-        pk=tutoring_request.pk,
-        student=student,
-        status=TutoringRequest.Status.OPEN,
-    ).update(
-        status=TutoringRequest.Status.WITHDRAWN,
-    )
+        if tutoring_request.status != TutoringRequest.Status.OPEN:
+            raise ValueError(
+                'Only open tutoring requests can be withdrawn.'
+            )
 
-    if updated_count == 0:
-        raise ValueError('Only open tutoring requests can be withdrawn.')
-
-    tutoring_request.refresh_from_db()
+        tutoring_request.status = TutoringRequest.Status.WITHDRAWN
+        tutoring_request.save(update_fields=['status'])
 
     return tutoring_request
 
@@ -384,6 +389,91 @@ def get_interested_tutors(*, tutoring_request):
         .select_related('tutor')
         .order_by('created_at', 'id')
     )
+
+def fulfill_tutoring_request(
+    *,
+    request_id,
+    student,
+    slot_id,
+    start_time,
+    end_time,
+    student_note='',
+):
+    if not student.is_authenticated or not student.has_role(
+        student.Role.STUDENT
+    ):
+        raise PermissionError(
+            'Only users with an active student role can fulfill requests.'
+        )
+
+    if start_time is None or end_time is None:
+        raise ValueError(
+            'Please select a start and end time for this request.'
+        )
+
+    with transaction.atomic():
+        tutoring_request = (
+            TutoringRequest.objects
+            .select_for_update()
+            .get(
+                pk=request_id,
+                student=student,
+            )
+        )
+
+        if (
+            tutoring_request.status != TutoringRequest.Status.OPEN
+            or tutoring_request.fulfilled_booking_id is not None
+        ):
+            raise RequestFulfillmentConflict(
+                'Only open, unfulfilled requests can be booked.'
+            )
+
+        slot = (
+            Available_Slots.objects
+            .select_for_update()
+            .get(pk=slot_id)
+        )
+        tutor = slot.tutor
+
+        if tutor.pk == student.pk:
+            raise ValueError(
+                'You cannot fulfill your request with your own slot.'
+            )
+
+        if not tutor.is_active:
+            raise ValueError(
+                'The selected tutor is no longer active.'
+            )
+
+        has_interest = TutoringRequestInterest.objects.filter(
+            tutoring_request=tutoring_request,
+            tutor_id=slot.tutor_id,
+        ).exists()
+
+        if not has_interest:
+            raise ValueError(
+                'The selected tutor has not expressed interest '
+                'in this request.'
+            )
+
+        booking = create_booking_request(
+            student=student,
+            tutor=tutor,
+            slot=slot,
+            course=tutoring_request.course,
+            student_note=student_note,
+            start_time=start_time,
+            end_time=end_time,
+        )
+
+        tutoring_request.fulfilled_booking = booking
+        tutoring_request.status = TutoringRequest.Status.FULFILLED
+        tutoring_request.save(
+            update_fields=['fulfilled_booking', 'status'],
+        )
+
+    return booking, tutoring_request
 
 def update_rating(user, rated_role):
     if rated_role == Rating.RatedRole.TUTOR:
@@ -569,3 +659,83 @@ def get_tutor_schedule(tutor):
     return Available_Slots.objects.filter(
         tutor=tutor,
     ).order_by('start_time', 'id')
+
+def get_student_dashboard(student):
+    user_bookings = get_user_bookings(student)
+
+    booked_sessions = (
+        user_bookings['student_bookings']
+        .filter(status=Booking.Status.CONFIRMED)
+        .select_related('tutor', 'course', 'time_slot')
+        .annotate(
+            session_start=Coalesce(
+                'start_time',
+                'time_slot__start_time',
+            ),
+        )
+        .order_by(
+            F('session_start').asc(nulls_last=True),
+            'pk',
+        )
+    )
+
+    open_requests = (
+        get_student_tutoring_requests(student)
+        .filter(status=TutoringRequest.Status.OPEN)
+        .order_by('-created_at', '-pk')
+    )
+
+    return {
+        'booked_sessions': booked_sessions,
+        'open_requests': open_requests,
+    }
+
+def _serialize_student_dashboard_booking(booking):
+    start_time = booking.start_time
+    end_time = booking.end_time
+
+    if booking.time_slot_id is not None:
+        if start_time is None:
+            start_time = booking.time_slot.start_time
+
+        if end_time is None:
+            end_time = booking.time_slot.end_time
+
+    return {
+        'id': booking.pk,
+        'status': booking.status,
+        'tutor_id': booking.tutor_id,
+        'tutor_first_name': booking.tutor.first_name,
+        'tutor_last_name': booking.tutor.last_name,
+        'course_id': booking.course_id,
+        'course': (
+            str(booking.course)
+            if booking.course is not None
+            else None
+        ),
+        'start_time': (
+            start_time.isoformat()
+            if start_time is not None
+            else None
+        ),
+        'end_time': (
+            end_time.isoformat()
+            if end_time is not None
+            else None
+        ),
+        'session_price': str(booking.session_price),
+        'location_type': booking.location_type,
+    }
+
+
+def serialize_student_dashboard(dashboard):
+    return {
+        'booked_sessions': [
+            _serialize_student_dashboard_booking(booking)
+            for booking in dashboard['booked_sessions']
+        ],
+        'open_requests': [
+            serialize_tutoring_request(tutoring_request)
+            for tutoring_request in dashboard['open_requests']
+        ],
+    }

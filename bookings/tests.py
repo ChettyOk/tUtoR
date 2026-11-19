@@ -5,6 +5,7 @@ from decimal import Decimal
 from unittest.mock import MagicMock
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.db import connection, OperationalError
@@ -19,7 +20,14 @@ from django.test import SimpleTestCase, override_settings
 
 
 from accounts.models import Course, StudentProfile, TutorProfile, User
-from bookings.models import Available_Slots, Booking, CancellationDeadlinePassedError, TutoringRequest, Rating, TutoringRequestInterest
+from bookings.models import (
+    Available_Slots,
+    Booking,
+    CancellationDeadlinePassedError,
+    TutoringRequest,
+    Rating,
+    TutoringRequestInterest
+)
 from bookings.pricing import (
     DEFAULT_PRICE_GRAD,
     DEFAULT_PRICE_UNDERGRAD,
@@ -35,6 +43,8 @@ from bookings.services import (
     get_user_bookings,
     get_tutor_schedule,
     serialize_slot,
+    get_student_dashboard,
+    serialize_student_dashboard,
 )
 from tUtoR.views import custom_403, custom_500
 from bookings.interfaces import BookingEvent
@@ -2734,6 +2744,7 @@ class StudentTutoringRequestViewTests(TestCase):
                         TutoringRequest.Visibility.ALL_TUTORS
                     ),
                     'status': TutoringRequest.Status.OPEN,
+                    'fulfilled_booking_id': None,
                     'created_at': (
                         self.tutoring_request.created_at.isoformat()
                     ),
@@ -3239,6 +3250,7 @@ class TutoringRequestForumViewTests(TestCase):
                             TutoringRequest.Visibility.ALL_TUTORS
                         ),
                         'status': TutoringRequest.Status.OPEN,
+                        'fulfilled_booking_id': None,
                         'created_at': (
                             self.tutoring_request.created_at.isoformat()
                         ),
@@ -3949,6 +3961,1252 @@ class InterestedTutorsViewTests(TestCase):
             TutoringRequest.Status.OPEN,
         )
 
+class StudentDashboardEndpointTests(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(
+            email='dashboard-api-student@uregina.ca',
+            role=User.Role.STUDENT,
+        )
+        self.tutor = User.objects.create_user(
+            email='dashboard-api-tutor@uregina.ca',
+            role=User.Role.TUTOR,
+            first_name='Sara',
+            last_name='Smith',
+        )
+        self.other_student = User.objects.create_user(
+            email='dashboard-api-other@uregina.ca',
+            role=User.Role.STUDENT,
+        )
+class RequestFulfillmentTests(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(
+            email='fulfill-owner@uregina.ca',
+            password='FulfillmentTest123!',
+            role=User.Role.STUDENT,
+        )
+        self.other_student = User.objects.create_user(
+            email='fulfill-other@uregina.ca',
+            password='FulfillmentTest123!',
+            role=User.Role.STUDENT,
+        )
+        self.tutor = User.objects.create_user(
+            email='fulfill-tutor@uregina.ca',
+            password='FulfillmentTest123!',
+            role=User.Role.TUTOR,
+        )
+        self.course = Course.create_course(
+            'CS 476',
+            'Software Development Project',
+        )
+        self.start = timezone.now() + timedelta(days=2)
+        self.url = reverse('student_dashboard')
+
+    def create_booking(self, **changes):
+        fields = {
+            'student': self.student,
+            'tutor': self.tutor,
+            'course': self.course,
+            'status': Booking.Status.CONFIRMED,
+            'start_time': self.start,
+            'end_time': self.start + timedelta(hours=1),
+            'session_price': Decimal('25.00'),
+            'location_type': 'online',
+        }
+        fields.update(changes)
+        return Booking.objects.create(**fields)
+
+    def create_request(self, **changes):
+        fields = {
+            'student': self.student,
+            'course': self.course,
+            'description': 'I need help preparing for the exam.',
+            'status': TutoringRequest.Status.OPEN,
+        }
+        fields.update(changes)
+        return TutoringRequest.objects.create(**fields)
+
+    def test_serializes_dashboard_fields(self):
+        booking = self.create_booking()
+        tutoring_request = self.create_request()
+
+        data = serialize_student_dashboard(
+            get_student_dashboard(self.student),
+        )
+
+        self.assertEqual(
+            data['booked_sessions'],
+            [{
+                'id': booking.pk,
+                'status': Booking.Status.CONFIRMED,
+                'tutor_id': self.tutor.pk,
+                'tutor_first_name': 'Sara',
+                'tutor_last_name': 'Smith',
+                'course_id': self.course.pk,
+                'course': str(self.course),
+                'start_time': booking.start_time.isoformat(),
+                'end_time': booking.end_time.isoformat(),
+                'session_price': '25.00',
+                'location_type': 'online',
+            }],
+        )
+        self.assertEqual(
+            data['open_requests'],
+            [{
+                'request_id': tutoring_request.pk,
+                'course_id': self.course.pk,
+                'course': str(self.course),
+                'description': tutoring_request.description,
+                'location_type': tutoring_request.location_type,
+                'visibility': tutoring_request.visibility,
+                'status': TutoringRequest.Status.OPEN,
+                'created_at': tutoring_request.created_at.isoformat(),
+            }],
+        )
+
+    def test_serialization_prefers_booking_times(self):
+        slot = Available_Slots.objects.create(
+            tutor=self.tutor,
+            start_time=self.start,
+            end_time=self.start + timedelta(hours=4),
+            price_per_hour=Decimal('40.00'),
+        )
+        booking = self.create_booking(
+            time_slot=slot,
+            start_time=self.start + timedelta(hours=1),
+            end_time=self.start + timedelta(hours=2),
+        )
+
+        data = serialize_student_dashboard(
+            get_student_dashboard(self.student),
+        )
+        session = data['booked_sessions'][0]
+
+        self.assertEqual(
+            session['start_time'],
+            booking.start_time.isoformat(),
+        )
+        self.assertEqual(
+            session['end_time'],
+            booking.end_time.isoformat(),
+        )
+        self.assertEqual(session['session_price'], '25.00')
+
+    def test_serialization_uses_legacy_slot_times(self):
+        slot = Available_Slots.objects.create(
+            tutor=self.tutor,
+            start_time=self.start,
+            end_time=self.start + timedelta(hours=1),
+            price_per_hour=Decimal('25.00'),
+        )
+        self.create_booking(
+            time_slot=slot,
+            start_time=None,
+            end_time=None,
+        )
+
+        data = serialize_student_dashboard(
+            get_student_dashboard(self.student),
+        )
+        session = data['booked_sessions'][0]
+
+        self.assertEqual(
+            session['start_time'],
+            slot.start_time.isoformat(),
+        )
+        self.assertEqual(
+            session['end_time'],
+            slot.end_time.isoformat(),
+        )
+
+    def test_missing_optional_values_become_json_null(self):
+        self.create_booking(
+            course=None,
+            start_time=None,
+            end_time=None,
+            location_type=None,
+        )
+        self.client.force_login(self.student)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        session = response.json()['booked_sessions'][0]
+
+        for field in (
+            'course_id',
+            'course',
+            'start_time',
+            'end_time',
+            'location_type',
+        ):
+            with self.subTest(field=field):
+                self.assertIsNone(session[field])
+
+    def test_get_returns_only_own_dashboard_data(self):
+        own_booking = self.create_booking()
+        own_request = self.create_request()
+
+        self.create_booking(student=self.other_student)
+        self.create_booking(
+            student=self.other_student,
+            tutor=self.student,
+        )
+        self.create_request(student=self.other_student)
+
+        self.client.force_login(self.student)
+
+        response = self.client.get(
+            self.url,
+            {'student_id': self.other_student.pk},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response['Content-Type'],
+            'application/json',
+        )
+        data = response.json()
+
+        self.assertEqual(set(data), {'booked_sessions', 'open_requests'})
+        self.assertEqual(
+            [item['id'] for item in data['booked_sessions']],
+            [own_booking.pk],
+        )
+        self.assertEqual(
+            [item['request_id'] for item in data['open_requests']],
+            [own_request.pk],
+        )
+
+    def test_get_returns_empty_lists(self):
+        self.client.force_login(self.student)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                'booked_sessions': [],
+                'open_requests': [],
+            },
+        )
+
+    def test_requires_authentication(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(
+            response.json(),
+            {'error': 'Authentication required.'},
+        )
+
+    def test_rejects_active_tutor_role(self):
+        self.client.force_login(self.tutor)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.json(),
+            {'error': 'Your active role does not allow this action.'},
+        )
+
+    def test_rejects_non_get_methods(self):
+        self.client.force_login(self.student)
+
+        for method in ('post', 'put', 'patch', 'delete', 'head'):
+            with self.subTest(method=method):
+                response = getattr(self.client, method)(self.url)
+
+                self.assertEqual(response.status_code, 405)
+
+    def test_dashboard_url(self):
+        self.assertEqual(self.url, '/dashboard/')
+
+    def test_get_does_not_change_dashboard_records(self):
+        slot = Available_Slots.objects.create(
+            tutor=self.tutor,
+            start_time=self.start,
+            end_time=self.start + timedelta(hours=1),
+            price_per_hour=Decimal('25.00'),
+        )
+        self.create_booking(time_slot=slot)
+        self.create_request()
+
+        models = (Booking, TutoringRequest, Available_Slots)
+        before = [
+            list(model.objects.order_by('pk').values())
+            for model in models
+        ]
+
+        self.client.force_login(self.student)
+        response = self.client.get(self.url)
+
+        after = [
+            list(model.objects.order_by('pk').values())
+            for model in models
+        ]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(before, after)
+
+        self.slot = Available_Slots.create_slot(
+            tutor=self.tutor,
+            start_time=self.start,
+            end_time=self.start + timedelta(hours=3),
+            price_per_hour=Decimal('20.00'),
+        )
+        self.tutoring_request = TutoringRequest.objects.create(
+            student=self.student,
+            course=self.course,
+            description='Help me understand transactions.',
+        )
+        self.interest = TutoringRequestInterest.objects.create(
+            tutoring_request=self.tutoring_request,
+            tutor=self.tutor,
+        )
+
+        self.url = reverse(
+            'fulfill_tutoring_request',
+            kwargs={'request_id': self.tutoring_request.pk},
+        )
+        self.data = {
+            'slot_id': self.slot.pk,
+            'start_time': (
+                self.start + timedelta(hours=1)
+            ).isoformat(),
+            'end_time': (
+                self.start + timedelta(hours=2)
+            ).isoformat(),
+        }
+
+        self.client.force_login(self.student)
+
+    def assert_open_without_booking(self):
+        self.tutoring_request.refresh_from_db()
+        self.assertEqual(
+            self.tutoring_request.status,
+            TutoringRequest.Status.OPEN,
+        )
+        self.assertIsNone(
+            self.tutoring_request.fulfilled_booking_id,
+        )
+        self.assertEqual(Booking.objects.count(), 0)
+
+    def test_owner_can_fulfill_request(self):
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(
+            response.status_code, 201, response.content,
+        )
+
+        booking = Booking.objects.get()
+        self.tutoring_request.refresh_from_db()
+
+        self.assertEqual(booking.student_id, self.student.pk)
+        self.assertEqual(booking.tutor_id, self.tutor.pk)
+        self.assertEqual(booking.course_id, self.course.pk)
+        self.assertEqual(booking.time_slot_id, self.slot.pk)
+        self.assertEqual(booking.status, Booking.Status.CONFIRMED)
+        self.assertEqual(booking.session_price, Decimal('20.00'))
+        self.assertEqual(
+            self.tutoring_request.fulfilled_booking_id,
+            booking.pk,
+        )
+        self.assertEqual(
+            self.tutoring_request.status,
+            TutoringRequest.Status.FULFILLED,
+        )
+        self.assertEqual(
+            response.json()['booking_status'],
+            Booking.Status.CONFIRMED,
+        )
+        self.assertEqual(
+            response.json()['request_status'],
+            TutoringRequest.Status.FULFILLED,
+        )
+
+    def test_get_is_not_allowed(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 405)
+        self.assert_open_without_booking()
+
+    def test_requires_login(self):
+        self.client.logout()
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, 401)
+        self.assert_open_without_booking()
+
+    def test_requires_student_role(self):
+        self.client.force_login(self.tutor)
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, 403)
+        self.assert_open_without_booking()
+
+    def test_other_student_cannot_fulfill_request(self):
+        self.client.force_login(self.other_student)
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, 404)
+        self.assert_open_without_booking()
+
+    def test_unknown_request_is_rejected(self):
+        request_id = self.tutoring_request.pk
+        self.tutoring_request.delete()
+        url = reverse(
+            'fulfill_tutoring_request',
+            kwargs={'request_id': request_id},
+        )
+
+        response = self.client.post(url, self.data)
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(Booking.objects.count(), 0)
+
+    def test_requires_current_interest(self):
+        self.interest.delete()
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, 400)
+        self.assert_open_without_booking()
+
+    def test_inactive_tutor_is_rejected(self):
+        self.tutor.is_active = False
+        self.tutor.save(update_fields=['is_active'])
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, 400)
+        self.assert_open_without_booking()
+
+    def test_closed_requests_are_rejected(self):
+        for status in (
+            TutoringRequest.Status.WITHDRAWN,
+            TutoringRequest.Status.FULFILLED,
+        ):
+            with self.subTest(status=status):
+                self.tutoring_request.status = status
+                self.tutoring_request.save(update_fields=['status'])
+
+                response = self.client.post(self.url, self.data)
+
+                self.assertEqual(response.status_code, 409)
+                self.assertEqual(Booking.objects.count(), 0)
+
+    def test_request_cannot_be_fulfilled_twice(self):
+        first = self.client.post(self.url, self.data)
+        self.assertEqual(first.status_code, 201)
+
+        second = self.client.post(self.url, self.data)
+
+        self.assertEqual(second.status_code, 409)
+        self.assertEqual(Booking.objects.count(), 1)
+
+    def test_invalid_slot_id_is_rejected(self):
+        for value in ('', 'abc', '0', '-1'):
+            with self.subTest(value=value):
+                response = self.client.post(
+                    self.url,
+                    {**self.data, 'slot_id': value},
+                )
+
+                self.assertEqual(response.status_code, 400)
+                self.assert_open_without_booking()
+
+    def test_missing_slot_id_is_rejected(self):
+        data = self.data.copy()
+        del data['slot_id']
+
+        response = self.client.post(self.url, data)
+
+        self.assertEqual(response.status_code, 400)
+        self.assert_open_without_booking()
+
+    def test_unknown_slot_is_rejected(self):
+        slot_id = self.slot.pk
+        self.slot.delete()
+
+        response = self.client.post(
+            self.url,
+            {**self.data, 'slot_id': slot_id},
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assert_open_without_booking()
+
+    def test_missing_or_invalid_times_are_rejected(self):
+        for field in ('start_time', 'end_time'):
+            for value in ('', 'not-a-date'):
+                with self.subTest(field=field, value=value):
+                    response = self.client.post(
+                        self.url,
+                        {**self.data, field: value},
+                    )
+
+                    self.assertEqual(response.status_code, 400)
+                    self.assert_open_without_booking()
+
+    def test_booking_failure_leaves_request_open(self):
+        self.slot.status = Available_Slots.Status.CANCELLED
+        self.slot.save(update_fields=['status'])
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, 409)
+        self.assert_open_without_booking()
+
+    def test_failure_saving_request_rolls_back_booking_and_slot(self):
+        data = {
+            **self.data,
+            'start_time': self.start.isoformat(),
+            'end_time': (
+                self.start + timedelta(hours=3)
+            ).isoformat(),
+        }
+
+        with patch.object(
+            TutoringRequest,
+            'save',
+            side_effect=RuntimeError('Simulated save failure'),
+        ):
+            with self.assertRaises(RuntimeError):
+                self.client.post(self.url, data)
+
+        self.assert_open_without_booking()
+        self.slot.refresh_from_db()
+        self.assertEqual(
+            self.slot.status,
+            Available_Slots.Status.AVAILABLE,
+        )
+
+    def test_fulfilled_request_cannot_be_withdrawn(self):
+        response = self.client.post(self.url, self.data)
+        self.assertEqual(response.status_code, 201)
+
+        url = reverse(
+            'withdraw_tutoring_request',
+            kwargs={'request_id': self.tutoring_request.pk},
+        )
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, 400)
+        self.tutoring_request.refresh_from_db()
+        self.assertEqual(
+            self.tutoring_request.status,
+            TutoringRequest.Status.FULFILLED,
+        )
+
+    def test_regular_booking_does_not_fulfill_request(self):
+        url = reverse(
+            'book_slot',
+            kwargs={'slot_id': self.slot.pk},
+        )
+        data = {
+            'start_time': self.data['start_time'],
+            'end_time': self.data['end_time'],
+        }
+
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Booking.objects.count(), 1)
+
+        self.tutoring_request.refresh_from_db()
+        self.assertEqual(
+            self.tutoring_request.status,
+            TutoringRequest.Status.OPEN,
+        )
+        self.assertIsNone(
+            self.tutoring_request.fulfilled_booking_id,
+        )
+
+class RequestPublicationFlowTests(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(
+            email='flow-student@uregina.ca',
+            role=User.Role.STUDENT,
+        )
+        self.other_student = User.objects.create_user(
+            email='flow-other-student@uregina.ca',
+            role=User.Role.STUDENT,
+        )
+        self.tutor = User.objects.create_user(
+            email='flow-tutor@uregina.ca',
+            role=User.Role.TUTOR,
+        )
+        self.tutor_profile, _ = TutorProfile.objects.get_or_create(
+            user=self.tutor,
+        )
+        self.course = Course.create_course(
+            'CS 476',
+            'Software Development Project',
+        )
+        self.start = (
+            timezone.now() + timedelta(days=2)
+        ).replace(microsecond=0)
+
+        self.student_client = Client()
+        self.student_client.force_login(self.student)
+
+        self.tutor_client = Client()
+        self.tutor_client.force_login(self.tutor)
+
+        self.other_student_client = Client()
+        self.other_student_client.force_login(self.other_student)
+
+    def publish_request(self):
+        response = self.student_client.post(
+            reverse('create_request'),
+            {
+                'course_id': self.course.pk,
+                'description': 'Please help me understand transactions.',
+                'location_type': TutoringRequest.LocationType.FLEXIBLE,
+                'visibility': TutoringRequest.Visibility.ALL_TUTORS,
+            },
+        )
+        self.assertEqual(
+            response.status_code,
+            201,
+            response.content,
+        )
+        self.assertEqual(
+            response.json()['status'],
+            TutoringRequest.Status.OPEN,
+        )
+        return response.json()['request_id']
+
+    def express_interest(self, request_id):
+        response = self.tutor_client.post(
+            reverse(
+                'express_tutoring_request_interest',
+                kwargs={'request_id': request_id},
+            ),
+        )
+        self.assertEqual(
+            response.status_code,
+            201,
+            response.content,
+        )
+        self.assertTrue(response.json()['interested'])
+
+    def create_slot(self):
+        return Available_Slots.create_slot(
+            tutor=self.tutor,
+            start_time=self.start,
+            end_time=self.start + timedelta(hours=3),
+            price_per_hour=Decimal('20.00'),
+        )
+
+    def detail(self, request_id):
+        response = self.student_client.get(
+            reverse(
+                'my_tutoring_request',
+                kwargs={'request_id': request_id},
+            ),
+        )
+        self.assertEqual(
+            response.status_code,
+            200,
+            response.content,
+        )
+        return response.json()['request']
+
+    def fulfill(self, request_id, slot_id, start_time, end_time):
+        return self.student_client.post(
+            reverse(
+                'fulfill_tutoring_request',
+                kwargs={'request_id': request_id},
+            ),
+            {
+                'slot_id': slot_id,
+                'start_time': start_time.isoformat(),
+                'end_time': end_time.isoformat(),
+                'student_note': 'Focus on database transactions.',
+            },
+        )
+
+    def test_publish_interest_and_fulfill_through_http(self):
+        request_id = self.publish_request()
+
+        response = self.student_client.get(
+            reverse('my_tutoring_requests'),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [item['request_id'] for item in response.json()['requests']],
+            [request_id],
+        )
+
+        detail = self.detail(request_id)
+        self.assertEqual(detail['status'], TutoringRequest.Status.OPEN)
+        self.assertIsNone(detail['fulfilled_booking_id'])
+
+        self.express_interest(request_id)
+
+        response = self.student_client.get(
+            reverse(
+                'interested_tutors',
+                kwargs={'request_id': request_id},
+            ),
+        )
+        self.assertEqual(response.status_code, 200)
+        interests = response.json()['interested_tutors']
+        self.assertEqual(len(interests), 1)
+        self.assertEqual(interests[0]['tutor_id'], self.tutor.pk)
+        self.assertEqual(Booking.objects.count(), 0)
+
+        slot = self.create_slot()
+
+        response = self.student_client.get(
+            interests[0]['availability_url'],
+        )
+        self.assertEqual(response.status_code, 200)
+        windows = response.json()['available_slots']
+        self.assertEqual(len(windows), 1)
+        self.assertEqual(windows[0]['id'], slot.pk)
+
+        session_start = self.start + timedelta(hours=1)
+        session_end = self.start + timedelta(hours=2)
+
+        response = self.fulfill(
+            request_id,
+            windows[0]['id'],
+            session_start,
+            session_end,
+        )
+        self.assertEqual(
+            response.status_code,
+            201,
+            response.content,
+        )
+
+        booking_id = response.json()['booking_id']
+        detail = self.detail(request_id)
+
+        self.assertEqual(
+            detail['status'],
+            TutoringRequest.Status.FULFILLED,
+        )
+        self.assertEqual(detail['fulfilled_booking_id'], booking_id)
+        self.assertEqual(Booking.objects.count(), 1)
+
+        booking = Booking.objects.get(pk=booking_id)
+        self.assertEqual(booking.student_id, self.student.pk)
+        self.assertEqual(booking.tutor_id, self.tutor.pk)
+        self.assertEqual(booking.course_id, self.course.pk)
+        self.assertEqual(booking.time_slot_id, slot.pk)
+        self.assertEqual(booking.start_time, session_start)
+        self.assertEqual(booking.end_time, session_end)
+        self.assertEqual(booking.session_price, Decimal('20.00'))
+        self.assertEqual(
+            booking.student_note,
+            'Focus on database transactions.',
+        )
+
+    def test_booking_conflict_keeps_request_open_and_allows_retry(self):
+        request_id = self.publish_request()
+        self.express_interest(request_id)
+        slot = self.create_slot()
+
+        occupied_start = self.start + timedelta(hours=1)
+        occupied_end = self.start + timedelta(hours=2)
+
+        response = self.other_student_client.post(
+            reverse(
+                'book_slot',
+                kwargs={'slot_id': slot.pk},
+            ),
+            {
+                'start_time': occupied_start.isoformat(),
+                'end_time': occupied_end.isoformat(),
+            },
+        )
+        self.assertEqual(
+            response.status_code,
+            201,
+            response.content,
+        )
+        existing_booking_id = response.json()['booking_id']
+
+        response = self.fulfill(
+            request_id,
+            slot.pk,
+            occupied_start,
+            occupied_end,
+        )
+        self.assertEqual(
+            response.status_code,
+            409,
+            response.content,
+        )
+
+        detail = self.detail(request_id)
+        self.assertEqual(detail['status'], TutoringRequest.Status.OPEN)
+        self.assertIsNone(detail['fulfilled_booking_id'])
+        self.assertEqual(Booking.objects.count(), 1)
+        self.assertTrue(
+            Booking.objects.filter(pk=existing_booking_id).exists(),
+        )
+        self.assertTrue(
+            TutoringRequestInterest.objects.filter(
+                tutoring_request_id=request_id,
+                tutor=self.tutor,
+            ).exists(),
+        )
+
+        response = self.fulfill(
+            request_id,
+            slot.pk,
+            self.start,
+            self.start + timedelta(hours=1),
+        )
+        self.assertEqual(
+            response.status_code,
+            201,
+            response.content,
+        )
+
+        detail = self.detail(request_id)
+        self.assertEqual(
+            detail['status'],
+            TutoringRequest.Status.FULFILLED,
+        )
+        self.assertEqual(
+            detail['fulfilled_booking_id'],
+            response.json()['booking_id'],
+        )
+        self.assertEqual(Booking.objects.count(), 2)
+        self.assertNotEqual(
+            detail['fulfilled_booking_id'],
+            existing_booking_id,
+        )
+
+    def test_publication_rechecks_offers_after_form_was_loaded(self):
+        form_url = reverse('tutoring_request_form')
+
+        response = self.student_client.get(
+            form_url,
+            {'course_id': self.course.pk},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['can_create_request'])
+
+        self.tutor_profile.courses_passed.add(self.course)
+
+        self.assertFalse(
+            Available_Slots.objects.filter(tutor=self.tutor).exists(),
+        )
+
+        response = self.student_client.post(
+            reverse('create_request'),
+            {
+                'course_id': self.course.pk,
+                'description': 'Please help with this course.',
+                'location_type': TutoringRequest.LocationType.FLEXIBLE,
+                'visibility': TutoringRequest.Visibility.ALL_TUTORS,
+            },
+        )
+        self.assertEqual(
+            response.status_code,
+            400,
+            response.content,
+        )
+
+        response = self.student_client.get(
+            form_url,
+            {'course_id': self.course.pk},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()['can_create_request'])
+        self.assertIn(
+            self.tutor.pk,
+            [
+                tutor['tutor_id']
+                for tutor in response.json()['existing_tutors']
+            ],
+        )
+
+        self.assertEqual(TutoringRequest.objects.count(), 0)
+        self.assertEqual(TutoringRequestInterest.objects.count(), 0)
+        self.assertEqual(Booking.objects.count(), 0)
+
+class TutorRequestResponseFlowTests(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(
+            email='response-owner@uregina.ca',
+            role=User.Role.STUDENT,
+        )
+        self.other_student = User.objects.create_user(
+            email='response-other-student@uregina.ca',
+            role=User.Role.STUDENT,
+        )
+        self.tutor_one = User.objects.create_user(
+            email='response-tutor-one@uregina.ca',
+            role=User.Role.TUTOR,
+        )
+        self.tutor_two = User.objects.create_user(
+            email='response-tutor-two@uregina.ca',
+            role=User.Role.TUTOR,
+        )
+        self.course = Course.create_course(
+            'CS 476',
+            'Software Development Project',
+        )
+        self.start = (
+            timezone.now() + timedelta(days=2)
+        ).replace(microsecond=0)
+
+        self.student_client = Client()
+        self.student_client.force_login(self.student)
+
+        self.other_student_client = Client()
+        self.other_student_client.force_login(self.other_student)
+
+        self.tutor_one_client = Client()
+        self.tutor_one_client.force_login(self.tutor_one)
+
+        self.tutor_two_client = Client()
+        self.tutor_two_client.force_login(self.tutor_two)
+
+    def publish_request(self, description='Help with transactions.'):
+        response = self.student_client.post(
+            reverse('create_request'),
+            {
+                'course_id': self.course.pk,
+                'description': description,
+                'location_type': TutoringRequest.LocationType.FLEXIBLE,
+                'visibility': TutoringRequest.Visibility.ALL_TUTORS,
+            },
+        )
+        self.assertEqual(
+            response.status_code,
+            201,
+            response.content,
+        )
+        return response.json()['request_id']
+
+    def interest_url(self, request_id):
+        return reverse(
+            'express_tutoring_request_interest',
+            kwargs={'request_id': request_id},
+        )
+
+    def interests_url(self, request_id):
+        return reverse(
+            'interested_tutors',
+            kwargs={'request_id': request_id},
+        )
+
+    def assert_forum_ids(self, client, expected_ids):
+        response = client.get(reverse('incoming_requests'))
+        self.assertEqual(
+            response.status_code,
+            200,
+            response.content,
+        )
+        actual_ids = [
+            item['request_id']
+            for item in response.json()['open_requests']
+        ]
+        self.assertCountEqual(actual_ids, expected_ids)
+
+    def assert_interested_tutors(self, request_id, expected_ids):
+        response = self.student_client.get(
+            self.interests_url(request_id),
+        )
+        self.assertEqual(
+            response.status_code,
+            200,
+            response.content,
+        )
+        actual_ids = [
+            item['tutor_id']
+            for item in response.json()['interested_tutors']
+        ]
+        self.assertCountEqual(actual_ids, expected_ids)
+
+    def test_multiple_interests_and_independent_withdrawal(self):
+        request_id = self.publish_request()
+
+        self.assert_forum_ids(
+            self.tutor_one_client,
+            [request_id],
+        )
+        self.assert_forum_ids(
+            self.tutor_two_client,
+            [request_id],
+        )
+
+        response = self.tutor_one_client.post(
+            self.interest_url(request_id),
+        )
+        self.assertEqual(response.status_code, 201)
+
+        response = self.tutor_two_client.post(
+            self.interest_url(request_id),
+        )
+        self.assertEqual(response.status_code, 201)
+
+        response = self.tutor_one_client.post(
+            self.interest_url(request_id),
+        )
+        self.assertEqual(response.status_code, 200)
+
+        self.assertEqual(
+            TutoringRequestInterest.objects.filter(
+                tutoring_request_id=request_id,
+            ).count(),
+            2,
+        )
+        self.assert_interested_tutors(
+            request_id,
+            [self.tutor_one.pk, self.tutor_two.pk],
+        )
+        self.assertEqual(Booking.objects.count(), 0)
+
+        withdraw_url = reverse(
+            'withdraw_tutoring_request_interest',
+            kwargs={'request_id': request_id},
+        )
+        response = self.tutor_one_client.post(withdraw_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['removed'])
+        self.assertFalse(response.json()['interested'])
+
+        self.assert_interested_tutors(
+            request_id,
+            [self.tutor_two.pk],
+        )
+        self.assertFalse(
+            TutoringRequestInterest.objects.filter(
+                tutoring_request_id=request_id,
+                tutor=self.tutor_one,
+            ).exists(),
+        )
+        self.assertTrue(
+            TutoringRequestInterest.objects.filter(
+                tutoring_request_id=request_id,
+                tutor=self.tutor_two,
+            ).exists(),
+        )
+
+        response = self.tutor_one_client.post(withdraw_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()['removed'])
+        self.assert_interested_tutors(
+            request_id,
+            [self.tutor_two.pk],
+        )
+
+        tutoring_request = TutoringRequest.objects.get(pk=request_id)
+        self.assertEqual(
+            tutoring_request.status,
+            TutoringRequest.Status.OPEN,
+        )
+        self.assertIsNone(tutoring_request.fulfilled_booking_id)
+        self.assertEqual(Booking.objects.count(), 0)
+        self.assert_forum_ids(
+            self.tutor_one_client,
+            [request_id],
+        )
+
+    def test_interest_permissions_preserve_existing_responses(self):
+        request_id = self.publish_request()
+
+        response = self.tutor_one_client.post(
+            self.interest_url(request_id),
+        )
+        self.assertEqual(response.status_code, 201)
+
+        response = self.other_student_client.get(
+            self.interests_url(request_id),
+        )
+        self.assertEqual(response.status_code, 404)
+
+        response = self.other_student_client.post(
+            self.interest_url(request_id),
+        )
+        self.assertEqual(response.status_code, 403)
+
+        withdraw_url = reverse(
+            'withdraw_tutoring_request_interest',
+            kwargs={'request_id': request_id},
+        )
+        response = self.other_student_client.post(withdraw_url)
+        self.assertEqual(response.status_code, 403)
+
+        self.student.role = User.Role.TUTOR
+        self.student.save(update_fields=['role'])
+
+        owner_as_tutor_client = Client()
+        owner_as_tutor_client.force_login(self.student)
+
+        self.assert_forum_ids(owner_as_tutor_client, [])
+
+        response = owner_as_tutor_client.post(
+            self.interest_url(request_id),
+        )
+        self.assertEqual(response.status_code, 404)
+
+        self.assertEqual(
+            TutoringRequestInterest.objects.filter(
+                tutoring_request_id=request_id,
+            ).count(),
+            1,
+        )
+        self.assertTrue(
+            TutoringRequestInterest.objects.filter(
+                tutoring_request_id=request_id,
+                tutor=self.tutor_one,
+            ).exists(),
+        )
+        self.assertEqual(Booking.objects.count(), 0)
+
+    def test_withdrawn_request_leaves_forum_and_rejects_new_interest(self):
+        request_id = self.publish_request()
+
+        response = self.tutor_one_client.post(
+            self.interest_url(request_id),
+        )
+        self.assertEqual(response.status_code, 201)
+
+        self.assert_forum_ids(
+            self.tutor_two_client,
+            [request_id],
+        )
+
+        response = self.student_client.post(
+            reverse(
+                'withdraw_tutoring_request',
+                kwargs={'request_id': request_id},
+            ),
+        )
+        self.assertEqual(
+            response.status_code,
+            200,
+            response.content,
+        )
+
+        self.assert_forum_ids(self.tutor_one_client, [])
+        self.assert_forum_ids(self.tutor_two_client, [])
+
+        response = self.tutor_two_client.post(
+            self.interest_url(request_id),
+        )
+        self.assertEqual(response.status_code, 400)
+
+        self.assertFalse(
+            TutoringRequestInterest.objects.filter(
+                tutoring_request_id=request_id,
+                tutor=self.tutor_two,
+            ).exists(),
+        )
+        tutoring_request = TutoringRequest.objects.get(pk=request_id)
+        self.assertEqual(
+            tutoring_request.status,
+            TutoringRequest.Status.WITHDRAWN,
+        )
+        self.assertIsNone(tutoring_request.fulfilled_booking_id)
+        self.assertEqual(Booking.objects.count(), 0)
+
+    def test_fulfilled_request_leaves_forum_but_open_request_remains(self):
+        fulfilled_request_id = self.publish_request(
+            'Help with transactions.',
+        )
+        open_request_id = self.publish_request(
+            'Help with Django testing.',
+        )
+
+        self.assert_forum_ids(
+            self.tutor_two_client,
+            [fulfilled_request_id, open_request_id],
+        )
+
+        response = self.tutor_one_client.post(
+            self.interest_url(fulfilled_request_id),
+        )
+        self.assertEqual(response.status_code, 201)
+
+        slot = Available_Slots.create_slot(
+            tutor=self.tutor_one,
+            start_time=self.start,
+            end_time=self.start + timedelta(hours=1),
+            price_per_hour=Decimal('20.00'),
+        )
+
+        response = self.student_client.post(
+            reverse(
+                'fulfill_tutoring_request',
+                kwargs={'request_id': fulfilled_request_id},
+            ),
+            {
+                'slot_id': slot.pk,
+                'start_time': self.start.isoformat(),
+                'end_time': (
+                    self.start + timedelta(hours=1)
+                ).isoformat(),
+            },
+        )
+        self.assertEqual(
+            response.status_code,
+            201,
+            response.content,
+        )
+        booking_id = response.json()['booking_id']
+
+        self.assert_forum_ids(
+            self.tutor_one_client,
+            [open_request_id],
+        )
+        self.assert_forum_ids(
+            self.tutor_two_client,
+            [open_request_id],
+        )
+
+        response = self.tutor_two_client.post(
+            self.interest_url(fulfilled_request_id),
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(
+            TutoringRequestInterest.objects.filter(
+                tutoring_request_id=fulfilled_request_id,
+                tutor=self.tutor_two,
+            ).exists(),
+        )
+
+        response = self.tutor_two_client.post(
+            self.interest_url(open_request_id),
+        )
+        self.assertEqual(response.status_code, 201)
+
+        fulfilled_request = TutoringRequest.objects.get(
+            pk=fulfilled_request_id,
+        )
+        self.assertEqual(
+            fulfilled_request.status,
+            TutoringRequest.Status.FULFILLED,
+        )
+        self.assertEqual(
+            fulfilled_request.fulfilled_booking_id,
+            booking_id,
+        )
+
+        open_request = TutoringRequest.objects.get(pk=open_request_id)
+        self.assertEqual(
+            open_request.status,
+            TutoringRequest.Status.OPEN,
+        )
+        self.assertIsNone(open_request.fulfilled_booking_id)
+        self.assertEqual(Booking.objects.count(), 1)
 
 
 class TutorSessionsPageTests(TestCase):

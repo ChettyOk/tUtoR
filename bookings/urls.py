@@ -31,4 +31,7 @@ urlpatterns = [
     path('requests/<int:request_id>/interest/', views.express_tutoring_request_interest_view, name='express_tutoring_request_interest'),
     path('requests/<int:request_id>/interest/withdraw/', views.withdraw_tutoring_request_interest_view, name='withdraw_tutoring_request_interest'),
     path('requests/mine/<int:request_id>/interests/', views.get_interested_tutors_view, name='interested_tutors'),
+    path('dashboard/', views.get_student_dashboard_view, name='student_dashboard'),
+    path('dashboard/', views.get_student_dashboard_view, name='student_dashboard'),
+    path('requests/mine/<int:request_id>/fulfill/', views.fulfill_tutoring_request_view, name='fulfill_tutoring_request'),
 ]
