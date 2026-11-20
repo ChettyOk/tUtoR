@@ -1,4 +1,4 @@
-"""Data for the student "My requests" page .
+"""Data for the student "My requests" page.
 
 Plain functions so the view stays small and the logic is easy to test.
 """
@@ -22,6 +22,7 @@ STATUS_ORDER = {
     TutoringRequest.Status.OPEN: 0,
     TutoringRequest.Status.FULFILLED: 1,
     TutoringRequest.Status.WITHDRAWN: 2,
+    TutoringRequest.Status.EXPIRED: 3,
 }
 LOCATION_LABELS = dict(TutoringRequest.LocationType.choices)
 
@@ -86,6 +87,7 @@ def build_request_cards(student):
             'booked_label': _booked_label(r),
         })
     return cards
+
 
 def guess_course(text):
     """Best course for a search text like 'cs 480' or 'compilers', or None.
