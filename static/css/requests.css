@@ -51,3 +51,69 @@
   border-color: #9c1c1c;
   color: #fff;
 }
+
+
+
+.req-form { border: 1px solid var(--bs-border-color); background: var(--paper, #fffdf8); }
+.req-form .form-control:focus,
+.req-form .form-select:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 0.2rem rgba(0, 79, 46, 0.16);
+}
+.req-notice {
+  margin: 0.75rem 0 0;
+  padding: 0.6rem 0.85rem;
+  border-radius: 0.6rem;
+  background: rgba(255, 200, 46, 0.25);
+  color: var(--green-deep);
+  font-size: 0.92rem;
+}
+.req-notice[hidden] { display: none; }
+.req-notice a { color: var(--green); font-weight: 700; }
+.req-radios { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+.req-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid rgba(0, 79, 46, 0.3);
+  border-radius: 999px;
+  cursor: pointer;
+  color: var(--green-deep);
+  font-weight: 600;
+}
+.req-radio:has(input:checked) { background: var(--green); border-color: var(--green); color: var(--paper, #fffdf8); }
+.req-radio input { accent-color: var(--gold, #ffc82e); }
+.req-form .book-legend { font-family: "Fraunces", Georgia, serif; }
+
+/* Tutor home request cards */
+.treq-card { border: 1px solid var(--bs-border-color); background: var(--paper, #fffdf8); }
+.treq-card.is-joined { border-color: var(--green); box-shadow: inset 4px 0 0 var(--green); }
+.treq-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(255, 200, 46, 0.35);
+  color: var(--green-deep);
+}
+.treq-footer { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+.treq-count { font-size: 0.88rem; color: var(--muted); }
+.treq-hint { font-size: 0.86rem; color: var(--muted); }
+.treq-hint[hidden] { display: none; }
+.treq-hint a { color: var(--green); font-weight: 600; }
+#requests-section .btn-find-clear {
+  border: 1px solid rgba(0, 79, 46, 0.35);
+  color: var(--green-deep);
+  background: transparent;
+}
+
+.req-page .book-back {
+  color: var(--green);
+  font-weight: 700;
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+.req-page .book-back:hover { text-decoration: underline; }

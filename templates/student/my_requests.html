@@ -11,12 +11,15 @@
 <div class="home-page">
   <div class="container home-page-inner req-page">
     {% csrf_token %}
-    <header class="mb-4">
-      <p class="kicker kicker-green mb-2">Student</p>
-      <h1 class="h3 mb-1">My requests</h1>
-      <p class="text-muted mb-0">
-        When no tutor offers a course, ask for one. Tutors who can help will appear here, and you pick who to book.
-      </p>
+    <header class="mb-4 d-flex flex-wrap align-items-end justify-content-between gap-3">
+      <div>
+        <p class="kicker kicker-green mb-2">Student</p>
+        <h1 class="h3 mb-1">My requests</h1>
+        <p class="text-muted mb-0">
+          When no tutor offers a course, ask for one. Tutors who can help will appear here, and you pick who to book.
+        </p>
+      </div>
+      <a class="btn btn-green" href="{% url 'request_form' %}">New request</a>
     </header>
 
     {% if not request_cards %}
@@ -27,6 +30,7 @@
           Search for a course. If nobody offers it, you can ask tutors to open sessions for it.
         </p>
         <a class="btn btn-green" href="{% url 'find_tutors' %}">Find tutors</a>
+        <a class="btn btn-find-clear" href="{% url 'request_form' %}">New request</a>
       </div>
     </div>
     {% else %}
