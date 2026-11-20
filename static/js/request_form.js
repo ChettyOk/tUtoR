@@ -1,5 +1,4 @@
-// Filters the course list, asks the server whether tutors already offer the
-// chosen course, and posts the request to the existing endpoint.
+
 (function () {
   "use strict";
 
@@ -69,7 +68,16 @@
     })
       .then(function (res) { return res.json(); })
       .then(function (data) {
-        if (data.can_create_request === false) {
+        if (data.open_request_exists) {
+          courseBlocked = true;
+          submitBtn.disabled = true;
+          notice.textContent = "You already have an open request for this course.";
+          var mine = document.createElement("a");
+          mine.href = urls.after;
+          mine.textContent = " See your requests";
+          notice.appendChild(mine);
+          notice.hidden = false;
+        } else if (data.can_create_request === false) {
           courseBlocked = true;
           submitBtn.disabled = true;
           var names = (data.existing_tutors || []).map(function (t) {

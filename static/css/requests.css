@@ -1,4 +1,3 @@
-/* My requests page. Card, chip and slot styles come from site.css. */
 .req-page { max-width: 62rem; }
 .req-card,
 .req-empty {
@@ -52,8 +51,7 @@
   color: #fff;
 }
 
-
-
+/* Request form (STU-06.2) */
 .req-form { border: 1px solid var(--bs-border-color); background: var(--paper, #fffdf8); }
 .req-form .form-control:focus,
 .req-form .form-select:focus {
@@ -117,3 +115,6 @@
   font-size: 0.95rem;
 }
 .req-page .book-back:hover { text-decoration: underline; }
+
+.req-expired { opacity: 0.7; }
+.req-status-expired { background: rgba(0, 0, 0, 0.08); color: var(--muted); }
