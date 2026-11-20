@@ -1,0 +1,53 @@
+/* My requests page. Card, chip and slot styles come from site.css. */
+.req-page { max-width: 62rem; }
+.req-card,
+.req-empty {
+  border: 1px solid var(--bs-border-color);
+  background: var(--paper, #fffdf8);
+}
+.req-open { border-left: 4px solid var(--gold, #ffc82e); }
+.req-fulfilled { border-left: 4px solid var(--green); }
+.req-withdrawn { opacity: 0.7; }
+.req-description {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  margin-bottom: 1rem;
+}
+.req-status {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+}
+.req-status-open { background: rgba(255, 200, 46, 0.35); color: var(--green-deep); }
+.req-status-fulfilled { background: var(--green); color: var(--paper, #fffdf8); }
+.req-status-withdrawn { background: rgba(0, 0, 0, 0.08); color: var(--muted); }
+.req-booked { font-weight: 600; color: var(--green-deep); }
+.req-tutor {
+  border: 1px solid rgba(0, 79, 46, 0.14);
+  border-radius: 0.9rem;
+  padding: 0.8rem 1rem;
+  background: rgba(0, 79, 46, 0.03);
+}
+.req-more summary {
+  cursor: pointer;
+  color: var(--green);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.req-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem; }
+.req-error { color: #9c1c1c; font-size: 0.9rem; }
+.req-error[hidden] { display: none; }
+.req-page .btn-find-clear {
+  border: 1px solid rgba(0, 79, 46, 0.35);
+  color: var(--green-deep);
+  background: transparent;
+}
+.req-page .btn-find-clear:hover { background: rgba(0, 79, 46, 0.08); color: var(--green-deep); }
+.req-page .btn-find-clear.is-armed {
+  background: #9c1c1c;
+  border-color: #9c1c1c;
+  color: #fff;
+}
