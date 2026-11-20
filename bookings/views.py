@@ -26,7 +26,7 @@ from .models import (
     TutoringRequest,
 )
 
-from .request_pages import build_request_cards
+from .request_pages import build_request_cards, guess_course
 
 from .search import (
     SORT_CHOICES,
@@ -1167,4 +1167,36 @@ def my_requests_page(request):
         'site_name': 'tUtoR',
         'request_cards': cards,
         'open_count': sum(1 for c in cards if c['is_open']),
+    })
+
+@login_required
+def request_form_page(request):
+    """STU-06.2: form to ask tutors to open sessions for a course.
+
+    The course list and the "tutors already offer it" check come from the
+    existing /requests/form/ endpoint, called by request_form.js.
+    """
+    if request.user.has_role(User.Role.TUTOR):
+        return redirect('tutor_home')
+
+    selected = None
+    raw_course = request.GET.get('course', '').strip()
+    if raw_course.isdigit():
+        selected = Course.objects.filter(pk=int(raw_course)).first()
+    if selected is None:
+        selected = guess_course(request.GET.get('q', ''))
+
+    return render(request, 'student/request_form.html', {
+        'site_name': 'tUtoR',
+        'courses': Course.objects.order_by('course_code'),
+        'selected_course': selected,
+        'search_text': request.GET.get('q', '').strip()[:100],
+        'location_choices': TutoringRequest.LocationType.choices,
+        'description_max': TutoringRequest._meta.get_field('description').max_length,
+        'urls': {
+            'form_data': reverse('tutoring_request_form'),
+            'create': reverse('create_request'),
+            'after': reverse('my_requests'),
+            'find': reverse('find_tutors'),
+        },
     })
