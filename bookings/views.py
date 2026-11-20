@@ -26,6 +26,8 @@ from .models import (
     TutoringRequest,
 )
 
+from .request_pages import build_request_cards
+
 from .search import (
     SORT_CHOICES,
     clean_filters,
@@ -1098,6 +1100,33 @@ def book_slot_page(request, slot_id):
     ]
     course_options.sort(key=lambda c: (not c['mine'], c['code']))
 
+    # ?request=<id>: booking an interested tutor for the student's own
+    # open request. The booking then goes through the fulfil endpoint.
+    request_obj = None
+    raw_request_id = request.GET.get('request', '').strip()
+
+    if raw_request_id.isdigit():
+        request_obj = (
+            TutoringRequest.objects
+            .filter(
+                pk=int(raw_request_id),
+                student=request.user,
+                status=TutoringRequest.Status.OPEN,
+                interests__tutor=slot.tutor,
+            )
+            .select_related('course')
+            .first()
+        )
+
+    if request_obj is not None:
+        course_options = [{
+            'id': request_obj.course_id,
+            'code': request_obj.course.course_code,
+            'name': request_obj.course.course_name,
+            'mine': False,
+        }]
+
+
     booking_data = None
     if window is not None:
         booking_data = {
@@ -1109,6 +1138,13 @@ def book_slot_page(request, slot_id):
             'home_url': reverse('student_home'),
         }
 
+        if request_obj is not None:
+            booking_data['post_url'] = reverse(
+                'fulfill_tutoring_request',
+                kwargs={'request_id': request_obj.pk},
+            )
+            booking_data['slot_id'] = slot.id
+
     return render(request, 'student/book_slot.html', {
         'site_name': 'tUtoR',
         'slot': slot,
@@ -1116,5 +1152,19 @@ def book_slot_page(request, slot_id):
         'window': window,
         'booking_data': booking_data,
         'course_options': course_options,
+        'request_obj': request_obj,
         'location_label': slot.get_location_type_display(),
+    })
+
+@login_required
+def my_requests_page(request):
+    """STU-06.2: the student's tutoring requests and the tutors who offered."""
+    if request.user.has_role(User.Role.TUTOR):
+        return redirect('tutor_home')
+
+    cards = build_request_cards(request.user)
+    return render(request, 'student/my_requests.html', {
+        'site_name': 'tUtoR',
+        'request_cards': cards,
+        'open_count': sum(1 for c in cards if c['is_open']),
     })
