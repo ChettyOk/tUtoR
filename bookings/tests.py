@@ -2909,6 +2909,16 @@ class TutoringRequestFormViewTests(TestCase):
 
         return self.client.get(self.url, data)
 
+    def add_open_slot(self):
+        """A tutor only counts as offering a course with an open future time."""
+        start = timezone.now() + timedelta(days=2)
+        return Available_Slots.create_slot(
+            tutor=self.tutor,
+            start_time=start,
+            end_time=start + timedelta(hours=1),
+            price_per_hour=Decimal('20.00'),
+        )
+
     def post_request(self):
         return self.client.post(
             reverse('create_request'),
@@ -2970,9 +2980,9 @@ class TutoringRequestFormViewTests(TestCase):
         self.assertIs(response.json()['can_create_request'], True)
         self.assertEqual(response.json()['existing_tutors'], [])
 
-    def test_existing_tutor_blocks_course_without_requiring_slots(self):
+    def test_existing_tutor_with_open_session_blocks_course(self):
         self.tutor_profile.courses_passed.add(self.course)
-
+        self.add_open_slot()
         response = self.get_form(self.course)
 
         self.assertEqual(response.status_code, 200)
@@ -3038,6 +3048,7 @@ class TutoringRequestFormViewTests(TestCase):
 
     def test_tutor_role_switch_does_not_remove_course_offer(self):
         self.tutor_profile.courses_passed.add(self.course)
+        self.add_open_slot()
         self.tutor.switch_role(User.Role.STUDENT)
         self.tutor.save(update_fields=['role'])
 
@@ -3055,6 +3066,7 @@ class TutoringRequestFormViewTests(TestCase):
 
     def test_direct_creation_is_blocked_without_form_check(self):
         self.tutor_profile.courses_passed.add(self.course)
+        self.add_open_slot()
         request_count = TutoringRequest.objects.count()
         booking_count = Booking.objects.count()
 
@@ -3087,10 +3099,20 @@ class TutoringRequestFormViewTests(TestCase):
 
         self.tutor_profile.courses_passed.add(self.course)
 
+        self.add_open_slot()
+
         response = self.post_request()
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(TutoringRequest.objects.count(), 0)
+
+    def test_tutor_with_course_but_no_sessions_does_not_block(self):
+        self.tutor_profile.courses_passed.add(self.course)
+
+        form_response = self.get_form(self.course)
+        self.assertIs(form_response.json()['can_create_request'], True)
+        self.assertEqual(self.post_request().status_code, 201)
+
 
     def test_creation_is_allowed_without_existing_tutors(self):
         response = self.post_request()
@@ -4793,8 +4815,12 @@ class RequestPublicationFlowTests(TestCase):
 
         self.tutor_profile.courses_passed.add(self.course)
 
-        self.assertFalse(
-            Available_Slots.objects.filter(tutor=self.tutor).exists(),
+        start = timezone.now() + timedelta(days=2)
+        Available_Slots.create_slot(
+            tutor=self.tutor,
+            start_time=start,
+            end_time=start + timedelta(hours=1),
+            price_per_hour=Decimal('20.00'),
         )
 
         response = self.student_client.post(
@@ -4868,11 +4894,11 @@ class TutorRequestResponseFlowTests(TestCase):
         self.tutor_two_client = Client()
         self.tutor_two_client.force_login(self.tutor_two)
 
-    def publish_request(self, description='Help with transactions.'):
+    def publish_request(self, description='Help with transactions.', course=None):
         response = self.student_client.post(
             reverse('create_request'),
             {
-                'course_id': self.course.pk,
+                'course_id': (course or self.course).pk,
                 'description': description,
                 'location_type': TutoringRequest.LocationType.FLEXIBLE,
                 'visibility': TutoringRequest.Visibility.ALL_TUTORS,
@@ -5117,6 +5143,7 @@ class TutorRequestResponseFlowTests(TestCase):
         )
         open_request_id = self.publish_request(
             'Help with Django testing.',
+            course=Course.create_course('CS 499', 'A Second Course'),
         )
 
         self.assert_forum_ids(
