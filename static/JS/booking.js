@@ -157,6 +157,7 @@
     fd.append("start_time", range.start.iso);
     fd.append("end_time", range.end.iso);
     if (courseSelect && courseSelect.value) fd.append("course_id", courseSelect.value);
+    if (data.slot_id) fd.append("slot_id", data.slot_id);
     fd.append("student_note", noteInput.value.trim());
 
     submitBtn.disabled = true;
