@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from bookings.interfaces import BookingEvent
@@ -17,9 +18,14 @@ class Command(BaseCommand):
         deadline = now + timedelta(hours=2)
         bookings = Booking.objects.filter(
             status=Booking.Status.CONFIRMED,
-            time_slot__start_time__gte=now,
-            time_slot__start_time__lte=deadline,
             reminder_sent=False,
+        ).filter(
+            Q(start_time__gte=now, start_time__lte=deadline)
+            | Q(
+                start_time__isnull=True,
+                time_slot__start_time__gte=now,
+                time_slot__start_time__lte=deadline,
+            )
         ).select_related('student', 'tutor', 'time_slot')
 
         sent_count = 0
@@ -33,7 +39,6 @@ class Command(BaseCommand):
                 if (
                     locked_booking.status != Booking.Status.CONFIRMED
                     or locked_booking.reminder_sent
-                    or locked_booking.time_slot is None
                 ):
                     continue
 

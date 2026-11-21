@@ -16,6 +16,7 @@ from django.utils.dateparse import parse_datetime
 from django.middleware.csrf import get_token
 from django.core.exceptions import ValidationError
 from django.core import mail
+from django.core.management import call_command
 from django.test import SimpleTestCase, override_settings
 
 
@@ -5454,3 +5455,38 @@ class BookingObserverTests(SimpleTestCase):
         ReminderMailObserver().update(BookingEvent.BOOKED, self.booking)
 
         send_mail.assert_not_called()
+
+
+class SendReminderCommandTests(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(
+            email='reminder-student@example.com',
+            password='test-password',
+        )
+        self.tutor = User.objects.create_user(
+            email='reminder-tutor@example.com',
+            password='test-password',
+        )
+
+    def test_uses_booking_start_time_instead_of_slot_start_time(self):
+        now = timezone.now()
+        slot = Available_Slots.objects.create(
+            tutor=self.tutor,
+            start_time=now + timedelta(hours=8),
+            end_time=now + timedelta(hours=9),
+            price_per_hour=Decimal('20.00'),
+        )
+        booking = Booking.objects.create(
+            student=self.student,
+            tutor=self.tutor,
+            time_slot=slot,
+            start_time=now + timedelta(hours=1),
+            end_time=now + timedelta(hours=2),
+            session_price=Decimal('20.00'),
+            status=Booking.Status.CONFIRMED,
+        )
+
+        call_command('send_reminders', stdout=Mock())
+
+        booking.refresh_from_db()
+        self.assertTrue(booking.reminder_sent)
