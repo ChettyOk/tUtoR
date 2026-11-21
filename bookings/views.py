@@ -23,6 +23,7 @@ from .models import (
     Booking,
     CancellationDeadlinePassedError,
     Rating,
+    SlotValidationError,
     TutoringRequest,
 )
 
@@ -697,6 +698,41 @@ def get_tutor_schedule_view(request):
         'slots': [serialize_slot(slot) for slot in slots],
     })
 
+_SLOT_FIELD_MESSAGES = {
+    'start_time': {
+        'required': 'Choose when the session starts.',
+        'empty': 'Choose when the session starts.',
+        'invalid': 'Enter a valid start date and time.',
+    },
+    'end_time': {
+        'required': 'Choose when the session ends.',
+        'empty': 'Choose when the session ends.',
+        'invalid': 'Enter a valid end date and time.',
+    },
+    'price_per_hour': {
+        'required': 'Enter a price per hour.',
+        'empty': 'Enter a price per hour.',
+        'invalid': 'Enter a valid price per hour.',
+    },
+    'location_type': {
+        'empty': 'Choose Online or In person.',
+    },
+}
+
+
+def _slot_field_error(field, kind):
+    message = _SLOT_FIELD_MESSAGES[field][kind]
+    return SlotValidationError(message, field=field)
+
+
+def _json_slot_error(error, status=400):
+    payload = {'error': str(error)}
+    errors = getattr(error, 'errors', None)
+    if errors:
+        payload['errors'] = errors
+    return JsonResponse(payload, status=status)
+
+
 def _parse_slot_input(data, *, partial=False):
     fields = {}
 
@@ -704,22 +740,25 @@ def _parse_slot_input(data, *, partial=False):
         if name not in data:
             if partial:
                 continue
-            raise ValueError(f"{name} is required.")
+            raise _slot_field_error(name, 'required')
 
         value = data.get(name, '').strip()
         if not value:
-            raise ValueError(f"{name} must not be empty.")
+            raise _slot_field_error(name, 'empty')
 
         if name == 'price_per_hour':
             try:
                 price = Decimal(value)
-            except ArithmeticError:
-                raise ValueError("Price must be a valid number.")
+            except ArithmeticError as error:
+                raise _slot_field_error(name, 'invalid') from error
 
             if not price.is_finite():
-                raise ValueError("Price must be a valid number.")
+                raise _slot_field_error(name, 'invalid')
 
-            fields[name] = custom_pricing(price)
+            try:
+                fields[name] = custom_pricing(price)
+            except ValueError as error:
+                raise SlotValidationError(str(error), field=name) from error
         else:
             try:
                 parsed_time = parse_datetime(value)
@@ -727,14 +766,14 @@ def _parse_slot_input(data, *, partial=False):
                 parsed_time = None
 
             if parsed_time is None:
-                raise ValueError(f"{name} must be a valid ISO date and time.")
+                raise _slot_field_error(name, 'invalid')
 
             fields[name] = parsed_time
 
     if 'location_type' in data:
         location_type = data.get('location_type', '').strip()
         if not location_type:
-            raise ValueError("location_type must not be empty.")
+            raise _slot_field_error('location_type', 'empty')
         fields['location_type'] = location_type
 
     return fields
@@ -772,10 +811,7 @@ def create_slot_view(request):
             **fields,
         )
     except ValueError as error:
-        return JsonResponse(
-            {'error': str(error)},
-            status=400,
-        )
+        return _json_slot_error(error)
 
     return JsonResponse({
         'message': 'Slot created successfully.',
@@ -826,14 +862,11 @@ def update_slot_view(request, slot_id):
         fields = _parse_slot_input(request.POST, partial=True)
 
         if not fields:
-            raise ValueError("Provide at least one slot field to update.")
+            raise ValueError('Provide at least one session detail to update.')
 
         slot.update_slot(**fields)
     except ValueError as error:
-        return JsonResponse(
-            {'error': str(error)},
-            status=400,
-        )
+        return _json_slot_error(error)
 
     return JsonResponse({
         'message': 'Slot updated successfully.',

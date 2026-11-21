@@ -1216,26 +1216,41 @@ class test_create_slot_view(TestCase):
         )
 
     def test_missing_required_fields(self):
-        for field in ('start_time', 'end_time', 'price_per_hour'):
+        expected = {
+            'start_time': 'Choose when the session starts.',
+            'end_time': 'Choose when the session ends.',
+            'price_per_hour': 'Enter a price per hour.',
+        }
+        for field, message in expected.items():
             with self.subTest(field=field):
                 data = self.data.copy()
                 del data[field]
 
                 response = self.client.post(self.url, data)
+                body = response.json()
 
                 self.assertEqual(response.status_code, 400)
-                self.assertIn(field, response.json()['error'])
+                self.assertEqual(body['error'], message)
+                self.assertEqual(body['errors'][field], message)
                 self.assertEqual(Available_Slots.objects.count(), 0)
 
     def test_empty_fields(self):
-        for field in self.data:
+        expected = {
+            'start_time': 'Choose when the session starts.',
+            'end_time': 'Choose when the session ends.',
+            'price_per_hour': 'Enter a price per hour.',
+            'location_type': 'Choose Online or In person.',
+        }
+        for field, message in expected.items():
             with self.subTest(field=field):
                 data = {**self.data, field: ' '}
 
                 response = self.client.post(self.url, data)
+                body = response.json()
 
                 self.assertEqual(response.status_code, 400)
-                self.assertIn(field, response.json()['error'])
+                self.assertEqual(body['error'], message)
+                self.assertEqual(body['errors'][field], message)
                 self.assertEqual(Available_Slots.objects.count(), 0)
 
     def test_invalid_datetime(self):
@@ -1244,9 +1259,14 @@ class test_create_slot_view(TestCase):
                 data = {**self.data, 'start_time': value}
 
                 response = self.client.post(self.url, data)
+                body = response.json()
 
                 self.assertEqual(response.status_code, 400)
-                self.assertIn('start_time', response.json()['error'])
+                self.assertEqual(body['error'], 'Enter a valid start date and time.')
+                self.assertEqual(
+                    body['errors']['start_time'],
+                    'Enter a valid start date and time.',
+                )
                 self.assertEqual(Available_Slots.objects.count(), 0)
 
     def test_invalid_prices(self):
@@ -1255,18 +1275,23 @@ class test_create_slot_view(TestCase):
                 data = {**self.data, 'price_per_hour': value}
 
                 response = self.client.post(self.url, data)
+                body = response.json()
 
                 self.assertEqual(response.status_code, 400)
-                self.assertIn('error', response.json())
+                self.assertIn('error', body)
+                self.assertIn('price_per_hour', body.get('errors', {}))
+                self.assertNotIn('price_per_hour', body['error'])
                 self.assertEqual(Available_Slots.objects.count(), 0)
 
     def test_invalid_location_type(self):
         data = {**self.data, 'location_type': 'somewhere'}
 
         response = self.client.post(self.url, data)
+        body = response.json()
 
         self.assertEqual(response.status_code, 400)
-        self.assertIn('location_type', response.json()['error'])
+        self.assertEqual(body['error'], 'Choose Online or In person.')
+        self.assertEqual(body['errors']['location_type'], 'Choose Online or In person.')
         self.assertEqual(Available_Slots.objects.count(), 0)
 
     def test_invalid_time_rules(self):
@@ -1483,15 +1508,23 @@ class test_update_slot_view(TestCase):
         self.assert_slot_unchanged()
 
     def test_empty_fields_rejected(self):
-        for field in Available_Slots.UPDATABLE_FIELDS:
+        expected = {
+            'start_time': 'Choose when the session starts.',
+            'end_time': 'Choose when the session ends.',
+            'price_per_hour': 'Enter a price per hour.',
+            'location_type': 'Choose Online or In person.',
+        }
+        for field, message in expected.items():
             with self.subTest(field=field):
                 response = self.client.post(
                     self.url,
                     {field: ''},
                 )
+                body = response.json()
 
                 self.assertEqual(response.status_code, 400)
-                self.assertIn(field, response.json()['error'])
+                self.assertEqual(body['error'], message)
+                self.assertEqual(body['errors'][field], message)
                 self.assert_slot_unchanged()
 
     def test_invalid_price_rejected(self):
@@ -1501,9 +1534,12 @@ class test_update_slot_view(TestCase):
                     self.url,
                     {'price_per_hour': value},
                 )
+                body = response.json()
 
                 self.assertEqual(response.status_code, 400)
-                self.assertIn('error', response.json())
+                self.assertIn('error', body)
+                self.assertIn('price_per_hour', body.get('errors', {}))
+                self.assertNotIn('price_per_hour', body['error'])
                 self.assert_slot_unchanged()
 
     def test_invalid_datetime_rejected(self):
@@ -1511,9 +1547,14 @@ class test_update_slot_view(TestCase):
             self.url,
             {'start_time': 'not-a-date'},
         )
+        body = response.json()
 
         self.assertEqual(response.status_code, 400)
-        self.assertIn('start_time', response.json()['error'])
+        self.assertEqual(body['error'], 'Enter a valid start date and time.')
+        self.assertEqual(
+            body['errors']['start_time'],
+            'Enter a valid start date and time.',
+        )
         self.assert_slot_unchanged()
 
     def test_invalid_location_rejected(self):
@@ -1521,9 +1562,14 @@ class test_update_slot_view(TestCase):
             self.url,
             {'location_type': 'somewhere'},
         )
+        body = response.json()
 
         self.assertEqual(response.status_code, 400)
-        self.assertIn('location_type', response.json()['error'])
+        self.assertEqual(body['error'], 'Choose Online or In person.')
+        self.assertEqual(
+            body['errors']['location_type'],
+            'Choose Online or In person.',
+        )
         self.assert_slot_unchanged()
 
     def test_invalid_time_rules_rejected(self):

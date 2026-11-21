@@ -183,10 +183,38 @@
 
   // ---------- edit mode ----------
 
+  var fieldInputs = {
+    start_time: startInput,
+    end_time: endInput,
+    price_per_hour: priceInput,
+    location_type: locationSelect
+  };
+
   function clearFieldErrors() {
-    setFieldError(startInput, "");
-    setFieldError(endInput, "");
-    setFieldError(priceInput, "");
+    Object.keys(fieldInputs).forEach(function (name) {
+      setFieldError(fieldInputs[name], "");
+    });
+  }
+
+  function applyServerErrors(data) {
+    clearFieldErrors();
+    var fieldErrors = (data && data.errors) || {};
+    var mapped = false;
+
+    Object.keys(fieldErrors).forEach(function (name) {
+      var input = fieldInputs[name];
+      if (!input) return;
+      setFieldError(input, fieldErrors[name]);
+      mapped = true;
+    });
+
+    if (mapped) {
+      var firstBad = form.querySelector(".is-invalid");
+      if (firstBad) firstBad.focus();
+      return;
+    }
+
+    showBox(errorBox, (data && data.error) || "The session could not be saved.");
   }
 
   function enterEditMode(slot) {
@@ -287,7 +315,7 @@
       })
       .then(function (result) {
         if (!result.ok) {
-          showBox(errorBox, result.data.error || "The session could not be saved.");
+          applyServerErrors(result.data || {});
           return;
         }
         leaveEditMode();

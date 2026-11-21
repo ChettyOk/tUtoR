@@ -342,10 +342,21 @@ class Available_Slots(models.Model):
             self.full_clean()
         except ValidationError as e:
             messages = []
+            field_errors = {}
             for field, errors in e.message_dict.items():
                 for error in errors:
-                    messages.append(error if field == '__all__' else f"{field}: {error}")
-            raise ValueError(" ".join(messages))
+                    if field == 'location_type':
+                        text = 'Choose Online or In person.'
+                    elif field == 'price_per_hour':
+                        text = str(error)
+                        if 'valid' in text.lower() or 'number' in text.lower():
+                            text = 'Enter a valid price per hour.'
+                    else:
+                        text = str(error)
+                    messages.append(text)
+                    if field != '__all__' and field not in field_errors:
+                        field_errors[field] = text
+            raise SlotValidationError(' '.join(messages), errors=field_errors)
 
     @classmethod
     def create_slot(cls, tutor, start_time, end_time, price_per_hour, location_type=LocationType.ONLINE):
@@ -402,3 +413,13 @@ class Available_Slots(models.Model):
 
         self.status = self.Status.CANCELLED
         self.save()
+
+
+class SlotValidationError(ValueError):
+    """User-facing slot validation failure, optionally tied to form fields."""
+
+    def __init__(self, message, *, errors=None, field=None):
+        super().__init__(message)
+        self.errors = dict(errors or {})
+        if field and field not in self.errors:
+            self.errors[field] = message
