@@ -611,13 +611,13 @@ def tutor_home(request):
             location_error = 'Choose Online or In person.'
 
         if saved_price is not None and not location_error:
-            price_value = str(saved_price)
+            price_value = f'{saved_price:.2f}'
             location_value = raw_location
             request.session['tutor_hourly_price'] = price_value
             request.session['tutor_location_type'] = location_value
             location_label = dict(location_choices)[location_value]
             success_message = (
-                f'Slot details saved: ${saved_price}/hour, {location_label}.'
+                f'Saved: ${price_value}/hour, {location_label}.'
             )
 
     return render(request, 'tutor_home.html', {

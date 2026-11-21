@@ -167,20 +167,33 @@ class Test_pricing(TestCase):
     def test_min_price(self):
         with self.assertRaises(ValueError) as ctx:
             custom_pricing('1.00')
-        self.assertIn("Minimum price is $15.70/hour", str(ctx.exception))
+        self.assertEqual(
+            str(ctx.exception),
+            'The minimum price is $15.70 per hour.',
+        )
 
     def test_max_price(self):
         with self.assertRaises(ValueError) as ctx:
             custom_pricing('151.00')
-        self.assertIn("Maximum price is $150.00/hour", str(ctx.exception))
+        self.assertEqual(
+            str(ctx.exception),
+            'The maximum price is $150.00 per hour.',
+        )
 
     def test_custom_pricing_valid(self):
         self.assertEqual(custom_pricing('25.50'), Decimal('25.50'))
         self.assertEqual(custom_pricing(25.5), Decimal('25.50'))
         with self.assertRaises(ValueError) as ctx:
             custom_pricing('xxx')
-        self.assertIn("Price must be a valid number", str(ctx.exception))
-        
+        self.assertEqual(str(ctx.exception), 'Enter a valid price per hour.')
+
+    def test_custom_pricing_empty(self):
+        for value in ('', '   ', None):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError) as ctx:
+                    custom_pricing(value)
+                self.assertIn('price per hour', str(ctx.exception).lower())
+
 User = get_user_model()      
 class test_booking_model(TestCase):
     def setUp(self):

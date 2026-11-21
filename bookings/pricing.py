@@ -26,16 +26,30 @@ def calc_price_suggestion(tutor):
 
 
 def custom_pricing(price_input):
+    """Validate an hourly rate and return it as Decimal.
+
+    Raises ValueError with a short, user-facing message.
+    """
+    if price_input is None:
+        raise ValueError('Enter a price per hour.')
+
+    if isinstance(price_input, str):
+        price_input = price_input.strip()
+        if not price_input:
+            raise ValueError('Enter a price per hour.')
 
     try:
         price = Decimal(str(price_input))
     except (TypeError, ValueError, ArithmeticError):
-        raise ValueError("Price must be a valid number.")
+        raise ValueError('Enter a valid price per hour.')
 
-    if  price < MIN_PRICE:
-        raise ValueError(f"Minimum price is ${MIN_PRICE:.2f}/hour.")
+    if not price.is_finite():
+        raise ValueError('Enter a valid price per hour.')
+
+    if price < MIN_PRICE:
+        raise ValueError(f'The minimum price is ${MIN_PRICE:.2f} per hour.')
 
     if price > MAX_PRICE:
-        raise ValueError(f"Maximum price is ${MAX_PRICE:.2f}/hour.")
+        raise ValueError(f'The maximum price is ${MAX_PRICE:.2f} per hour.')
 
     return price
