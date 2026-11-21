@@ -48,10 +48,13 @@
       <p class="tutor-section-label mb-2">Matching times</p>
       <ul class="tutor-slot-list mb-0">
         {% for slot in tutor.available_slots|slice:":3" %}
-        <li class="tutor-slot" data-slot-id="{{ slot.id }}">
-          <div class="tutor-slot-when">{{ slot.when_label }}</div>
-          <div class="tutor-slot-meta">{{ slot.location_label }} · ${{ slot.price_per_hour }}/hour</div>
-        </li>
+        <li class="tutor-slot tutor-slot-bookable" data-slot-id="{{ slot.id }}">
+          <div class="tutor-slot-info">
+            <div class="tutor-slot-when">{{ slot.when_label }}</div>
+            <div class="tutor-slot-meta">{{ slot.location_label }} · ${{ slot.price_per_hour }}/hour</div>
+          </div>
+          <a class="btn btn-green btn-book" href="{% url 'book_confirm' slot.id %}?start={{ slot.start_iso|urlencode }}">Book</a>
+         </li>
         {% endfor %}
       </ul>
       {% if tutor.available_slots|length > 3 %}

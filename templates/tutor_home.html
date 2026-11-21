@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Home · {{ site_name|default:"tUtoR" }}{% endblock %}
+{% block title %}Tutor home · {{ site_name|default:"tUtoR" }}{% endblock %}
 
 {% block content %}
 <div class="home-page">
@@ -31,15 +31,26 @@
         <p class="mb-0">None yet. <a href="{% url 'personalise' %}">Pick the courses you have passed</a></p>
         {% endif %}
       </div>
-    </div>
+    </header>
 
-    <div class="card">
-      <div class="card-body">
-        <h2 class="h6">Slot offer</h2>
-        <p class="text-muted mb-3">
-          Suggested rate for you:
-          <strong>${{ suggested_price }}/hour</strong>
-        </p>
+    <section class="tutor-overview-stats mb-4" aria-label="Tutoring summary">
+      <div class="tutor-stat">
+        <span class="tutor-stat-value">{{ course_count }}</span>
+        <span class="tutor-stat-label">Courses you teach</span>
+      </div>
+      <div class="tutor-stat">
+        <span class="tutor-stat-value">{{ open_slot_count }}</span>
+        <span class="tutor-stat-label">Open slots</span>
+      </div>
+      <div class="tutor-stat">
+        <span class="tutor-stat-value">{{ booked_count }}</span>
+        <span class="tutor-stat-label">Confirmed bookings</span>
+      </div>
+      <div class="tutor-stat">
+        <span class="tutor-stat-value">{{ interest_count }}</span>
+        <span class="tutor-stat-label">Requests you joined</span>
+      </div>
+    </section>
 
         <form method="post" action="{% url 'tutor_home' %}" class="row g-3" novalidate>
           {% csrf_token %}
@@ -67,7 +78,25 @@
             <div id="id_price_per_hour_help" class="form-text">
               Allowed range: ${{ min_price }} to ${{ max_price }} per hour.
             </div>
+            {% if courses %}
+            <ul class="student-course-list mb-0">
+              {% for course in courses %}
+              <li>
+                <span class="student-course-code">{{ course.course_code }}</span>
+                <span class="student-course-name">{{ course.course_name }}</span>
+              </li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <p class="tutor-empty-note mb-0">
+              No courses yet.
+              <a href="{% url 'tutor_sessions' %}">Choose the courses you can teach</a>
+              on the sessions page.
+            </p>
+            {% endif %}
           </div>
+        </section>
+      </div>
 
           <div class="col-sm-6 col-md-4">
             <label for="id_location_type" class="form-label">Location</label>
@@ -87,20 +116,57 @@
             <div class="invalid-feedback">
               {{ location_error|default:"Choose Online or In person." }}
             </div>
+            {% if upcoming_slots %}
+            <ul class="tutor-overview-list mb-0">
+              {% for slot in upcoming_slots %}
+              <li>
+                <strong>{{ slot.when_label }}</strong>
+                <span>{{ slot.location_label }} · ${{ slot.price_per_hour }}/hour</span>
+              </li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <p class="tutor-empty-note mb-3">No open future slots yet.</p>
+            <a href="{% url 'tutor_sessions' %}" class="btn btn-outline-secondary rounded-pill">
+              Add a session
+            </a>
+            {% endif %}
           </div>
+        </section>
+      </div>
 
-          <div class="col-12 d-flex flex-wrap gap-2">
-            <button
-              type="button"
-              class="btn btn-outline-secondary rounded-pill"
-              id="use-suggested-price"
-              data-suggested="{{ suggested_price }}"
-            >
-              Use suggestion
-            </button>
-            <button type="submit" class="btn btn-green rounded-pill">Save slot details</button>
+      <div class="col-12">
+        <section class="card tutor-overview-card" aria-labelledby="tutor-bookings-heading">
+          <div class="card-body">
+            <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-3">
+              <h2 class="h6 mb-0" id="tutor-bookings-heading">Confirmed bookings</h2>
+            </div>
+            {% if recent_bookings %}
+            <ul class="tutor-overview-list mb-0">
+              {% for booking in recent_bookings %}
+              <li>
+                <strong>
+                  {% if booking.student.first_name or booking.student.last_name %}
+                    {{ booking.student.first_name }} {{ booking.student.last_name }}
+                  {% else %}
+                    {{ booking.student.email }}
+                  {% endif %}
+                </strong>
+                <span>
+                  {% if booking.course %}{{ booking.course }} · {% endif %}
+                  ${{ booking.session_price }}
+                  {% if booking.start_time %} · {{ booking.start_label }}{% endif %}
+                </span>
+              </li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <p class="tutor-empty-note mb-0">
+              No confirmed bookings yet. Once students book your open times, they will show up here.
+            </p>
+            {% endif %}
           </div>
-        </form>
+        </section>
       </div>
     </div>
   </div>
