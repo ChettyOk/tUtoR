@@ -4,7 +4,7 @@
 {% block title %}Find tutors · {{ site_name|default:"tUtoR" }}{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/search.css' %}?v=1" />
+<link rel="stylesheet" href="{% static 'css/search.css' %}?v=20261121b" />
 {% endblock %}
 
 {% block content %}
@@ -46,11 +46,18 @@
           </div>
           <div class="col-6 col-md-3">
             <label class="form-label find-label" for="f-price">Max price / hour</label>
-            <div class="input-group">
+            <div class="input-group has-validation">
               <span class="input-group-text">$</span>
-              <input id="f-price" class="form-control" type="number" name="max_price"
+              <input id="f-price"
+                     class="form-control{% if field_errors.max_price %} is-invalid{% endif %}"
+                     type="number" name="max_price"
                      min="{{ min_price }}" max="{{ max_price_limit }}" step="0.5"
-                     value="{{ raw.max_price }}" placeholder="Any" inputmode="decimal" />
+                     value="{{ raw.max_price }}" placeholder="Any" inputmode="decimal"
+                     aria-invalid="{% if field_errors.max_price %}true{% else %}false{% endif %}"
+                     {% if field_errors.max_price %}aria-describedby="f-price-error"{% endif %} />
+              <div id="f-price-error" class="invalid-feedback">
+                {{ field_errors.max_price|default:"Enter a valid max price." }}
+              </div>
             </div>
           </div>
           <div class="col-6 col-md-3">
@@ -63,8 +70,15 @@
           </div>
           <div class="col-6 col-md-3">
             <label class="form-label find-label" for="f-date">Day</label>
-            <input id="f-date" class="form-control" type="date" name="date" min="{{ today }}"
-                   value="{{ raw.date }}" />
+            <input id="f-date"
+                   class="form-control{% if field_errors.date %} is-invalid{% endif %}"
+                   type="date" name="date" min="{{ today }}"
+                   value="{{ raw.date }}"
+                   aria-invalid="{% if field_errors.date %}true{% else %}false{% endif %}"
+                   {% if field_errors.date %}aria-describedby="f-date-error"{% endif %} />
+            <div id="f-date-error" class="invalid-feedback">
+              {{ field_errors.date|default:"Pick a valid date." }}
+            </div>
           </div>
           <div class="col-6 col-md-3">
             <label class="form-label find-label" for="f-part">Time of day</label>

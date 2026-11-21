@@ -5568,3 +5568,9 @@ class CleanFiltersTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Max price must be a number')
         self.assertContains(response, 'Pick a valid date.')
+        self.assertContains(response, 'is-invalid')
+        self.assertIn('max_price', response.context['field_errors'])
+        self.assertEqual(
+            response.context['field_errors']['date'],
+            'Pick a valid date.',
+        )
