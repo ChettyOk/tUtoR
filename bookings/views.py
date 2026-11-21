@@ -1055,14 +1055,15 @@ def find_tutors_page(request):
    if request.user.has_role('tutor'):
         return redirect('tutor_home')
    
-   filters, errors = clean_filters(request.GET)
+   filters, field_errors = clean_filters(request.GET)
    tutors = search_tutors(filters, viewer=request.user)
    
    return render(request, 'student/find_tutors.html', {
         'site_name': 'tUtoR',
         'filters': filters,
         'raw': request.GET,
-        'errors': errors,
+        'field_errors': field_errors,
+        'errors': list(field_errors.values()),
         'tutors': tutors,
         'faculties': faculty_choices(),
         'sort_choices': SORT_CHOICES,

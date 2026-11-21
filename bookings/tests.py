@@ -5588,32 +5588,36 @@ class CleanFiltersTests(TestCase):
     def test_bad_price_gives_message_and_is_ignored(self):
         filters, errors = clean_filters({'max_price': 'abc'})
         self.assertIsNone(filters['max_price'])
-        self.assertEqual(len(errors), 1)
+        self.assertEqual(
+            errors['max_price'],
+            'Enter a valid max price per hour.',
+        )
 
     def test_price_out_of_range(self):
+        message = f'The max price must be between ${MIN_PRICE} and ${MAX_PRICE}.'
         _, errors = clean_filters({'max_price': '5'})
-        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors['max_price'], message)
         _, errors = clean_filters({'max_price': '9999'})
-        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors['max_price'], message)
 
     def test_bad_date_gives_message(self):
         filters, errors = clean_filters({'date': 'not-a-date'})
         self.assertIsNone(filters['date'])
-        self.assertEqual(errors, ['Pick a valid date.'])
+        self.assertEqual(errors, {'date': 'Pick a valid date.'})
 
     def test_impossible_date_gives_message(self):
         _, errors = clean_filters({'date': '2026-02-31'})
-        self.assertEqual(errors, ['Pick a valid date.'])
+        self.assertEqual(errors, {'date': 'Pick a valid date.'})
 
     def test_past_date_gives_message(self):
         _, errors = clean_filters({'date': '2001-01-01'})
-        self.assertEqual(errors, ['That date has already passed.'])
+        self.assertEqual(errors, {'date': 'That date has already passed.'})
 
     def test_unknown_location_and_part_are_dropped(self):
         filters, errors = clean_filters({'location': 'moon', 'part': 'night'})
         self.assertEqual(filters['location'], '')
         self.assertEqual(filters['part'], '')
-        self.assertEqual(errors, [])
+        self.assertEqual(errors, {})
 
     def test_q_is_trimmed_and_capped(self):
         filters, _ = clean_filters({'q': '  ' + 'x' * 500 + '  '})
@@ -5625,5 +5629,16 @@ class CleanFiltersTests(TestCase):
         response = self.client.get(
             reverse('find_tutors'), {'max_price': 'x', 'date': 'y'})
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Max price must be a number')
+        self.assertContains(response, 'Enter a valid max price per hour.')
         self.assertContains(response, 'Pick a valid date.')
+        self.assertContains(response, 'id="f-price"')
+        self.assertContains(response, 'id="f-date"')
+        self.assertContains(response, 'is-invalid')
+        self.assertEqual(
+            response.context['field_errors']['max_price'],
+            'Enter a valid max price per hour.',
+        )
+        self.assertEqual(
+            response.context['field_errors']['date'],
+            'Pick a valid date.',
+        )
