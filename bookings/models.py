@@ -168,6 +168,7 @@ class Booking(models.Model):
     cancel_time = models.DateTimeField(null=True, blank=True)
     complete_time = models.DateTimeField(null=True, blank=True)
     cancellation_reason = models.TextField(blank=True, default='')
+    reminder_sent = models.BooleanField(default=False)
 
 
     def __str__(self):

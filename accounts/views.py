@@ -559,11 +559,19 @@ def student_home(request):
     profile = StudentProfile.objects.filter(user=request.user).first()
     courses = profile.courses.order_by('course_code') if profile else []
     tutors = _tutors_for_student(profile)
+    from interactions.models import Notification
+
     return render(request, 'student_home.html', {
         'site_name': 'tUtoR',
+       
         'campus': 'University of Regina',
+       
         'courses': courses,
         'tutors': tutors,
+    
+        'notifications': Notification.objects.filter(
+            recipient=request.user,
+        ).exclude(type='reminder')[:10],
     })
 
 
@@ -618,7 +626,8 @@ def _tutor_home_overview(user):
             'session_price': str(booking.session_price),
             'start_time': booking.start_time,
             'start_label': start_label,
-        })
+    })
+
 
     return {
         'courses': courses,
@@ -657,12 +666,16 @@ def _tutor_home_overview(user):
     context = {
         'site_name': 'tUtoR',
         'campus': 'University of Regina',
+        'notifications': Notification.objects.filter(
+            recipient=request.user,
+        ).exclude(type='reminder')[:10],
     }
+
     context.update(_tutor_home_overview(request.user))
 
     from bookings.request_pages import build_tutor_request_cards
     context['request_cards'] = build_tutor_request_cards(request.user)
-    
+
     return render(request, 'tutor_home.html', context)
 
 @require_GET
