@@ -629,3 +629,6 @@ h1, h2, h3, .card-title {
   min-height: 0;
   height: auto;
 }
+
+.student-requests-link { color: var(--muted); font-size: 0.92rem; }
+.student-requests-link a { color: var(--green); font-weight: 600; }

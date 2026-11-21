@@ -18,6 +18,13 @@
       <p class="text-muted mb-0">Check the details, choose your exact time and confirm.</p>
     </header>
 
+    {% if request_obj %}
+    <div class="alert book-request-banner" role="note">
+      Booking for your request: <strong>{{ request_obj.course.course_code }} · {{ request_obj.course.course_name }}</strong>.
+      Once you confirm, the request is marked as fulfilled.
+    </div>
+    {% endif %}
+
     {% if not window %}
     <div class="card book-unavailable">
       <div class="card-body">
@@ -121,7 +128,8 @@
               <div><dt>Booking</dt><dd id="ok-id"></dd></div>
             </dl>
             <div class="d-flex flex-wrap gap-2">
-              <a class="btn btn-green" href="{% url 'find_tutors' %}">Find more tutors</a>
+              {% if request_obj %}<a class="btn btn-green" href="{% url 'my_requests' %}">My requests</a>{% endif %}
+              <a class="btn {% if request_obj %}btn-find-clear{% else %}btn-green{% endif %}" href="{% url 'find_tutors' %}">Find more tutors</a>
               <a class="btn btn-find-clear" href="{% url 'student_home' %}">Back to home</a>
             </div>
           </div>

@@ -121,6 +121,10 @@
             No tutor has open times right now. Check back soon.
             {% endif %}
           </p>
+          <div class="find-request-cta mt-3">
+            <p class="mb-2"><strong>Can't find the right tutor?</strong> Ask for one. Tutors who can help will respond, and you choose who to book.</p>
+            <a class="btn btn-green" href="{% url 'request_form' %}{% if filters.q %}?q={{ filters.q|urlencode }}{% endif %}">Request a tutor</a>
+          </div>
         </div>
       </div>
       {% endif %}
