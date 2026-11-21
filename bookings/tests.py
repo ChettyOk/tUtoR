@@ -47,7 +47,7 @@ from bookings.services import (
     serialize_student_dashboard,
 )
 from tUtoR.views import custom_403, custom_500
-from bookings.interfaces import BookingEvent
+from bookings.interfaces import BookingEvent, TutoringRequestEvent
 from bookings.observers import (
     CancellationMailObserver,
     ConfirmationMailObserver,
@@ -313,16 +313,21 @@ class test_create_booking(TestCase):
         Dummy_Slot.objects.select_for_update.return_value.get.return_value = self.mock_slot 
 
     def test_create_booking(self):
-        booking = create_booking_request(
-            student=self.student,
-            tutor=self.tutor,
-            slot=self.mock_slot,
-            course=self.course1,
-            student_note="Hilfeeeeeeeeeeeeeeeee wipfi kann nicht erklären")
+        with patch('bookings.services.booking_event_manager.notify') as notify:
+            with self.captureOnCommitCallbacks(execute=True):
+                booking = create_booking_request(
+                    student=self.student,
+                    tutor=self.tutor,
+                    slot=self.mock_slot,
+                    course=self.course1,
+                    student_note="Hilfeeeeeeeeeeeeeeeee wipfi kann nicht erklären",
+                )
+
         self.assertEqual(booking.status, Booking.Status.CONFIRMED)
         self.assertEqual(booking.session_price, Decimal('30.00'))
         self.assertEqual(self.mock_slot.status, 'booked')
         self.mock_slot.save.assert_called_once()
+        notify.assert_called_once_with(BookingEvent.BOOKED, booking)
 
     def test_double_booking_protection(self):
         self.mock_slot.status = 'booked'
@@ -571,13 +576,18 @@ class test_booking_views(TestCase):
         self.assertEqual(data['student_bookings'][0]['id'], self.booking.id)
 
     def test_cancel_booking_student(self):
-        self.client.force_login(self.student)
-        url = reverse('cancel_booking', kwargs={'booking_id': self.booking.id})
-        response = self.client.post(url, {'reason': 'Kein bock mehr auf leben'})
+        with patch('bookings.services.booking_event_manager.notify') as notify:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.client.force_login(self.student)
+                url = reverse('cancel_booking', kwargs={'booking_id': self.booking.id})
+                response = self.client.post(url, {'reason': 'Kein bock mehr auf leben'})
         self.assertEqual(response.status_code, 200)
         self.booking.refresh_from_db()
         self.assertEqual(self.booking.status, Booking.Status.CANCELLED_STUDENT)
         self.assertEqual(self.booking.cancellation_reason, 'Kein bock mehr auf leben')
+        notify.assert_called_once()
+        self.assertEqual(notify.call_args.args[0], BookingEvent.CANCELLED)
+        self.assertEqual(notify.call_args.args[1].pk, self.booking.pk)
 
 class test_available_slots_model(TestCase):
     def setUp(self):
@@ -3483,6 +3493,24 @@ class TutoringRequestInterestViewTests(TestCase):
         self.assertEqual(first_response.status_code, 201)
         self.assertEqual(second_response.status_code, 200)
         self.assertEqual(TutoringRequestInterest.objects.count(), 1)
+
+    def test_new_interest_notification_runs_after_commit(self):
+        with patch(
+            'bookings.services.tutoring_request_event_manager.notify'
+        ) as notify:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(self.interest_url)
+
+        self.assertEqual(response.status_code, 201)
+        notify.assert_called_once()
+        self.assertEqual(
+            notify.call_args.args[0],
+            TutoringRequestEvent.INTEREST_EXPRESSED,
+        )
+        self.assertEqual(
+            notify.call_args.args[1].tutoring_request,
+            self.tutoring_request,
+        )
 
     def test_multiple_tutors_can_express_interest(self):
         first_response = self.client.post(self.interest_url)

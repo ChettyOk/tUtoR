@@ -33,16 +33,24 @@ class RequestFulfillmentConflict(ValueError):
 
 
 def cancel_booking(booking, *, cancelled_by, reason=''):
-    booking.cancel(
-        cancelled_by=cancelled_by,
-        reason=reason,
-    )
-    transaction.on_commit(
-        lambda: booking_event_manager.notify(
-            BookingEvent.CANCELLED,
-            booking,
+    with transaction.atomic():
+        locked_booking = (
+            Booking.objects
+            .select_for_update()
+            .get(pk=booking.pk)
         )
-    )
+        locked_booking.cancel(
+            cancelled_by=cancelled_by,
+            reason=reason,
+        )
+        transaction.on_commit(
+            lambda booking=locked_booking: booking_event_manager.notify(
+                BookingEvent.CANCELLED,
+                booking,
+            )
+        )
+        booking.refresh_from_db()
+
     return booking
 
 
@@ -112,6 +120,12 @@ def create_booking_request(student, tutor, slot, course=None, student_note='', s
             student_note=student_note,
             session_price=session_price,
             status=Booking.Status.CONFIRMED,
+        )
+        transaction.on_commit(
+            lambda booking=booking: booking_event_manager.notify(
+                BookingEvent.BOOKED,
+                booking,
+            )
         )
         return booking
 
@@ -343,9 +357,11 @@ def express_tutoring_request_interest(*, request_id, tutor):
         )
 
         if created:
-            tutoring_request_event_manager.notify(
-                TutoringRequestEvent.INTEREST_EXPRESSED,
-                interest,
+            transaction.on_commit(
+                lambda interest=interest: tutoring_request_event_manager.notify(
+                    TutoringRequestEvent.INTEREST_EXPRESSED,
+                    interest,
+                )
             )
 
     return interest, created
@@ -471,7 +487,6 @@ def fulfill_tutoring_request(
             update_fields=['fulfilled_booking', 'status'],
         )
 
-    booking_event_manager.notify(BookingEvent.BOOKED, booking)
     return booking, tutoring_request
 
 def update_rating(user, rated_role):
