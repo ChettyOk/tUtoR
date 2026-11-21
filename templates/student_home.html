@@ -49,6 +49,53 @@
       </div>
     </section>
 
+    <section class="card mb-4" aria-labelledby="student-bookings-heading" data-booking-list>
+      <div class="card-body">
+        <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-3">
+          <h2 class="h6 mb-0" id="student-bookings-heading">Your bookings</h2>
+        </div>
+        <div id="booking-alert" class="alert alert-danger" role="alert" hidden></div>
+        <div id="booking-success" class="alert alert-success" role="status" hidden></div>
+        {% if bookings %}
+        <ul class="student-booking-list mb-0">
+          {% for booking in bookings %}
+          <li class="student-booking" data-booking-id="{{ booking.id }}">
+            <div class="student-booking-info">
+              <strong>
+                {% if booking.tutor.first_name or booking.tutor.last_name %}
+                  {{ booking.tutor.first_name }} {{ booking.tutor.last_name }}
+                {% else %}
+                  {{ booking.tutor.email }}
+                {% endif %}
+              </strong>
+              <span>
+                {% if booking.course %}{{ booking.course }} · {% endif %}
+                ${{ booking.session_price }}
+                {% if booking.start_label %} · {{ booking.start_label }}{% endif %}
+                {% if booking.location_label %} · {{ booking.location_label }}{% endif %}
+              </span>
+            </div>
+            <div class="student-booking-actions">
+              <button
+                type="button"
+                class="btn btn-outline-secondary btn-sm js-cancel-booking"
+                data-url="{{ booking.cancel_url }}"
+              >
+                Cancel
+              </button>
+              <span class="booking-error" role="alert" hidden></span>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="student-empty mb-0">
+          No confirmed bookings yet. Book an open time from a tutor below.
+        </p>
+        {% endif %}
+      </div>
+    </section>
+
     <section class="tutor-list" aria-labelledby="tutor-list-heading" data-tutor-list>
       <div class="tutor-list-header mb-3">
         <div class="d-flex flex-wrap align-items-end justify-content-between gap-3">
@@ -224,4 +271,5 @@
 
 {% block extra_js %}
 <script src="{% static 'js/student-home.js' %}?v=20261117d"></script>
+<script src="{% static 'js/bookings-home.js' %}?v=20261121a"></script>
 {% endblock %}
