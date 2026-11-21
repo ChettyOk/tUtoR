@@ -56,7 +56,7 @@
                      aria-invalid="{% if field_errors.max_price %}true{% else %}false{% endif %}"
                      {% if field_errors.max_price %}aria-describedby="f-price-error"{% endif %} />
               <div id="f-price-error" class="invalid-feedback">
-                {{ field_errors.max_price|default:"Enter a valid max price per hour." }}
+                {{ field_errors.max_price|default:"Enter a valid max price." }}
               </div>
             </div>
           </div>

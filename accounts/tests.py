@@ -2731,9 +2731,9 @@ class HomePageTests(TestCase):
 
         cases = (
             ('', 'Enter a price per hour.'),
-            ('abc', 'Enter a valid price per hour.'),
-            ('1.00', 'The minimum price is $15.70 per hour.'),
-            ('151.00', 'The maximum price is $150.00 per hour.'),
+            ('abc', 'Price must be a valid number.'),
+            ('1.00', 'Minimum price is $15.70/hour.'),
+            ('151.00', 'Maximum price is $150.00/hour.'),
         )
         for raw_price, message in cases:
             with self.subTest(price=raw_price):
@@ -2757,7 +2757,7 @@ class HomePageTests(TestCase):
         })
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Saved: $25.50/hour, In person.')
+        self.assertContains(response, 'Slot details saved: $25.50/hour, In person.')
         self.assertEqual(self.client.session['tutor_hourly_price'], '25.50')
         self.assertEqual(self.client.session['tutor_location_type'], 'in_person')
         self.assertEqual(response.context['price_error'], '')

@@ -28,10 +28,10 @@ LOCATION_LABELS = dict(Available_Slots.LocationType.choices)
 def clean_filters(params):
     """Turn request.GET into validated filters.
 
-    Returns (filters, field_errors). A bad value never crashes the page: it is
-    dropped and a readable message is stored under that field (QLT-03.1).
+    Returns (filters, errors). A bad value never crashes the page: it is
+    dropped and a readable message is added to errors (QLT-03.1).
     """
-    field_errors = {}
+    errors = []
     filters = {
         'q': params.get('q', '').strip()[:100],
         'faculty': params.get('faculty', '').strip(),
@@ -55,15 +55,13 @@ def clean_filters(params):
     if raw_price:
         try:
             price = Decimal(raw_price)
-        except InvalidOperation:
-            field_errors['max_price'] = 'Enter a valid max price per hour.'
-        else:
             if price < MIN_PRICE or price > MAX_PRICE:
-                field_errors['max_price'] = (
-                    f'The max price must be between ${MIN_PRICE} and ${MAX_PRICE}.'
-                )
-            else:
-                filters['max_price'] = price
+                raise InvalidOperation
+            filters['max_price'] = price
+        except InvalidOperation:
+            errors.append(
+                f'Max price must be a number between ${MIN_PRICE} and ${MAX_PRICE}.'
+            )
 
     raw_date = params.get('date', '').strip()
     if raw_date:
@@ -73,13 +71,13 @@ def clean_filters(params):
         except ValueError:
             parsed = None
         if parsed is None:
-            field_errors['date'] = 'Pick a valid date.'
+            errors.append('Pick a valid date.')
         elif parsed < timezone.localdate():
-            field_errors['date'] = 'That date has already passed.'
+            errors.append('That date has already passed.')
         else:
             filters['date'] = parsed
 
-    return filters, field_errors
+    return filters, errors
 
 
 def _slot_matches(start, end, price, location, filters):

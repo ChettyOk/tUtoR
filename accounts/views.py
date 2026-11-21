@@ -601,23 +601,27 @@ def tutor_home(request):
         price_value = raw_price
         location_value = raw_location or location_value
 
-        try:
-            saved_price = custom_pricing(raw_price)
-        except ValueError as error:
-            price_error = str(error)
+        if not raw_price:
+            price_error = 'Enter a price per hour.'
             saved_price = None
+        else:
+            try:
+                saved_price = custom_pricing(raw_price)
+            except ValueError as error:
+                price_error = str(error)
+                saved_price = None
 
         if raw_location not in valid_locations:
             location_error = 'Choose Online or In person.'
 
         if saved_price is not None and not location_error:
-            price_value = f'{saved_price:.2f}'
+            price_value = str(saved_price)
             location_value = raw_location
             request.session['tutor_hourly_price'] = price_value
             request.session['tutor_location_type'] = location_value
             location_label = dict(location_choices)[location_value]
             success_message = (
-                f'Saved: ${price_value}/hour, {location_label}.'
+                f'Slot details saved: ${saved_price}/hour, {location_label}.'
             )
 
     return render(request, 'tutor_home.html', {

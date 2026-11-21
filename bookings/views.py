@@ -1049,21 +1049,33 @@ def complete_booking_view(request, booking_id):
         'status': booking.status,
     })
 
+def _search_field_errors(errors):
+    """Map clean_filters message list onto form fields for the template."""
+    field_errors = {}
+    for message in errors:
+        lower = message.lower()
+        if 'price' in lower:
+            field_errors['max_price'] = message
+        elif 'date' in lower or 'passed' in lower:
+            field_errors['date'] = message
+    return field_errors
+
+
 @login_required
 def find_tutors_page(request):
    """STU-02.5: search page where students filter tutors and open times."""
    if request.user.has_role('tutor'):
         return redirect('tutor_home')
    
-   filters, field_errors = clean_filters(request.GET)
+   filters, errors = clean_filters(request.GET)
    tutors = search_tutors(filters, viewer=request.user)
    
    return render(request, 'student/find_tutors.html', {
         'site_name': 'tUtoR',
         'filters': filters,
         'raw': request.GET,
-        'field_errors': field_errors,
-        'errors': list(field_errors.values()),
+        'errors': errors,
+        'field_errors': _search_field_errors(errors),
         'tutors': tutors,
         'faculties': faculty_choices(),
         'sort_choices': SORT_CHOICES,
