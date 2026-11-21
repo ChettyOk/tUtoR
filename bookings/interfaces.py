@@ -47,3 +47,17 @@ class TutoringRequestObserver(ABC):
     @abstractmethod
     def update(self, event: TutoringRequestEvent, interest: Any) -> None:
         """React to a tutoring request event."""
+
+
+class TutoringRequestSubject(ABC):
+    @abstractmethod
+    def attach(self, observer: TutoringRequestObserver) -> None:
+        """Subscribe an observer."""
+
+    @abstractmethod
+    def detach(self, observer: TutoringRequestObserver) -> None:
+        """Unsubscribe an observer."""
+
+    @abstractmethod
+    def notify(self, event: TutoringRequestEvent, interest: Any) -> None:
+        """Notify all subscribed observers."""

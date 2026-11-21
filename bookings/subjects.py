@@ -7,6 +7,7 @@ from bookings.interfaces import (
     BookingSubject,
     TutoringRequestEvent,
     TutoringRequestObserver,
+    TutoringRequestSubject,
 )
 
 
@@ -42,7 +43,7 @@ class BookingEventManager(BookingSubject):
 booking_event_manager = BookingEventManager()
 
 
-class TutoringRequestEventManager:
+class TutoringRequestEventManager(TutoringRequestSubject):
     """Central subject for tutoring request lifecycle events."""
 
     def __init__(self) -> None:

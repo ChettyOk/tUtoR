@@ -47,15 +47,8 @@ class TutoringRequestInterestNotificationObserver(TutoringRequestObserver):
         if event != TutoringRequestEvent.INTEREST_EXPRESSED:
             return
 
-        tutor = interest.tutor
-        tutoring_request = interest.tutoring_request
-        Notification.create_notification(
-            recipient=tutoring_request.student,
-            sender=tutor,
-            notification_type=Notification.Type.INTEREST,
-            title="New tutor interest",
-            message=(
-                f"{tutor.get_full_name() or tutor.email} is interested "
-                f"in your tutoring request #{tutoring_request.pk}."
-            ),
+        notification = NotificationFactory.create(
+            "interest",
+            interest=interest,
         )
+        Notification.objects.bulk_create([notification])
