@@ -1,0 +1,47 @@
+.find-filters {
+  border: 1px solid var(--bs-border-color);
+  background: var(--paper, #fffdf8);
+}
+.find-searchbar {
+  display: flex;
+  gap: 0.6rem;
+}
+.find-searchbar .form-control { flex: 1 1 auto; }
+.find-searchbar .btn { flex: 0 0 auto; }
+.find-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--green);
+  margin-bottom: 0.3rem;
+}
+.find-filters .form-control:focus,
+.find-filters .form-select:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 0.2rem rgba(0, 79, 46, 0.16);
+}
+.btn-find-clear {
+  border: 1px solid rgba(0, 79, 46, 0.35);
+  color: var(--green-deep);
+  background: transparent;
+}
+.btn-find-clear:hover {
+  background: rgba(0, 79, 46, 0.08);
+  color: var(--green-deep);
+}
+.tutor-more-times {
+  margin-top: 0.55rem;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--green);
+}
+.tutor-course-chips .chip-more {
+  background: transparent;
+  border: 1px dashed rgba(0, 79, 46, 0.35);
+}
+@media (max-width: 575.98px) {
+  .find-searchbar { flex-direction: column; }
+}
+
+.find-request-cta { border-top: 1px dashed rgba(0, 79, 46, 0.25); padding-top: 1rem; }

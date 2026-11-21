@@ -12,12 +12,12 @@
 <div class="container py-5">
 
   <header class="sessions-hero mb-5">
-    <a href="{% url 'tutor_home' %}" class="back-link">&larr; Back to home</a>
-    <p class="kicker mt-3 mb-0">Tutor</p>
+    <a href="{% url 'tutor_home' %}" class="back-link">&larr; Back to tutor home</a>
+    <p class="kicker mt-3 mb-0">Sessions setup</p>
     <h1>Set up tutoring sessions</h1>
     <p class="hero-text">
-      Choose the courses you teach, then add the times you are free. Students
-      can book any open time.
+      This is where you configure what you offer: pick courses, add open times,
+      and manage your schedule. Your overview stays on tutor home.
     </p>
     <div class="hero-stats" aria-label="Your summary">
       <div class="hero-stat">
@@ -134,7 +134,8 @@
 
             <div class="mb-4">
               <label for="slot-location" class="form-label">Where</label>
-              <select id="slot-location" class="form-select" disabled></select>
+              <select id="slot-location" class="form-select" disabled aria-describedby="slot-location-error"></select>
+              <div id="slot-location-error" class="form-text text-danger" hidden></div>
             </div>
 
             <div class="form-actions">

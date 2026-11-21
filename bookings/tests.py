@@ -46,6 +46,12 @@ from bookings.services import (
     serialize_slot,
     get_student_dashboard,
     serialize_student_dashboard,
+    MAX_OPEN_REQUESTS,
+    MIN_DESCRIPTION_LENGTH,
+    REQUEST_LIFETIME_DAYS,
+    create_tutoring_request,
+    expire_old_requests,
+    get_visible_tutoring_requests,
 )
 from tUtoR.views import custom_403, custom_500
 from bookings.interfaces import BookingEvent, TutoringRequestEvent
@@ -56,6 +62,7 @@ from bookings.observers import (
 )
 from bookings.subjects import BookingEventManager
 
+from bookings.search import clean_filters, search_tutors
 
 class Dummy_Slot: 
     objects = MagicMock()
@@ -2927,6 +2934,16 @@ class TutoringRequestFormViewTests(TestCase):
 
         return self.client.get(self.url, data)
 
+    def add_open_slot(self):
+        """A tutor only counts as offering a course with an open future time."""
+        start = timezone.now() + timedelta(days=2)
+        return Available_Slots.create_slot(
+            tutor=self.tutor,
+            start_time=start,
+            end_time=start + timedelta(hours=1),
+            price_per_hour=Decimal('20.00'),
+        )
+
     def post_request(self):
         return self.client.post(
             reverse('create_request'),
@@ -2988,9 +3005,9 @@ class TutoringRequestFormViewTests(TestCase):
         self.assertIs(response.json()['can_create_request'], True)
         self.assertEqual(response.json()['existing_tutors'], [])
 
-    def test_existing_tutor_blocks_course_without_requiring_slots(self):
+    def test_existing_tutor_with_open_session_blocks_course(self):
         self.tutor_profile.courses_passed.add(self.course)
-
+        self.add_open_slot()
         response = self.get_form(self.course)
 
         self.assertEqual(response.status_code, 200)
@@ -3056,6 +3073,7 @@ class TutoringRequestFormViewTests(TestCase):
 
     def test_tutor_role_switch_does_not_remove_course_offer(self):
         self.tutor_profile.courses_passed.add(self.course)
+        self.add_open_slot()
         self.tutor.switch_role(User.Role.STUDENT)
         self.tutor.save(update_fields=['role'])
 
@@ -3073,6 +3091,7 @@ class TutoringRequestFormViewTests(TestCase):
 
     def test_direct_creation_is_blocked_without_form_check(self):
         self.tutor_profile.courses_passed.add(self.course)
+        self.add_open_slot()
         request_count = TutoringRequest.objects.count()
         booking_count = Booking.objects.count()
 
@@ -3105,10 +3124,20 @@ class TutoringRequestFormViewTests(TestCase):
 
         self.tutor_profile.courses_passed.add(self.course)
 
+        self.add_open_slot()
+
         response = self.post_request()
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(TutoringRequest.objects.count(), 0)
+
+    def test_tutor_with_course_but_no_sessions_does_not_block(self):
+        self.tutor_profile.courses_passed.add(self.course)
+
+        form_response = self.get_form(self.course)
+        self.assertIs(form_response.json()['can_create_request'], True)
+        self.assertEqual(self.post_request().status_code, 201)
+
 
     def test_creation_is_allowed_without_existing_tutors(self):
         response = self.post_request()
@@ -4829,8 +4858,12 @@ class RequestPublicationFlowTests(TestCase):
 
         self.tutor_profile.courses_passed.add(self.course)
 
-        self.assertFalse(
-            Available_Slots.objects.filter(tutor=self.tutor).exists(),
+        start = timezone.now() + timedelta(days=2)
+        Available_Slots.create_slot(
+            tutor=self.tutor,
+            start_time=start,
+            end_time=start + timedelta(hours=1),
+            price_per_hour=Decimal('20.00'),
         )
 
         response = self.student_client.post(
@@ -4904,11 +4937,11 @@ class TutorRequestResponseFlowTests(TestCase):
         self.tutor_two_client = Client()
         self.tutor_two_client.force_login(self.tutor_two)
 
-    def publish_request(self, description='Help with transactions.'):
+    def publish_request(self, description='Help with transactions.', course=None):
         response = self.student_client.post(
             reverse('create_request'),
             {
-                'course_id': self.course.pk,
+                'course_id': (course or self.course).pk,
                 'description': description,
                 'location_type': TutoringRequest.LocationType.FLEXIBLE,
                 'visibility': TutoringRequest.Visibility.ALL_TUTORS,
@@ -5153,6 +5186,7 @@ class TutorRequestResponseFlowTests(TestCase):
         )
         open_request_id = self.publish_request(
             'Help with Django testing.',
+            course=Course.create_course('CS 499', 'A Second Course'),
         )
 
         self.assert_forum_ids(
@@ -5369,7 +5403,472 @@ class TutorSaveCoursesTests(TestCase):
         self.assertEqual(len(self.saved()), 25)
 
 
+def make_user(email, first, role=User.Role.TUTOR):
+    user = User.objects.create_user(
+        email=email, password='pass12345!', first_name=first, last_name='Test',
+    )
+    user.role = role
+    user.save()
+    return user
 
+
+def future_slot(tutor, days=2, hour=10, hours=1, price='20.00',
+                location='online'):
+    """Create an open slot `days` from now at the given LOCAL hour."""
+    base = timezone.localtime(timezone.now()) + timedelta(days=days)
+    start = base.replace(hour=hour, minute=0, second=0, microsecond=0)
+    return Available_Slots.objects.create(
+        tutor=tutor,
+        start_time=start,
+        end_time=start + timedelta(hours=hours),
+        price_per_hour=Decimal(price),
+        location_type=location,
+    )
+
+
+class FindTutorsBase(TestCase):
+    def setUp(self):
+        self.cs = Course.objects.create(
+            course_code='CS110', course_name='Intro to Programming',
+            course_faculty='Science')
+        self.eng = Course.objects.create(
+            course_code='ENGL100', course_name='Academic Writing',
+            course_faculty='Arts')
+
+        self.student = make_user('stu@uregina.ca', 'Sam', User.Role.STUDENT)
+        StudentProfile.objects.get_or_create(user=self.student)
+
+        self.alice = make_user('alice@uregina.ca', 'Alice')
+        self.alice_profile, _ = TutorProfile.objects.get_or_create(user=self.alice)
+        self.alice_profile.courses_passed.add(self.cs)
+        self.alice_profile.average_rating = Decimal('4.50')
+        self.alice_profile.save()
+
+        self.bob = make_user('bob@uregina.ca', 'Bob')
+        self.bob_profile, _ = TutorProfile.objects.get_or_create(user=self.bob)
+        self.bob_profile.courses_passed.add(self.eng)
+
+        self.alice_slot = future_slot(self.alice, days=2, hour=9, price='30.00')
+        self.bob_slot = future_slot(
+            self.bob, days=3, hour=18, price='18.00', location='in_person')
+
+        self.client.force_login(self.student)
+        self.url = reverse('find_tutors')
+
+    def names(self, response):
+        return [t['first_name'] for t in response.context['tutors']]
+
+
+class FindTutorsPageTests(FindTutorsBase):
+    def test_requires_login(self):
+        self.client.logout()
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('login', response.url)
+
+    def test_tutor_role_redirected_home(self):
+        self.client.force_login(self.alice)
+        response = self.client.get(self.url)
+        self.assertRedirects(response, reverse('tutor_home'))
+
+    def test_lists_all_tutors_with_open_times(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertCountEqual(self.names(response), ['Alice', 'Bob'])
+
+    def test_tutor_without_open_slots_is_hidden(self):
+        self.alice_slot.status = Available_Slots.Status.BOOKED
+        self.alice_slot.save()
+        self.assertEqual(self.names(self.client.get(self.url)), ['Bob'])
+
+    def test_past_slots_do_not_count(self):
+        Available_Slots.objects.filter(pk=self.bob_slot.pk).update(
+            start_time=timezone.now() - timedelta(days=2),
+            end_time=timezone.now() - timedelta(days=2) + timedelta(hours=1),
+        )
+        self.assertEqual(self.names(self.client.get(self.url)), ['Alice'])
+
+    def test_viewer_never_sees_themselves(self):
+        both = make_user('both@uregina.ca', 'Both', User.Role.STUDENT)
+        TutorProfile.objects.get_or_create(user=both)
+        future_slot(both, days=4)
+        self.client.force_login(both)
+        self.assertNotIn('Both', self.names(self.client.get(self.url)))
+
+    def test_empty_state_message(self):
+        response = self.client.get(self.url, {'q': 'zzzzzz'})
+        self.assertContains(response, 'No tutors match')
+        self.assertContains(response, 'Clear all filters')
+
+    def test_card_shows_time_price_and_course(self):
+        response = self.client.get(self.url)
+        self.assertContains(response, 'CS110')
+        self.assertContains(response, '$30.00/hour')
+
+    def test_student_home_has_search_box(self):
+        response = self.client.get(reverse('student_home'))
+        self.assertContains(response, 'action="%s"' % self.url)
+
+
+class FindTutorsFilterTests(FindTutorsBase):
+    def test_search_by_tutor_name(self):
+        self.assertEqual(
+            self.names(self.client.get(self.url, {'q': 'alic'})), ['Alice'])
+
+    def test_search_by_course_code(self):
+        self.assertEqual(
+            self.names(self.client.get(self.url, {'q': 'engl'})), ['Bob'])
+
+    def test_search_by_course_name(self):
+        self.assertEqual(
+            self.names(self.client.get(self.url, {'q': 'programming'})),
+            ['Alice'])
+
+    def test_faculty_filter(self):
+        self.assertEqual(
+            self.names(self.client.get(self.url, {'faculty': 'Arts'})), ['Bob'])
+
+    def test_location_filter(self):
+        self.assertEqual(
+            self.names(self.client.get(self.url, {'location': 'in_person'})),
+            ['Bob'])
+
+    def test_max_price_filter(self):
+        self.assertEqual(
+            self.names(self.client.get(self.url, {'max_price': '25'})), ['Bob'])
+
+    def test_max_price_is_inclusive(self):
+        self.assertCountEqual(
+            self.names(self.client.get(self.url, {'max_price': '30'})),
+            ['Alice', 'Bob'])
+
+    def test_day_filter(self):
+        day = timezone.localtime(self.alice_slot.start_time).date().isoformat()
+        self.assertEqual(
+            self.names(self.client.get(self.url, {'date': day})), ['Alice'])
+
+    def test_part_of_day_morning(self):
+        self.assertEqual(
+            self.names(self.client.get(self.url, {'part': 'morning'})),
+            ['Alice'])
+
+    def test_part_of_day_evening(self):
+        self.assertEqual(
+            self.names(self.client.get(self.url, {'part': 'evening'})), ['Bob'])
+
+    def test_filters_combine(self):
+        response = self.client.get(
+            self.url, {'faculty': 'Science', 'location': 'in_person'})
+        self.assertEqual(self.names(response), [])
+
+    def test_only_matching_times_are_shown_on_card(self):
+        future_slot(self.alice, days=5, hour=19, price='45.00')
+        response = self.client.get(self.url, {'part': 'evening'})
+        tutor = [t for t in response.context['tutors']
+                 if t['first_name'] == 'Alice'][0]
+        self.assertEqual(len(tutor['available_slots']), 1)
+        self.assertEqual(tutor['lowest_price'], Decimal('45.00'))
+
+    def test_partially_booked_slot_uses_remaining_window(self):
+        from bookings.models import Booking
+        self.alice_slot.end_time = self.alice_slot.start_time + timedelta(hours=3)
+        self.alice_slot.save()
+        Booking.objects.create(
+            student=self.student, tutor=self.alice, course=self.cs,
+            start_time=self.alice_slot.start_time,
+            end_time=self.alice_slot.start_time + timedelta(hours=3),
+            session_price=Decimal('30.00'),
+            status=Booking.Status.CONFIRMED,
+        )
+        self.assertEqual(self.names(self.client.get(self.url)), ['Bob'])
+
+
+class FindTutorsSortTests(FindTutorsBase):
+    def test_sort_soonest_default(self):
+        self.assertEqual(self.names(self.client.get(self.url)), ['Alice', 'Bob'])
+
+    def test_sort_by_price(self):
+        self.assertEqual(
+            self.names(self.client.get(self.url, {'sort': 'price'})),
+            ['Bob', 'Alice'])
+
+    def test_sort_by_rating_puts_unrated_last(self):
+        self.assertEqual(
+            self.names(self.client.get(self.url, {'sort': 'rating'})),
+            ['Alice', 'Bob'])
+
+    def test_unknown_sort_falls_back(self):
+        filters, _ = clean_filters({'sort': 'nonsense'})
+        self.assertEqual(filters['sort'], 'soonest')
+
+
+class CleanFiltersTests(TestCase):
+    def test_bad_price_gives_message_and_is_ignored(self):
+        filters, errors = clean_filters({'max_price': 'abc'})
+        self.assertIsNone(filters['max_price'])
+        self.assertEqual(len(errors), 1)
+
+    def test_price_out_of_range(self):
+        _, errors = clean_filters({'max_price': '5'})
+        self.assertEqual(len(errors), 1)
+        _, errors = clean_filters({'max_price': '9999'})
+        self.assertEqual(len(errors), 1)
+
+    def test_bad_date_gives_message(self):
+        filters, errors = clean_filters({'date': 'not-a-date'})
+        self.assertIsNone(filters['date'])
+        self.assertEqual(errors, ['Pick a valid date.'])
+
+    def test_impossible_date_gives_message(self):
+        _, errors = clean_filters({'date': '2026-02-31'})
+        self.assertEqual(errors, ['Pick a valid date.'])
+
+    def test_past_date_gives_message(self):
+        _, errors = clean_filters({'date': '2001-01-01'})
+        self.assertEqual(errors, ['That date has already passed.'])
+
+    def test_unknown_location_and_part_are_dropped(self):
+        filters, errors = clean_filters({'location': 'moon', 'part': 'night'})
+        self.assertEqual(filters['location'], '')
+        self.assertEqual(filters['part'], '')
+        self.assertEqual(errors, [])
+
+    def test_q_is_trimmed_and_capped(self):
+        filters, _ = clean_filters({'q': '  ' + 'x' * 500 + '  '})
+        self.assertEqual(len(filters['q']), 100)
+
+    def test_page_survives_garbage_and_shows_error(self):
+        student = make_user('s2@uregina.ca', 'Sam2', User.Role.STUDENT)
+        self.client.force_login(student)
+        response = self.client.get(
+            reverse('find_tutors'), {'max_price': 'x', 'date': 'y'})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Max price must be a number')
+        self.assertContains(response, 'Pick a valid date.')
+        self.assertContains(response, 'is-invalid')
+        self.assertIn('max_price', response.context['field_errors'])
+        self.assertEqual(
+            response.context['field_errors']['date'],
+            'Pick a valid date.',
+        )
+
+
+GOOD = 'I need help understanding recursion and trees.'
+
+
+def make_user(email, first, role):
+    user = User.objects.create_user(
+        email=email, password='pass12345!', first_name=first, last_name='Test',
+    )
+    user.role = role
+    user.save()
+    return user
+
+
+class RulesBase(TestCase):
+    def setUp(self):
+        self.course = Course.objects.create(
+            course_code='CS 480', course_name='Compilers',
+            course_faculty='Science')
+        self.student = make_user('s@uregina.ca', 'Sam', User.Role.STUDENT)
+        StudentProfile.objects.get_or_create(user=self.student)
+        self.tutor = make_user('t@uregina.ca', 'Tina', User.Role.TUTOR)
+        self.profile, _ = TutorProfile.objects.get_or_create(user=self.tutor)
+        self.client.force_login(self.student)
+
+    def post(self, course=None, description=GOOD, **extra):
+        data = {
+            'course_id': (course or self.course).id,
+            'description': description,
+        }
+        data.update(extra)
+        return self.client.post(reverse('create_request'), data)
+
+    def add_slot(self, hours_from_now=48):
+        start = timezone.now() + timedelta(hours=hours_from_now)
+        return Available_Slots.objects.create(
+            tutor=self.tutor, start_time=start,
+            end_time=start + timedelta(hours=1), price_per_hour=Decimal('20'))
+
+
+class DuplicateRuleTests(RulesBase):
+    def test_second_open_request_for_same_course_is_refused(self):
+        self.assertEqual(self.post().status_code, 201)
+        response = self.post()
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('already have an open request', response.json()['error'])
+        self.assertEqual(TutoringRequest.objects.count(), 1)
+
+    def test_other_course_is_still_allowed(self):
+        other = Course.objects.create(
+            course_code='MATH 110', course_name='Calculus',
+            course_faculty='Science')
+        self.assertEqual(self.post().status_code, 201)
+        self.assertEqual(self.post(course=other).status_code, 201)
+
+    def test_after_withdrawing_you_can_post_again(self):
+        first = self.post().json()['request_id']
+        self.client.post(reverse('withdraw_tutoring_request', args=[first]))
+        self.assertEqual(self.post().status_code, 201)
+
+    def test_another_student_is_not_affected(self):
+        self.post()
+        other = make_user('o@uregina.ca', 'Olu', User.Role.STUDENT)
+        self.client.force_login(other)
+        self.assertEqual(self.post().status_code, 201)
+
+    def test_form_endpoint_reports_open_request(self):
+        self.post()
+        data = self.client.get(
+            reverse('tutoring_request_form'),
+            {'course_id': self.course.id}).json()
+        self.assertTrue(data['open_request_exists'])
+        self.assertFalse(data['can_create_request'])
+
+
+class CapRuleTests(RulesBase):
+    def courses(self, n):
+        return [
+            Course.objects.create(
+                course_code=f'TST {i}', course_name=f'Test {i}',
+                course_faculty='Science')
+            for i in range(n)
+        ]
+
+    def test_cap_is_ten(self):
+        self.assertEqual(MAX_OPEN_REQUESTS, 10)
+
+    def test_eleventh_open_request_is_refused(self):
+        for course in self.courses(MAX_OPEN_REQUESTS):
+            self.assertEqual(self.post(course=course).status_code, 201)
+        extra = self.courses(1)[0] if False else Course.objects.create(
+            course_code='TST X', course_name='One too many',
+            course_faculty='Science')
+        response = self.post(course=extra)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('at most 10 open requests', response.json()['error'])
+
+    def test_withdrawn_requests_do_not_count(self):
+        courses = self.courses(MAX_OPEN_REQUESTS)
+        ids = [self.post(course=c).json()['request_id'] for c in courses]
+        self.client.post(reverse('withdraw_tutoring_request', args=[ids[0]]))
+        self.assertEqual(self.post(course=courses[0]).status_code, 201)
+
+
+class DescriptionRuleTests(RulesBase):
+    def test_minimum_is_twenty(self):
+        self.assertEqual(MIN_DESCRIPTION_LENGTH, 20)
+
+    def test_too_short_is_refused(self):
+        response = self.post(description='help me')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('at least 20 characters', response.json()['error'])
+
+    def test_padding_with_spaces_does_not_count(self):
+        response = self.post(description='   help me please   ' + ' ' * 40)
+        self.assertEqual(response.status_code, 400)
+
+    def test_exactly_twenty_is_accepted(self):
+        self.assertEqual(self.post(description='x' * 20).status_code, 201)
+
+    def test_empty_keeps_the_old_message(self):
+        response = self.post(description='   ')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('describe the support', response.json()['error'])
+
+    def test_service_level_check(self):
+        with self.assertRaises(ValueError):
+            create_tutoring_request(
+                student=self.student, course=self.course, description='short')
+
+
+class ExpiryTests(RulesBase):
+    def make(self, age_days, **kwargs):
+        r = TutoringRequest.objects.create(
+            student=self.student, course=self.course, description=GOOD, **kwargs)
+        TutoringRequest.objects.filter(pk=r.pk).update(
+            created_at=timezone.now() - timedelta(days=age_days))
+        r.refresh_from_db()
+        return r
+
+    def test_lifetime_is_about_four_months(self):
+        self.assertEqual(REQUEST_LIFETIME_DAYS, 120)
+
+    def test_old_open_request_expires(self):
+        old = self.make(REQUEST_LIFETIME_DAYS + 1)
+        self.assertEqual(expire_old_requests(), 1)
+        old.refresh_from_db()
+        self.assertEqual(old.status, 'expired')
+
+    def test_recent_request_stays_open(self):
+        recent = self.make(REQUEST_LIFETIME_DAYS - 1)
+        self.assertEqual(expire_old_requests(), 0)
+        recent.refresh_from_db()
+        self.assertEqual(recent.status, 'open')
+
+    def test_fulfilled_and_withdrawn_are_never_expired(self):
+        a = self.make(500, status=TutoringRequest.Status.WITHDRAWN)
+        expire_old_requests()
+        a.refresh_from_db()
+        self.assertEqual(a.status, 'withdrawn')
+
+    def test_expired_request_disappears_for_tutors(self):
+        self.make(REQUEST_LIFETIME_DAYS + 5)
+        self.assertEqual(
+            list(get_visible_tutoring_requests(tutor=self.tutor)), [])
+
+    def test_tutor_cannot_join_expired_request(self):
+        old = self.make(REQUEST_LIFETIME_DAYS + 5)
+        self.client.force_login(self.tutor)
+        response = self.client.post(
+            reverse('express_tutoring_request_interest', args=[old.id]))
+        self.assertEqual(response.status_code, 400)
+
+    def test_student_sees_expired_in_history_and_can_repost(self):
+        old = self.make(REQUEST_LIFETIME_DAYS + 5)
+        page = self.client.get(reverse('my_requests'))
+        self.assertEqual(page.context['request_cards'][0]['status'], 'expired')
+        self.assertContains(page, 'Expired')
+        self.assertNotContains(page, 'Withdraw request')
+        self.assertEqual(self.post().status_code, 201)
+
+    def test_expired_request_does_not_block_the_cap(self):
+        self.make(REQUEST_LIFETIME_DAYS + 5)
+        self.assertEqual(self.post().status_code, 201)
+
+
+class TutorsWithoutSessionsTests(RulesBase):
+    def setUp(self):
+        super().setUp()
+        self.profile.courses_passed.add(self.course)
+
+    def test_tutor_with_course_but_no_sessions_does_not_block(self):
+        self.assertEqual(self.post().status_code, 201)
+
+    def test_tutor_with_open_session_blocks(self):
+        self.add_slot()
+        response = self.post()
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Tutors already offer', response.json()['error'])
+
+    def test_past_session_does_not_block(self):
+        self.add_slot(hours_from_now=-48)
+        self.assertEqual(self.post().status_code, 201)
+
+    def test_booked_session_does_not_block(self):
+        slot = self.add_slot()
+        slot.status = Available_Slots.Status.BOOKED
+        slot.save()
+        self.assertEqual(self.post().status_code, 201)
+
+    def test_form_endpoint_matches(self):
+        url = reverse('tutoring_request_form')
+        free = self.client.get(url, {'course_id': self.course.id}).json()
+        self.assertTrue(free['can_create_request'])
+        self.add_slot()
+        taken = self.client.get(url, {'course_id': self.course.id}).json()
+        self.assertFalse(taken['can_create_request'])
+        self.assertEqual(taken['existing_tutors'][0]['first_name'], 'Tina')
 @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
 class BookingObserverTests(SimpleTestCase):
     def setUp(self):

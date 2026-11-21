@@ -1,6 +1,7 @@
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.utils import timezone
+from datetime import timedelta
 from django.db import transaction
 from django.db.models import Q, Exists, OuterRef, F
 from django.core.exceptions import ValidationError
@@ -22,6 +23,12 @@ from bookings.subjects import (
 )
 
 from django.utils import timezone
+
+# Anti-spam limits for tutoring requests 
+MAX_OPEN_REQUESTS = 10          # open requests one student may have at once
+MIN_DESCRIPTION_LENGTH = 20     # characters, after trimming
+REQUEST_LIFETIME_DAYS = 120     # about 4 months, then an open request expires
+
 
 
 
@@ -139,6 +146,32 @@ def get_user_bookings(user):
     
     return {'all_bookings': all_bookings, 'student_bookings': student_bookings, 'tutor_bookings': tutor_bookings}
 
+def expire_old_requests(now=None):
+    """Mark open requests older than REQUEST_LIFETIME_DAYS as expired.
+
+    Called whenever requests are read or changed, so an old request can never
+    be shown, joined or booked. Fulfilled and withdrawn requests are left alone.
+    """
+    cutoff = (now or timezone.now()) - timedelta(days=REQUEST_LIFETIME_DAYS)
+    return (
+        TutoringRequest.objects
+        .filter(
+            status=TutoringRequest.Status.OPEN,
+            created_at__lt=cutoff,
+        )
+        .update(status=TutoringRequest.Status.EXPIRED)
+    )
+
+
+def has_open_request(*, student, course):
+    return TutoringRequest.objects.filter(
+        student=student,
+        course=course,
+        status=TutoringRequest.Status.OPEN,
+    ).exists()
+
+
+
 def create_tutoring_request(
     *,
     student,
@@ -156,6 +189,13 @@ def create_tutoring_request(
 
     if not isinstance(description, str) or not description.strip():
         raise ValueError('Please describe the support you need.')
+
+    if len(description.strip()) < MIN_DESCRIPTION_LENGTH:
+        raise ValueError(
+            'Please add a bit more detail '
+            f'(at least {MIN_DESCRIPTION_LENGTH} characters).'
+        )
+
 
     if visibility != TutoringRequest.Visibility.ALL_TUTORS:
         raise ValueError(
@@ -184,11 +224,31 @@ def create_tutoring_request(
             'Please view the existing tutors instead.'
         )
 
+    expire_old_requests()
+
+    if has_open_request(student=student, course=course):
+        raise ValueError(
+            'You already have an open request for this course. '
+            'Withdraw it first if you want to post a new one.'
+        )
+
+    open_count = TutoringRequest.objects.filter(
+        student=student,
+        status=TutoringRequest.Status.OPEN,
+    ).count()
+    if open_count >= MAX_OPEN_REQUESTS:
+        raise ValueError(
+            f'You can have at most {MAX_OPEN_REQUESTS} open requests. '
+            'Withdraw one to post another.'
+        )
+
+
     tutoring_request.save()
 
     return tutoring_request
 
 def get_student_tutoring_requests(student):
+    expire_old_requests()
     return (
         TutoringRequest.objects
         .filter(student=student)
@@ -239,7 +299,13 @@ def withdraw_tutoring_request(*, request_id, student):
     return tutoring_request
 
 def get_existing_request_tutors(*, student, course):
-    return (
+    """Tutors a student could book for this course right now.
+
+    A tutor only counts if they have an open future time. A tutor who has
+    the course on their profile but no sessions cannot be booked, so the
+    student is still allowed to post a request.
+    """
+    profiles = (
         TutorProfile.objects
         .filter(
             courses_passed=course,
@@ -253,6 +319,13 @@ def get_existing_request_tutors(*, student, course):
             'user_id',
         )
     )
+    bookable_ids = [
+        profile.pk
+        for profile in profiles
+        if get_tutor_available_slots(profile.user)
+    ]
+    return profiles.filter(pk__in=bookable_ids)
+
 
 def get_tutoring_request_form_data(*, student, course=None):
     existing_tutors = []
@@ -273,9 +346,15 @@ def get_tutoring_request_form_data(*, student, course=None):
         ]
 
     can_create_request = None
+    open_request_exists = False
 
     if course is not None:
-        can_create_request = not existing_tutors
+        expire_old_requests()
+        open_request_exists = has_open_request(
+            student=student,
+            course=course,
+            )
+        can_create_request = not existing_tutors and not open_request_exists
 
     return {
         'courses': list(
@@ -303,6 +382,7 @@ def get_tutoring_request_form_data(*, student, course=None):
         ),
         'selected_course_id': course.pk if course is not None else None,
         'can_create_request': can_create_request,
+        'open_request_exists': open_request_exists,
         'existing_tutors': existing_tutors,
     }
 
@@ -313,6 +393,8 @@ def get_visible_tutoring_requests(*, tutor):
         raise PermissionError(
             'Only users with an active tutor role can view the forum.'
         )
+
+    expire_old_requests()
 
     return (
         TutoringRequest.objects
@@ -332,6 +414,8 @@ def express_tutoring_request_interest(*, request_id, tutor):
         raise PermissionError(
             'Only users with an active tutor role can express interest.'
         )
+
+    expire_old_requests()
 
     with transaction.atomic():
         tutoring_request = (
@@ -424,6 +508,8 @@ def fulfill_tutoring_request(
         raise ValueError(
             'Please select a start and end time for this request.'
         )
+
+    expire_old_requests()
 
     with transaction.atomic():
         tutoring_request = (
@@ -675,6 +761,7 @@ def get_tutor_schedule(tutor):
     ).order_by('start_time', 'id')
 
 def get_tutor_dashboard(tutor):
+    expire_old_requests()
     user_bookings = get_user_bookings(tutor)
 
     booked_sessions = (
@@ -768,7 +855,6 @@ def _serialize_dashboard_booking(booking):
             else None
         ),
 
-            
         'session_price': str(booking.session_price),
         'location_type': booking.location_type,
     }

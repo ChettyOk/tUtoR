@@ -2724,6 +2724,79 @@ class HomePageTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'tutor_home.html')
         self.assertContains(response, 'CS 110')
+        self.assertContains(response, 'Tutor overview')
+        self.assertContains(response, 'Courses you teach')
+        self.assertContains(response, reverse('tutor_sessions'))
+        self.assertNotContains(response, 'name="price_per_hour"')
+        self.assertNotContains(response, 'id="slot-start"')
+
+    def test_tutor_home_shows_overview_stats_and_upcoming_slots(self):
+        from datetime import timedelta
+        from decimal import Decimal
+
+        from django.utils import timezone
+
+        from bookings.models import Available_Slots
+
+        TutorProfile.objects.create(user=self.tutor).courses_passed.add(self.course)
+        start = timezone.now() + timedelta(days=2)
+        Available_Slots.create_slot(
+            tutor=self.tutor,
+            start_time=start,
+            end_time=start + timedelta(hours=1),
+            price_per_hour=Decimal('30.00'),
+            location_type=Available_Slots.LocationType.ONLINE,
+        )
+
+        self.client.force_login(self.tutor)
+        response = self.client.get(reverse('tutor_home'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['course_count'], 1)
+        self.assertEqual(response.context['open_slot_count'], 1)
+        self.assertEqual(response.context['booked_count'], 0)
+        self.assertEqual(len(response.context['upcoming_slots']), 1)
+        self.assertContains(response, 'Upcoming open slots')
+        self.assertContains(response, '$30.00/hour')
+        self.assertContains(response, 'Online')
+        self.assertContains(response, 'Set up tutoring sessions')
+
+    def test_tutor_home_shows_readable_price_errors(self):
+        TutorProfile.objects.create(user=self.tutor)
+        self.client.force_login(self.tutor)
+
+        cases = (
+            ('', 'Enter a price per hour.'),
+            ('abc', 'Price must be a valid number.'),
+            ('1.00', 'Minimum price is $15.70/hour.'),
+            ('151.00', 'Maximum price is $150.00/hour.'),
+        )
+        for raw_price, message in cases:
+            with self.subTest(price=raw_price):
+                response = self.client.post(reverse('tutor_home'), {
+                    'price_per_hour': raw_price,
+                    'location_type': 'online',
+                })
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, 'is-invalid')
+                self.assertContains(response, message)
+                self.assertEqual(response.context['price_error'], message)
+                self.assertNotIn('tutor_hourly_price', self.client.session)
+
+    def test_tutor_home_saves_valid_price(self):
+        TutorProfile.objects.create(user=self.tutor)
+        self.client.force_login(self.tutor)
+
+        response = self.client.post(reverse('tutor_home'), {
+            'price_per_hour': '25.50',
+            'location_type': 'in_person',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Slot details saved: $25.50/hour, In person.')
+        self.assertEqual(self.client.session['tutor_hourly_price'], '25.50')
+        self.assertEqual(self.client.session['tutor_location_type'], 'in_person')
+        self.assertEqual(response.context['price_error'], '')
 
     def test_tutor_is_redirected_away_from_student_home(self):
         self.client.force_login(self.tutor)

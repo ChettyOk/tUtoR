@@ -21,6 +21,7 @@ class TutoringRequest(models.Model):
         OPEN = 'open', 'Open'
         WITHDRAWN = 'withdrawn', 'Withdrawn'
         FULFILLED = 'fulfilled', 'Fulfilled'
+        EXPIRED = 'expired', 'Expired'
 
     class Visibility(models.TextChoices):
         ALL_TUTORS = 'all_tutors', 'All tutors'

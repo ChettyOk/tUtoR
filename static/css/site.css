@@ -31,18 +31,16 @@ body {
   width: 100%;
   min-height: 100vh;
   min-height: 100dvh;
-  padding-bottom: 7.5rem;
+  display: flex;
+  flex-direction: column;
   background: var(--cream);
 }
 .site-shell > #main {
   width: 100%;
+  flex: 1 0 auto;
 }
 .site-footer {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 20;
+  flex-shrink: 0;
 }
 
 /* Role home pages */
@@ -227,6 +225,68 @@ h1, h2, h3, .card-title {
 /* Student home */
 .student-home-hero h1 {
   max-width: 18ch;
+}
+
+/* Tutor overview (distinct from /tutor/sessions/ setup) */
+.tutor-home-hero h1 {
+  max-width: 20ch;
+}
+.tutor-overview-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+@media (min-width: 768px) {
+  .tutor-overview-stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.tutor-stat {
+  padding: 1rem 1.1rem;
+  background: var(--paper);
+  border: 1px solid var(--bs-border-color);
+  border-radius: 1rem;
+}
+.tutor-stat-value {
+  display: block;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 1.75rem;
+  line-height: 1.1;
+  color: var(--green-deep);
+}
+.tutor-stat-label {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.tutor-overview-card {
+  border: 1px solid var(--bs-border-color);
+}
+.tutor-overview-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+.tutor-overview-list li {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.85rem;
+  background: rgba(0, 79, 46, 0.03);
+}
+.tutor-overview-list strong {
+  color: var(--green-deep);
+}
+.tutor-overview-list span {
+  color: var(--muted);
+  font-size: 0.92rem;
 }
 .student-inline-link {
   color: var(--green);
@@ -538,3 +598,37 @@ h1, h2, h3, .card-title {
     transform: none;
   }
 }
+
+/* Search box on the student home */
+.student-search {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.student-search .form-control { flex: 1 1 auto; }
+
+.student-search .btn { flex: 0 0 auto; white-space: nowrap; }
+
+@media (max-width: 575.98px) {
+  .student-search { flex-direction: column; }
+}
+
+
+/* Book button inside an open-time row */
+.tutor-slot-bookable {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.tutor-slot-info { min-width: 0; }
+.btn-book {
+  flex: 0 0 auto;
+  padding: 0.35rem 1.1rem;
+  font-size: 0.9rem;
+  min-height: 0;
+  height: auto;
+}
+
+.student-requests-link { color: var(--muted); font-size: 0.92rem; }
+.student-requests-link a { color: var(--green); font-weight: 600; }

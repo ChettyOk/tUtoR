@@ -1,0 +1,117 @@
+.book-page { max-width: 62rem; }
+.book-back {
+  color: var(--green);
+  font-weight: 700;
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+.book-back:hover { text-decoration: underline; }
+.book-form,
+.book-summary,
+.book-success,
+.book-unavailable {
+  border: 1px solid var(--bs-border-color);
+  background: var(--paper, #fffdf8);
+}
+.book-summary { border-top: 4px solid var(--gold, #ffc82e); }
+@media (min-width: 992px) {
+  .book-summary { position: sticky; top: 1.5rem; }
+}
+.book-legend {
+  float: none;
+  width: auto;
+  font-family: "Fraunces", Georgia, serif;
+  font-weight: 560;
+  font-size: 1.15rem;
+  color: var(--green-deep);
+  margin-bottom: 0.25rem;
+}
+.book-optional {
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+.book-hint { color: var(--muted); font-size: 0.92rem; margin-bottom: 0.75rem; }
+.book-error {
+  color: #9c1c1c;
+  background: rgba(156, 28, 28, 0.08);
+  border-radius: 0.6rem;
+  padding: 0.55rem 0.8rem;
+  font-size: 0.92rem;
+  margin: 0.75rem 0 0;
+}
+.book-error[hidden] { display: none; }
+.book-counter {
+  text-align: right;
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: 0.25rem 0 0;
+}
+.book-form .form-control:focus,
+.book-form .form-select:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 0.2rem rgba(0, 79, 46, 0.16);
+}
+.book-facts { display: grid; gap: 0.6rem; }
+.book-facts > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px dashed rgba(0, 79, 46, 0.18);
+  padding-bottom: 0.5rem;
+}
+.book-facts dt {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--green);
+  margin: 0;
+}
+.book-facts dd { margin: 0; text-align: right; font-weight: 600; color: var(--green-deep); }
+.book-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 1rem;
+  padding: 0.8rem 1rem;
+  border-radius: 0.85rem;
+  background: rgba(255, 200, 46, 0.28);
+  color: var(--green-deep);
+}
+.book-total strong { font-size: 1.5rem; font-family: "Fraunces", Georgia, serif; }
+.book-success { text-align: center; }
+.book-success .book-facts { text-align: left; max-width: 26rem; margin-inline: auto; }
+.book-success .d-flex { justify-content: center; }
+.book-success-mark {
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 999px;
+  margin: 0 auto 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--green);
+  color: var(--paper, #fffdf8);
+  border: 3px solid var(--gold, #ffc82e);
+  font-size: 1.6rem;
+}
+.book-success[hidden], .book-form[hidden] { display: none; }
+
+/* Same outline button as the Find tutors page (search.css is not loaded here) */
+.book-page .btn-find-clear {
+  border: 1px solid rgba(0, 79, 46, 0.35);
+  color: var(--green-deep);
+  background: transparent;
+}
+.book-page .btn-find-clear:hover {
+  background: rgba(0, 79, 46, 0.08);
+  color: var(--green-deep);
+}
+
+.book-request-banner {
+  background: rgba(255, 200, 46, 0.25);
+  border: 1px solid rgba(255, 200, 46, 0.7);
+  color: var(--green-deep);
+}

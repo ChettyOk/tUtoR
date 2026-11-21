@@ -2,8 +2,9 @@ from decimal import Decimal
 
 from django.db.models import Q
 from django.db import OperationalError
-from django.http import JsonResponse
-from django.shortcuts import get_object_or_404, render
+from django.http import Http404, JsonResponse
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import (
     require_GET,
     require_POST,
@@ -24,6 +25,16 @@ from .models import (
     Rating,
     TutoringRequest,
 )
+
+from .request_pages import build_request_cards, guess_course
+
+from .search import (
+    SORT_CHOICES,
+    clean_filters,
+    faculty_choices,
+    search_tutors,
+)
+
 from .pricing import (
     MAX_PRICE,
     MIN_PRICE,
@@ -1030,4 +1041,200 @@ def complete_booking_view(request, booking_id):
     return JsonResponse({
         'message': 'Booking marked as completed.',
         'status': booking.status,
+    })
+
+def _search_field_errors(errors):
+    """Map clean_filters messages onto form fields for the template."""
+    field_errors = {}
+    for message in errors:
+        lower = message.lower()
+        if 'price' in lower:
+            field_errors['max_price'] = message
+        elif 'date' in lower or 'passed' in lower:
+            field_errors['date'] = message
+    return field_errors
+
+
+@login_required
+def find_tutors_page(request):
+   """STU-02.5: search page where students filter tutors and open times."""
+   if request.user.has_role('tutor'):
+        return redirect('tutor_home')
+   
+   filters, errors = clean_filters(request.GET)
+   tutors = search_tutors(filters, viewer=request.user)
+   
+   return render(request, 'student/find_tutors.html', {
+        'site_name': 'tUtoR',
+        'filters': filters,
+        'raw': request.GET,
+        'errors': errors,
+        'field_errors': _search_field_errors(errors),
+        'tutors': tutors,
+        'faculties': faculty_choices(),
+        'sort_choices': SORT_CHOICES,
+        'min_price': MIN_PRICE,
+        'max_price_limit': MAX_PRICE,
+        'today': timezone.localdate().isoformat(),
+        'is_filtered': any(
+            request.GET.get(k, '').strip()
+            for k in ('q', 'faculty', 'location', 'max_price', 'date', 'part')
+        ),
+    })
+
+
+@login_required
+def book_slot_page(request, slot_id):
+    """STU-03.3: confirmation page for booking (part of) one open slot.
+
+    The page itself only shows the form. The booking is made by the existing
+    JSON endpoint book_slot (slots/<id>/book/), called from booking.js.
+    """
+    if request.user.has_role(User.Role.TUTOR):
+        return redirect('tutor_home')
+
+    slot = get_object_or_404(
+        Available_Slots.objects.select_related('tutor'), id=slot_id,
+    )
+    tutor_profile = TutorProfile.objects.filter(user=slot.tutor).first()
+    if tutor_profile is None:
+        raise Http404('No tutor profile for this slot.')
+
+    # Free windows of this slot (already minus bookings, from now on).
+    windows = []
+    if slot.status == Available_Slots.Status.AVAILABLE:
+        windows = [
+            w for w in get_tutor_available_slots(slot.tutor)
+            if w['id'] == slot.id
+        ]
+
+    # ?start=... picks which window the student clicked on.
+    wanted = None
+    try:
+        wanted = parse_datetime(request.GET.get('start', ''))
+    except (ValueError, OverflowError):
+        wanted = None
+    window = None
+    for w in windows:
+        if wanted is not None and parse_datetime(w['start_time']) == wanted:
+            window = w
+            break
+    if window is None and windows:
+        window = windows[0]
+
+    my_course_ids = set()
+    student_profile = StudentProfile.objects.filter(user=request.user).first()
+    if student_profile is not None:
+        my_course_ids = set(student_profile.courses.values_list('id', flat=True))
+
+    course_options = [
+        {
+            'id': c.id,
+            'code': c.course_code,
+            'name': c.course_name,
+            'mine': c.id in my_course_ids,
+        }
+        for c in tutor_profile.courses_passed.order_by('course_code')
+    ]
+    course_options.sort(key=lambda c: (not c['mine'], c['code']))
+
+    # ?request=<id>: booking an interested tutor for the student's own
+    # open request. The booking then goes through the fulfil endpoint.
+    request_obj = None
+    raw_request_id = request.GET.get('request', '').strip()
+
+    if raw_request_id.isdigit():
+        request_obj = (
+            TutoringRequest.objects
+            .filter(
+                pk=int(raw_request_id),
+                student=request.user,
+                status=TutoringRequest.Status.OPEN,
+                interests__tutor=slot.tutor,
+            )
+            .select_related('course')
+            .first()
+        )
+
+    if request_obj is not None:
+        course_options = [{
+            'id': request_obj.course_id,
+            'code': request_obj.course.course_code,
+            'name': request_obj.course.course_name,
+            'mine': False,
+        }]
+
+
+    booking_data = None
+    if window is not None:
+        booking_data = {
+            'window_start': window['start_time'],
+            'window_end': window['end_time'],
+            'price_per_hour': window['price_per_hour'],
+            'post_url': reverse('book_slot', kwargs={'slot_id': slot.id}),
+            'find_url': reverse('find_tutors'),
+            'home_url': reverse('student_home'),
+        }
+
+        if request_obj is not None:
+            booking_data['post_url'] = reverse(
+                'fulfill_tutoring_request',
+                kwargs={'request_id': request_obj.pk},
+            )
+            booking_data['slot_id'] = slot.id
+
+    return render(request, 'student/book_slot.html', {
+        'site_name': 'tUtoR',
+        'slot': slot,
+        'tutor': get_user_details(slot.tutor, User.Role.TUTOR),
+        'window': window,
+        'booking_data': booking_data,
+        'course_options': course_options,
+        'request_obj': request_obj,
+        'location_label': slot.get_location_type_display(),
+    })
+
+@login_required
+def my_requests_page(request):
+    """STU-06.2: the student's tutoring requests and the tutors who offered."""
+    if request.user.has_role(User.Role.TUTOR):
+        return redirect('tutor_home')
+
+    cards = build_request_cards(request.user)
+    return render(request, 'student/my_requests.html', {
+        'site_name': 'tUtoR',
+        'request_cards': cards,
+        'open_count': sum(1 for c in cards if c['is_open']),
+    })
+
+@login_required
+def request_form_page(request):
+    """STU-06.2: form to ask tutors to open sessions for a course.
+
+    The course list and the "tutors already offer it" check come from the
+    existing /requests/form/ endpoint, called by request_form.js.
+    """
+    if request.user.has_role(User.Role.TUTOR):
+        return redirect('tutor_home')
+
+    selected = None
+    raw_course = request.GET.get('course', '').strip()
+    if raw_course.isdigit():
+        selected = Course.objects.filter(pk=int(raw_course)).first()
+    if selected is None:
+        selected = guess_course(request.GET.get('q', ''))
+
+    return render(request, 'student/request_form.html', {
+        'site_name': 'tUtoR',
+        'courses': Course.objects.order_by('course_code'),
+        'selected_course': selected,
+        'search_text': request.GET.get('q', '').strip()[:100],
+        'location_choices': TutoringRequest.LocationType.choices,
+        'description_max': TutoringRequest._meta.get_field('description').max_length,
+        'urls': {
+            'form_data': reverse('tutoring_request_form'),
+            'create': reverse('create_request'),
+            'after': reverse('my_requests'),
+            'find': reverse('find_tutors'),
+        },
     })

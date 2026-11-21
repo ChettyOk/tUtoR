@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Find tutors · {{ site_name|default:"tUtoR" }}{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/search.css' %}?v=20261121b" />
+{% endblock %}
+
+{% block content %}
+<div class="home-page">
+  <div class="container home-page-inner">
+    <header class="find-hero mb-4">
+      <p class="kicker kicker-green mb-2">Student</p>
+      <h1 class="h3 mb-1">Find a tutor</h1>
+      <p class="text-muted mb-0">Search by name or course, then narrow it down to a day and time that works for you.</p>
+    </header>
+
+    <form class="find-filters card mb-4" method="get" action="{% url 'find_tutors' %}" aria-label="Tutor search filters">
+      <div class="card-body">
+        <div class="find-searchbar mb-3">
+          <label class="visually-hidden" for="f-q">Search tutors or courses</label>
+          <input id="f-q" class="form-control form-control-lg" type="search" name="q"
+                 value="{{ filters.q }}" maxlength="100"
+                 placeholder="Tutor name, course code (CS 110) or course name" />
+          <button class="btn btn-green btn-lg" type="submit">Search</button>
+        </div>
+
+        <div class="row g-3 align-items-end">
+          <div class="col-6 col-md-3">
+            <label class="form-label find-label" for="f-faculty">Faculty</label>
+            <select id="f-faculty" class="form-select" name="faculty">
+              <option value="">Any faculty</option>
+              {% for f in faculties %}
+              <option value="{{ f }}"{% if filters.faculty|lower == f|lower %} selected{% endif %}>{{ f }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label find-label" for="f-location">Where</label>
+            <select id="f-location" class="form-select" name="location">
+              <option value="">Online or in person</option>
+              <option value="online"{% if filters.location == 'online' %} selected{% endif %}>Online</option>
+              <option value="in_person"{% if filters.location == 'in_person' %} selected{% endif %}>In person</option>
+            </select>
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label find-label" for="f-price">Max price / hour</label>
+            <div class="input-group has-validation">
+              <span class="input-group-text">$</span>
+              <input id="f-price"
+                     class="form-control{% if field_errors.max_price %} is-invalid{% endif %}"
+                     type="number" name="max_price"
+                     min="{{ min_price }}" max="{{ max_price_limit }}" step="0.5"
+                     value="{{ raw.max_price }}" placeholder="Any" inputmode="decimal"
+                     aria-invalid="{% if field_errors.max_price %}true{% else %}false{% endif %}"
+                     {% if field_errors.max_price %}aria-describedby="f-price-error"{% endif %} />
+              <div id="f-price-error" class="invalid-feedback">
+                {{ field_errors.max_price|default:"Enter a valid max price." }}
+              </div>
+            </div>
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label find-label" for="f-sort">Sort by</label>
+            <select id="f-sort" class="form-select" name="sort">
+              {% for value, label in sort_choices %}
+              <option value="{{ value }}"{% if filters.sort == value %} selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label find-label" for="f-date">Day</label>
+            <input id="f-date"
+                   class="form-control{% if field_errors.date %} is-invalid{% endif %}"
+                   type="date" name="date" min="{{ today }}"
+                   value="{{ raw.date }}"
+                   aria-invalid="{% if field_errors.date %}true{% else %}false{% endif %}"
+                   {% if field_errors.date %}aria-describedby="f-date-error"{% endif %} />
+            <div id="f-date-error" class="invalid-feedback">
+              {{ field_errors.date|default:"Pick a valid date." }}
+            </div>
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label find-label" for="f-part">Time of day</label>
+            <select id="f-part" class="form-select" name="part">
+              <option value="">Any time</option>
+              <option value="morning"{% if filters.part == 'morning' %} selected{% endif %}>Morning (6 am – 12 pm)</option>
+              <option value="afternoon"{% if filters.part == 'afternoon' %} selected{% endif %}>Afternoon (12 – 5 pm)</option>
+              <option value="evening"{% if filters.part == 'evening' %} selected{% endif %}>Evening (after 5 pm)</option>
+            </select>
+          </div>
+          <div class="col-12 col-md-6 d-flex gap-2 justify-content-md-end">
+            <button class="btn btn-green" type="submit">Apply filters</button>
+            {% if is_filtered %}
+            <a class="btn btn-find-clear" href="{% url 'find_tutors' %}">Clear all</a>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </form>
+
+    {% if errors %}
+    <div class="alert alert-warning" role="alert">
+      <ul class="mb-0 ps-3">
+        {% for e in errors %}<li>{{ e }}</li>{% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    <section aria-labelledby="find-results-heading">
+      <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-3">
+        <h2 class="h5 mb-0" id="find-results-heading">Results</h2>
+        <p class="tutor-list-count mb-0" role="status">
+          {{ tutors|length }} tutor{{ tutors|length|pluralize }} with open times
+        </p>
+      </div>
+
+      {% if tutors %}
+      <div class="row g-3">
+        {% for tutor in tutors %}
+        <div class="col-12 col-lg-6">
+          {% include "student/_tutor_card.html" %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="card tutor-empty-card">
+        <div class="card-body">
+          <p class="tutor-empty-title mb-2">No tutors match</p>
+          <p class="tutor-empty-copy mb-0">
+            {% if is_filtered %}
+            Try a different day, a higher price or fewer filters.
+            <a href="{% url 'find_tutors' %}">Clear all filters</a>.
+            {% else %}
+            No tutor has open times right now. Check back soon.
+            {% endif %}
+          </p>
+          <div class="find-request-cta mt-3">
+            <p class="mb-2"><strong>Can't find the right tutor?</strong> Ask for one. Tutors who can help will respond, and you choose who to book.</p>
+            <a class="btn btn-green" href="{% url 'request_form' %}{% if filters.q %}?q={{ filters.q|urlencode }}{% endif %}">Request a tutor</a>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+    </section>
+  </div>
+</div>
+{% endblock %}
