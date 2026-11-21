@@ -43,3 +43,5 @@
 @media (max-width: 575.98px) {
   .find-searchbar { flex-direction: column; }
 }
+
+.find-request-cta { border-top: 1px dashed rgba(0, 79, 46, 0.25); padding-top: 1rem; }

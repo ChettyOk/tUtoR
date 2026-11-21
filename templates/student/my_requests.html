@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}My requests · {{ site_name|default:"tUtoR" }}{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/requests.css' %}?v=1" />
+{% endblock %}
+
+{% block content %}
+<div class="home-page">
+  <div class="container home-page-inner req-page">
+    {% csrf_token %}
+    <header class="mb-4 d-flex flex-wrap align-items-end justify-content-between gap-3">
+      <div>
+        <p class="kicker kicker-green mb-2">Student</p>
+        <h1 class="h3 mb-1">My requests</h1>
+        <p class="text-muted mb-0">
+          When no tutor offers a course, ask for one. Tutors who can help will appear here, and you pick who to book.
+        </p>
+      </div>
+      <a class="btn btn-green" href="{% url 'request_form' %}">New request</a>
+    </header>
+
+    {% if not request_cards %}
+    <div class="card req-empty">
+      <div class="card-body">
+        <p class="tutor-empty-title mb-2">No requests yet</p>
+        <p class="tutor-empty-copy mb-3">
+          Search for a course. If nobody offers it, you can ask tutors to open sessions for it.
+        </p>
+        <a class="btn btn-green" href="{% url 'find_tutors' %}">Find tutors</a>
+        <a class="btn btn-find-clear" href="{% url 'request_form' %}">New request</a>
+      </div>
+    </div>
+    {% else %}
+    <p class="tutor-list-count mb-3" role="status">
+      {{ open_count }} open request{{ open_count|pluralize }}
+    </p>
+
+    <div class="d-grid gap-3">
+      {% for r in request_cards %}
+      <article class="card req-card req-{{ r.status }}" data-request-id="{{ r.id }}">
+        <div class="card-body">
+          <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-2">
+            <div>
+              <h2 class="h5 mb-1">{{ r.course.course_code }} · {{ r.course.course_name }}</h2>
+              <p class="tutor-meta mb-0">
+                {{ r.location_label }} · asked {{ r.created|date:"M j, Y" }}
+              </p>
+            </div>
+            <span class="req-status req-status-{{ r.status }}">{{ r.status_label }}</span>
+          </div>
+
+          <p class="req-description">{{ r.description }}</p>
+
+          {% if r.status == 'fulfilled' %}
+          <p class="req-booked mb-0">Booked with {{ r.booked_label }}</p>
+          {% elif r.is_open %}
+          <div class="req-tutors">
+            <p class="tutor-section-label mb-2">
+              {% if r.tutors %}{{ r.tutors|length }} tutor{{ r.tutors|length|pluralize }} can help{% else %}Waiting for tutors{% endif %}
+            </p>
+
+            {% if not r.tutors %}
+            <p class="tutor-empty-note">No tutor has responded yet. We'll list them here as soon as they do.</p>
+            {% endif %}
+
+            <div class="d-grid gap-2">
+              {% for t in r.tutors %}
+              <div class="req-tutor">
+                <div class="d-flex align-items-center gap-3">
+                  <span class="tutor-avatar" aria-hidden="true">{{ t.first_name|slice:":1"|upper }}{{ t.last_name|slice:":1"|upper }}</span>
+                  <div class="min-w-0">
+                    <h3 class="h6 mb-0">{{ t.first_name }} {{ t.last_name }}</h3>
+                    <p class="tutor-meta mb-0">
+                      Rating: {{ t.average_rating }}{% if t.lowest_price %} · from ${{ t.lowest_price }}/hour{% endif %}
+                    </p>
+                  </div>
+                </div>
+
+                {% if t.windows %}
+                <ul class="tutor-slot-list mt-2 mb-0">
+                  {% for w in t.windows|slice:":3" %}
+                  <li class="tutor-slot tutor-slot-bookable">
+                    <div class="tutor-slot-info">
+                      <div class="tutor-slot-when">{{ w.when_label }}</div>
+                      <div class="tutor-slot-meta">{{ w.location_label }} · ${{ w.price_per_hour }}/hour</div>
+                    </div>
+                    <a class="btn btn-green btn-book" href="{% url 'book_confirm' w.id %}?start={{ w.start_iso|urlencode }}&amp;request={{ r.id }}">Book</a>
+                  </li>
+                  {% endfor %}
+                </ul>
+                {% if t.windows|length > 3 %}
+                <details class="req-more mt-2">
+                  <summary>Show {{ t.windows|length|add:"-3" }} more time{{ t.windows|length|add:"-3"|pluralize }}</summary>
+                  <ul class="tutor-slot-list mt-2 mb-0">
+                    {% for w in t.windows|slice:"3:" %}
+                    <li class="tutor-slot tutor-slot-bookable">
+                      <div class="tutor-slot-info">
+                        <div class="tutor-slot-when">{{ w.when_label }}</div>
+                        <div class="tutor-slot-meta">{{ w.location_label }} · ${{ w.price_per_hour }}/hour</div>
+                      </div>
+                      <a class="btn btn-green btn-book" href="{% url 'book_confirm' w.id %}?start={{ w.start_iso|urlencode }}&amp;request={{ r.id }}">Book</a>
+                    </li>
+                    {% endfor %}
+                  </ul>
+                </details>
+                {% endif %}
+                {% else %}
+                <p class="tutor-empty-note mt-2 mb-0">No open times yet. They said they can help, so check back soon.</p>
+                {% endif %}
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="req-actions mt-3">
+            <button type="button" class="btn btn-find-clear btn-sm js-withdraw"
+                    data-url="{% url 'withdraw_tutoring_request' r.id %}">Withdraw request</button>
+            <span class="req-error" role="alert" hidden></span>
+          </div>
+          {% endif %}
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/my_requests.js' %}?v=1"></script>
+{% endblock %}
