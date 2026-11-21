@@ -601,11 +601,15 @@ def tutor_home(request):
         price_value = raw_price
         location_value = raw_location or location_value
 
-        try:
-            saved_price = custom_pricing(raw_price)
-        except ValueError as error:
-            price_error = str(error)
+        if not raw_price:
+            price_error = 'Enter a price per hour.'
             saved_price = None
+        else:
+            try:
+                saved_price = custom_pricing(raw_price)
+            except ValueError as error:
+                price_error = str(error)
+                saved_price = None
 
         if raw_location not in valid_locations:
             location_error = 'Choose Online or In person.'
