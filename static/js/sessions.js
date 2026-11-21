@@ -183,10 +183,92 @@
 
   // ---------- edit mode ----------
 
+  var fieldInputs = {
+    start_time: startInput,
+    end_time: endInput,
+    price_per_hour: priceInput,
+    location_type: locationSelect
+  };
+
   function clearFieldErrors() {
-    setFieldError(startInput, "");
-    setFieldError(endInput, "");
-    setFieldError(priceInput, "");
+    Object.keys(fieldInputs).forEach(function (name) {
+      setFieldError(fieldInputs[name], "");
+    });
+  }
+
+  // Turn machine-ish API messages into field copy without changing the backend.
+  function humanizeServerError(raw) {
+    var text = (raw || "").toString();
+    var lower = text.toLowerCase();
+    var fields = {};
+
+    function take(field, message) {
+      if (!fields[field]) fields[field] = message;
+    }
+
+    if (/start_time/.test(lower) && (/required|empty|valid/.test(lower) || /iso/.test(lower))) {
+      take("start_time", /valid|iso/.test(lower)
+        ? "Enter a valid start date and time."
+        : "Choose when the session starts.");
+    }
+    if (/end_time/.test(lower) && (/required|empty|valid/.test(lower) || /iso/.test(lower))) {
+      take("end_time", /valid|iso/.test(lower)
+        ? "Enter a valid end date and time."
+        : "Choose when the session ends.");
+    }
+    if (/price_per_hour/.test(lower) && /required|empty/.test(lower)) {
+      take("price_per_hour", "Enter a price per hour.");
+    }
+    if (/price/.test(lower) && /valid number/.test(lower)) {
+      take("price_per_hour", "Enter a valid price per hour.");
+    }
+    if (/minimum price/.test(lower)) {
+      take("price_per_hour", text.replace(/^price_per_hour:\s*/i, ""));
+    }
+    if (/maximum price/.test(lower)) {
+      take("price_per_hour", text.replace(/^price_per_hour:\s*/i, ""));
+    }
+    if (/location_type/.test(lower)) {
+      take("location_type", "Choose Online or In person.");
+    }
+    if (/start time must be in the future/.test(lower)) {
+      take("start_time", "The start time must be in the future.");
+    }
+    if (/end time must be after/.test(lower)) {
+      take("end_time", "The end time must be after the start time.");
+    }
+
+    // Strip "field: " prefixes for the banner when we could not map a field.
+    var banner = text
+      .replace(/\bstart_time\b/gi, "start time")
+      .replace(/\bend_time\b/gi, "end time")
+      .replace(/\bprice_per_hour\b/gi, "price")
+      .replace(/\blocation_type\b/gi, "location");
+
+    return { fields: fields, banner: banner };
+  }
+
+  function applyServerErrors(data) {
+    clearFieldErrors();
+    var raw = (data && data.error) || "";
+    var parsed = humanizeServerError(raw);
+    var names = Object.keys(parsed.fields);
+    var mapped = false;
+
+    names.forEach(function (name) {
+      var input = fieldInputs[name];
+      if (!input) return;
+      setFieldError(input, parsed.fields[name]);
+      mapped = true;
+    });
+
+    if (mapped) {
+      var firstBad = form.querySelector(".is-invalid");
+      if (firstBad) firstBad.focus();
+      return;
+    }
+
+    showBox(errorBox, parsed.banner || "The session could not be saved.");
   }
 
   function enterEditMode(slot) {
@@ -287,7 +369,7 @@
       })
       .then(function (result) {
         if (!result.ok) {
-          showBox(errorBox, result.data.error || "The session could not be saved.");
+          applyServerErrors(result.data || {});
           return;
         }
         leaveEditMode();
