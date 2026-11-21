@@ -13,7 +13,108 @@ from bookings.services import (
 )
 
 from .models import Notification
+from .factories import NotificationFactory
 from .observers import TutoringRequestInterestNotificationObserver
+
+
+class NotificationFactoryTests(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(
+            "factory-student@example.com",
+            role=User.Role.STUDENT,
+        )
+        self.tutor = User.objects.create_user(
+            "factory-tutor@example.com",
+            role=User.Role.TUTOR,
+        )
+        self.course = Course.create_course(
+            "CS 476",
+            "Software Development Project",
+        )
+        self.tutoring_request = TutoringRequest.objects.create(
+            student=self.student,
+            course=self.course,
+            description="Please help me with Django.",
+        )
+        self.interest = TutoringRequestInterest.objects.create(
+            tutoring_request=self.tutoring_request,
+            tutor=self.tutor,
+        )
+
+    def test_interest_notification_uses_request_and_tutor_defaults(self):
+        notification = NotificationFactory.create(
+            "interest",
+            interest=self.interest,
+        )
+
+        self.assertEqual(notification.type, Notification.Type.INTEREST)
+        self.assertEqual(notification.title, "New tutor interest")
+        self.assertEqual(notification.recipient, self.student)
+        self.assertEqual(notification.sender, self.tutor)
+        self.assertIn(
+            f"tutoring request #{self.tutoring_request.pk}",
+            notification.message,
+        )
+
+    def test_interest_notification_accepts_custom_text_and_recipient(self):
+        notification = NotificationFactory.create(
+            "interest",
+            interest=self.interest,
+            recipient=self.student,
+            sender=self.tutor,
+            title="Custom interest title",
+            message="Custom interest message",
+        )
+
+        self.assertEqual(notification.title, "Custom interest title")
+        self.assertEqual(notification.message, "Custom interest message")
+        self.assertEqual(notification.recipient, self.student)
+        self.assertEqual(notification.sender, self.tutor)
+
+    def test_interest_notification_requires_interest(self):
+        with self.assertRaisesRegex(
+            ValueError,
+            "An interest is required",
+        ):
+            NotificationFactory.create("interest")
+
+    def test_booking_notification_types_use_default_values(self):
+        booking = Booking.objects.create(
+            student=self.student,
+            tutor=self.tutor,
+            student_note="I need help.",
+            session_price=10,
+            status=Booking.Status.CONFIRMED,
+        )
+
+        cases = (
+            ("confirmation", Notification.Type.CONFIRMATION, "Session confirmed"),
+            ("cancellation", Notification.Type.CANCELLATION, "Session cancelled"),
+            ("reminder", Notification.Type.REMINDER, "Session reminder"),
+            ("request", Notification.Type.REQUESTED, "Session requested"),
+        )
+
+        for notification_type, expected_type, expected_title in cases:
+            with self.subTest(notification_type=notification_type):
+                notification = NotificationFactory.create(
+                    notification_type,
+                    recipient=self.student,
+                    sender=self.tutor,
+                    booking=booking,
+                )
+
+                self.assertEqual(notification.type, expected_type)
+                self.assertEqual(notification.title, expected_title)
+                self.assertEqual(notification.recipient, self.student)
+                self.assertEqual(notification.sender, self.tutor)
+                self.assertEqual(notification.related_booking, booking)
+
+    def test_unknown_notification_type_raises_value_error(self):
+        with self.assertRaisesRegex(
+            ValueError,
+            "Unknown notification type",
+        ):
+            NotificationFactory.create("unknown")
 
 
 class WebsiteNotificationObserverTests(TestCase):
