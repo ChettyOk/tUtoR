@@ -267,9 +267,27 @@
     </section>
   </div>
 </div>
+
+<div class="modal fade" id="cancel-deadline-modal" tabindex="-1"
+     aria-labelledby="cancel-deadline-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <h2 class="modal-title h5" id="cancel-deadline-title">Too late to cancel</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="cancel-deadline-body">
+        The cancellation deadline has passed. Sessions can only be cancelled at least 4 hours in advance.
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-green" data-bs-dismiss="modal">Got it</button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
 <script src="{% static 'js/student-home.js' %}?v=20261117d"></script>
-<script src="{% static 'js/bookings-home.js' %}?v=20261121a"></script>
+<script src="{% static 'js/bookings-home.js' %}?v=20261121b"></script>
 {% endblock %}

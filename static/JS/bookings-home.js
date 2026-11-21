@@ -27,6 +27,21 @@
     if (successBox) successBox.hidden = true;
   }
 
+  function isDeadlineError(message) {
+    return /cancellation deadline has passed/i.test(message || "");
+  }
+
+  function showDeadlineModal(message) {
+    var el = document.getElementById("cancel-deadline-modal");
+    var body = document.getElementById("cancel-deadline-body");
+    if (body && message) body.textContent = message;
+    if (window.bootstrap && el) {
+      window.bootstrap.Modal.getOrCreateInstance(el).show();
+      return true;
+    }
+    return false;
+  }
+
   Array.prototype.forEach.call(list.querySelectorAll(".js-cancel-booking"), function (btn) {
     var label = btn.textContent;
     var armed = false;
@@ -89,6 +104,9 @@
           btn.disabled = false;
           reset();
           var message = (result.data && result.data.error) || "Couldn't cancel this booking. Please try again.";
+          if (isDeadlineError(message) && showDeadlineModal(message)) {
+            return;
+          }
           if (errorEl) {
             errorEl.textContent = message;
             errorEl.hidden = false;

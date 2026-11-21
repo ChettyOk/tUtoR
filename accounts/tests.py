@@ -2802,6 +2802,47 @@ class HomePageTests(TestCase):
             reverse('cancel_booking', kwargs={'booking_id': booking.id}),
         )
         self.assertContains(response, 'js/bookings-home.js')
+        self.assertContains(response, 'id="cancel-deadline-modal"')
+        self.assertContains(response, 'Too late to cancel')
+
+    def test_student_cancel_after_deadline_returns_readable_error(self):
+        from datetime import timedelta
+        from decimal import Decimal
+
+        from django.utils import timezone
+
+        from bookings.models import Available_Slots, Booking
+
+        start = timezone.now() + timedelta(hours=1)
+        slot = Available_Slots.create_slot(
+            tutor=self.tutor,
+            start_time=start,
+            end_time=start + timedelta(hours=1),
+            price_per_hour=Decimal('25.00'),
+        )
+        booking = Booking.objects.create(
+            student=self.student,
+            tutor=self.tutor,
+            course=self.course,
+            time_slot=slot,
+            start_time=start,
+            end_time=start + timedelta(hours=1),
+            session_price=Decimal('25.00'),
+            status=Booking.Status.CONFIRMED,
+        )
+
+        self.client.force_login(self.student)
+        response = self.client.post(
+            reverse('cancel_booking', kwargs={'booking_id': booking.id}),
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(
+            'Cancellation deadline has passed',
+            response.json()['error'],
+        )
+        booking.refresh_from_db()
+        self.assertEqual(booking.status, Booking.Status.CONFIRMED)
 
     def test_tutor_is_redirected_away_from_student_home(self):
         self.client.force_login(self.tutor)
