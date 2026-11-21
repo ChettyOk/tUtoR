@@ -1018,6 +1018,18 @@ def complete_booking_view(request, booking_id):
         'status': booking.status,
     })
 
+def _search_field_errors(errors):
+    """Map clean_filters messages onto form fields for the template."""
+    field_errors = {}
+    for message in errors:
+        lower = message.lower()
+        if 'price' in lower:
+            field_errors['max_price'] = message
+        elif 'date' in lower or 'passed' in lower:
+            field_errors['date'] = message
+    return field_errors
+
+
 @login_required
 def find_tutors_page(request):
    """STU-02.5: search page where students filter tutors and open times."""
@@ -1032,6 +1044,7 @@ def find_tutors_page(request):
         'filters': filters,
         'raw': request.GET,
         'errors': errors,
+        'field_errors': _search_field_errors(errors),
         'tutors': tutors,
         'faculties': faculty_choices(),
         'sort_choices': SORT_CHOICES,
