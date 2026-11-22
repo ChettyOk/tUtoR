@@ -3,7 +3,7 @@
 {% block title %}Tutor home · {{ site_name|default:"tUtoR" }}{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/requests.css' %}?v=2" />
+<link rel="stylesheet" href="{% static 'css/requests.css' %}?v=4" />
 {% endblock %}
 
 {% block content %}
@@ -107,52 +107,27 @@
           <div class="card-body">
             <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-1">
               <h2 class="h6 mb-0" id="tutor-requests-heading">Student requests</h2>
-              <span class="tutor-list-count" role="status">{{ request_cards|length }} open</span>
+              <div class="d-flex flex-wrap align-items-center gap-3">
+                <span class="tutor-list-count" role="status">{{ request_cards|length }} open</span>
+                <a class="student-inline-link" href="{% url 'tutor_requests' %}">See all requests</a>
+              </div>
             </div>
             <p class="text-muted small mb-3">
-              Students ask for courses nobody offers yet. Say "I can help" and they can book you once you have an open time.
+              Students ask for courses nobody offers yet. Accept to offer help; they can book you once you have an open time.
             </p>
             {% if request_cards %}
             <div class="row g-3">
               {% for r in request_cards %}
               <div class="col-12 col-lg-6">
-                <article class="card treq-card h-100{% if r.joined %} is-joined{% endif %}" data-request-id="{{ r.id }}"
-                         data-join-url="{% url 'express_tutoring_request_interest' r.id %}"
-                         data-leave-url="{% url 'withdraw_tutoring_request_interest' r.id %}">
-                  <div class="card-body d-flex flex-column">
-                    <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-1">
-                      <h3 class="h6 mb-0">{{ r.course.course_code }} · {{ r.course.course_name }}</h3>
-                      {% if r.matches %}<span class="treq-badge">You teach this</span>{% endif %}
-                    </div>
-                    <p class="tutor-meta mb-2">
-                      {{ r.student_name }} · {{ r.location_label }} · {{ r.asked_ago }} ago
-                    </p>
-                    <p class="req-description mb-3">{{ r.description|truncatechars:240 }}</p>
-                    <div class="treq-footer mt-auto">
-                      <span class="treq-count">
-                        <span class="js-count">{{ r.interest_count }}</span> <span class="js-noun">tutor{{ r.interest_count|pluralize }}</span> can help
-                      </span>
-                      <button type="button" class="btn btn-sm js-interest {% if r.joined %}btn-outline-secondary{% else %}btn-green{% endif %}">
-                        {% if r.joined %}Withdraw offer{% else %}I can help{% endif %}
-                      </button>
-                    </div>
-                    <p class="req-error mt-2 mb-0" role="alert" hidden></p>
-                    {% if r.joined %}
-                    <p class="treq-hint mt-2 mb-0 js-hint">
-                      Add an open time on the <a href="{% url 'tutor_sessions' %}">sessions page</a> so the student can book you.
-                    </p>
-                    {% else %}
-                    <p class="treq-hint mt-2 mb-0 js-hint" hidden>
-                      Add an open time on the <a href="{% url 'tutor_sessions' %}">sessions page</a> so the student can book you.
-                    </p>
-                    {% endif %}
-                  </div>
-                </article>
+                {% include "tutor/_request_card.html" with r=r join_label="Accept" leave_label="Decline" %}
               </div>
               {% endfor %}
             </div>
             {% else %}
-            <p class="tutor-empty-note mb-0">No open requests right now. They will show up here.</p>
+            <p class="tutor-empty-note mb-0">
+              No open requests right now.
+              <a href="{% url 'tutor_requests' %}">Open the full request list</a>.
+            </p>
             {% endif %}
           </div>
         </section>
@@ -197,5 +172,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'js/tutor_requests.js' %}?v=1"></script>
+<script src="{% static 'js/tutor_requests.js' %}?v=3"></script>
 {% endblock %}
