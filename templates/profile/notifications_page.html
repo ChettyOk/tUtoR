@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Notifications · {{ site_name }}{% endblock %}
+
+{% block content %}
+<section class="container py-4 py-lg-5" style="max-width: 46rem;">
+  <p class="kicker mb-1">Inbox</p>
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+    <h1 class="h2 mb-0">Notifications</h1>
+    <button
+      type="button"
+      class="btn btn-outline-secondary rounded-pill"
+      id="notif-page-mark-all"
+      {% if unread_count == 0 %}disabled{% endif %}
+    >Mark all as read</button>
+  </div>
+
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <nav class="notif-filter" aria-label="Filter notifications">
+      <a href="{% url 'notifications' %}" class="{% if not only_unread %}active{% endif %}" {% if not only_unread %}aria-current="page"{% endif %}>All</a>
+      <a href="{% url 'notifications' %}?filter=unread" class="{% if only_unread %}active{% endif %}" {% if only_unread %}aria-current="page"{% endif %}>Unread</a>
+    </nav>
+    <p class="mb-0 text-muted"><span id="notif-page-unread">{{ unread_count }}</span> unread</p>
+  </div>
+
+  {% if items %}
+  <ul
+    class="notif-page-list"
+    id="notif-page"
+    data-delete-url-template="{% url 'delete_notification' 0 %}"
+    data-filter="{% if only_unread %}unread{% else %}all{% endif %}"
+  >
+    {% for n in items %}
+    <li class="notif-item{% if not n.is_read %} is-unread{% endif %}" data-id="{{ n.id }}">
+      <span class="notif-dot" aria-hidden="true"></span>
+      <div class="notif-body">
+        <a class="notif-title" href="{{ n.url }}">{{ n.title }}</a>
+        <p class="notif-msg">{{ n.message }}</p>
+        <div class="notif-meta">
+          <span>{{ n.time_ago }}</span>
+          {% if not n.is_read %}
+          <button type="button" class="notif-link-btn" data-action="read">Mark as read</button>
+          {% endif %}
+          <button type="button" class="notif-link-btn" data-action="delete">Delete</button>
+        </div>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+
+  {% if page.has_other_pages %}
+  <nav class="d-flex justify-content-between align-items-center mt-3" aria-label="Pages">
+    {% if page.has_previous %}
+    <a class="btn btn-outline-secondary rounded-pill" href="?{% if only_unread %}filter=unread&amp;{% endif %}page={{ page.previous_page_number }}">Newer</a>
+    {% else %}<span></span>{% endif %}
+    <span class="text-muted">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}
+    <a class="btn btn-outline-secondary rounded-pill" href="?{% if only_unread %}filter=unread&amp;{% endif %}page={{ page.next_page_number }}">Older</a>
+    {% else %}<span></span>{% endif %}
+  </nav>
+  {% endif %}
+  {% else %}
+  <div class="notif-page-list">
+    <p class="notif-empty mb-0">
+      {% if only_unread %}You're all caught up. No unread notifications.{% else %}You have no notifications yet. Booking updates and tutor replies will show up here.{% endif %}
+    </p>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}
