@@ -1,4 +1,5 @@
 
+/* Tutor request cards: Accept joins immediately; Decline needs a second click. */
 (function () {
   "use strict";
 
@@ -25,8 +26,20 @@
     var hint = card.querySelector(".js-hint");
     var joinLabel = card.dataset.joinLabel || "Accept";
     var leaveLabel = card.dataset.leaveLabel || "Decline";
+    var armed = false;
+    var timer = null;
+
+    function clearArm() {
+      armed = false;
+      btn.classList.remove("is-armed");
+      if (timer) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+    }
 
     function setJoined(joined) {
+      clearArm();
       card.classList.toggle("is-joined", joined);
       btn.textContent = joined ? leaveLabel : joinLabel;
       btn.classList.toggle("btn-green", !joined);
@@ -35,11 +48,11 @@
       if (hint) hint.hidden = !joined;
     }
 
-    btn.addEventListener("click", function () {
-      var joined = card.classList.contains("is-joined");
+    function postInterest(joined) {
       var url = joined ? card.dataset.leaveUrl : card.dataset.joinUrl;
       if (errorEl) errorEl.hidden = true;
       btn.disabled = true;
+      btn.textContent = joined ? "Declining…" : "Accepting…";
 
       fetch(url, {
         method: "POST",
@@ -54,6 +67,7 @@
         .then(function (r) {
           btn.disabled = false;
           if (!r.ok) {
+            setJoined(joined);
             if (errorEl) {
               errorEl.textContent = r.status === 400
                 ? "This request is no longer open."
@@ -74,11 +88,39 @@
         })
         .catch(function () {
           btn.disabled = false;
+          setJoined(joined);
           if (errorEl) {
             errorEl.textContent = "Couldn't reach the server. Check your connection and try again.";
             errorEl.hidden = false;
           }
         });
+    }
+
+    btn.addEventListener("click", function () {
+      var joined = card.classList.contains("is-joined");
+      if (errorEl) errorEl.hidden = true;
+
+      // Accept is one click.
+      if (!joined) {
+        clearArm();
+        postInterest(false);
+        return;
+      }
+
+      // Decline needs a second confirm click.
+      if (!armed) {
+        armed = true;
+        btn.textContent = "Click again to decline";
+        btn.classList.add("is-armed");
+        timer = window.setTimeout(function () {
+          clearArm();
+          btn.textContent = leaveLabel;
+        }, 4000);
+        return;
+      }
+
+      clearArm();
+      postInterest(true);
     });
   });
 })();

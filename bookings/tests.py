@@ -5350,7 +5350,7 @@ class TutorRequestsPageTests(TestCase):
     def test_tutor_sees_open_requests_with_accept_decline(self):
         from bookings.services import create_tutoring_request
 
-        create_tutoring_request(
+        tutoring_request = create_tutoring_request(
             student=self.student,
             course=self.course,
             description='Need help with linked lists and trees for the midterm.',
@@ -5364,12 +5364,39 @@ class TutorRequestsPageTests(TestCase):
         self.assertContains(response, 'Sam')
         self.assertContains(response, 'Accept')
         self.assertContains(response, 'js-interest')
+        self.assertContains(response, 'data-join-label="Accept"')
+        self.assertContains(response, 'data-leave-label="Decline"')
         self.assertContains(
             response,
-            reverse('express_tutoring_request_interest', args=[
-                response.context['request_cards'][0]['id'],
-            ]),
+            reverse('express_tutoring_request_interest', args=[tutoring_request.id]),
         )
+        self.assertContains(
+            response,
+            reverse('withdraw_tutoring_request_interest', args=[tutoring_request.id]),
+        )
+
+    def test_accept_then_page_shows_decline(self):
+        from bookings.services import (
+            create_tutoring_request,
+            express_tutoring_request_interest,
+        )
+
+        tutoring_request = create_tutoring_request(
+            student=self.student,
+            course=self.course,
+            description='Need help with recursion and big-O for the assignment.',
+        )
+        express_tutoring_request_interest(
+            request_id=tutoring_request.id,
+            tutor=self.tutor,
+        )
+        self.client.force_login(self.tutor)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['request_cards'][0]['joined'])
+        self.assertContains(response, 'Decline')
+        self.assertContains(response, 'is-joined')
 
     def test_tutor_home_links_to_the_page(self):
         self.client.force_login(self.tutor)
