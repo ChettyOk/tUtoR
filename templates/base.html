@@ -78,7 +78,8 @@
           </a>
           {% block nav_actions %}
           {% if user.is_authenticated %}
-          <div class="account-menu dropdown order-lg-last ms-auto ms-lg-3">
+          {% include "interactions/_bell.html" %}
+          <div class="account-menu dropdown order-lg-last ms-2 ms-lg-3">
             <button
               class="account-avatar-btn dropdown-toggle"
               type="button"
@@ -210,6 +211,9 @@
         });
       }
     </script>
+    {% if user.is_authenticated %}
+    <script src="{% static 'js/notifications.js' %}?v=20261121a"></script>
+    {% endif %}
     {% block extra_js %}{% endblock %}
   </body>
 </html>
