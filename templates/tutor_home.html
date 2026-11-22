@@ -138,6 +138,9 @@
           <div class="card-body">
             <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-3">
               <h2 class="h6 mb-0" id="tutor-bookings-heading">Confirmed bookings</h2>
+                <a href="{% url 'tutor_past_sessions' %}" class="btn btn-green btn-sm rounded-pill">
+                Past sessions{% if to_rate_count %} · {{ to_rate_count }} to rate{% endif %}
+              </a>
             </div>
             {% if recent_bookings %}
             <ul class="tutor-overview-list mb-0">
