@@ -138,6 +138,7 @@
           class="card tutor-overview-card"
           aria-labelledby="tutor-bookings-heading"
           data-booking-list
+          data-confirm-modal="cancel-confirm-modal"
           data-empty-message="No confirmed bookings yet. Once students book your open times, they will show up here."
           data-empty-class="tutor-empty-note mb-0"
         >
@@ -189,9 +190,33 @@
     </div>
   </div>
 </div>
+
+<div class="modal fade" id="cancel-confirm-modal" tabindex="-1"
+     aria-labelledby="cancel-confirm-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <h2 class="modal-title h5" id="cancel-confirm-title">Cancel this session?</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-2">The student will be notified that this booking is cancelled.</p>
+        <p class="text-muted small mb-0" id="cancel-confirm-summary"></p>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
+          Keep booking
+        </button>
+        <button type="button" class="btn btn-green" id="cancel-confirm-submit">
+          Confirm cancel
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
 <script src="{% static 'js/tutor_requests.js' %}?v=3"></script>
-<script src="{% static 'js/bookings-home.js' %}?v=20261122c"></script>
+<script src="{% static 'js/bookings-home.js' %}?v=20261122d"></script>
 {% endblock %}

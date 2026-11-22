@@ -2800,6 +2800,10 @@ class HomePageTests(TestCase):
             reverse('cancel_booking', kwargs={'booking_id': booking.id}),
         )
         self.assertContains(response, 'js/bookings-home.js')
+        self.assertContains(response, 'id="cancel-confirm-modal"')
+        self.assertContains(response, 'Cancel this session?')
+        self.assertContains(response, 'Confirm cancel')
+        self.assertContains(response, 'data-confirm-modal="cancel-confirm-modal"')
         self.assertEqual(response.context['booked_count'], 1)
         self.assertEqual(len(response.context['recent_bookings']), 1)
         self.assertEqual(

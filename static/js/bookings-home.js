@@ -1,5 +1,5 @@
 /* Home pages: cancel a confirmed booking from the booking list.
-   Uses the same two-click confirm pattern as my_requests.js. */
+   Student home uses two-click arming; tutor home uses a confirm modal. */
 (function () {
   "use strict";
 
@@ -12,6 +12,13 @@
   var emptyMessage = list.getAttribute("data-empty-message")
     || "No confirmed bookings yet. Book an open time from a tutor below.";
   var emptyClass = list.getAttribute("data-empty-class") || "student-empty mb-0";
+  var confirmModalId = list.getAttribute("data-confirm-modal");
+  var confirmModalEl = confirmModalId
+    ? document.getElementById(confirmModalId)
+    : null;
+  var confirmSummary = document.getElementById("cancel-confirm-summary");
+  var confirmBtn = document.getElementById("cancel-confirm-submit");
+  var pending = null;
 
   function csrfToken() {
     if (tokenInput && tokenInput.value) return tokenInput.value;
@@ -45,12 +52,124 @@
     return false;
   }
 
+  function bookingSummary(row, btn) {
+    var fromBtn = btn.getAttribute("data-summary");
+    if (fromBtn) return fromBtn;
+    if (!row) return "this session";
+    var strong = row.querySelector(".student-booking-info strong");
+    var span = row.querySelector(".student-booking-info span");
+    var parts = [];
+    if (strong && strong.textContent.trim()) parts.push(strong.textContent.trim());
+    if (span && span.textContent.trim()) parts.push(span.textContent.trim());
+    return parts.join(" · ") || "this session";
+  }
+
+  function removeRow(row) {
+    if (row) row.remove();
+    if (!list.querySelector(".student-booking")) {
+      var empty = document.createElement("p");
+      empty.className = emptyClass;
+      empty.textContent = emptyMessage;
+      var body = list.querySelector(".card-body");
+      var oldList = list.querySelector(".student-booking-list");
+      if (oldList) oldList.remove();
+      if (body) body.appendChild(empty);
+    }
+  }
+
+  function showError(errorEl, message) {
+    if (errorEl) {
+      errorEl.textContent = message;
+      errorEl.hidden = false;
+    } else {
+      showBox(alertBox, message);
+    }
+  }
+
+  function postCancel(btn, row, errorEl) {
+    btn.disabled = true;
+    var original = btn.textContent;
+    btn.textContent = "Cancelling…";
+
+    return fetch(btn.getAttribute("data-url"), {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "X-CSRFToken": csrfToken(),
+        Accept: "application/json",
+        "X-Requested-With": "XMLHttpRequest"
+      }
+    })
+      .then(function (response) {
+        return response.json().catch(function () { return {}; }).then(function (data) {
+          return { ok: response.ok, status: response.status, data: data };
+        });
+      })
+      .then(function (result) {
+        if (result.ok) {
+          removeRow(row);
+          showBox(successBox, result.data.message || "Booking cancelled.");
+          return;
+        }
+
+        btn.disabled = false;
+        btn.textContent = original;
+        btn.classList.remove("is-armed");
+        var message = (result.data && result.data.error)
+          || "Couldn't cancel this booking. Please try again.";
+        if (isDeadlineError(message) && showDeadlineModal(message)) {
+          return;
+        }
+        showError(errorEl, message);
+      })
+      .catch(function () {
+        btn.disabled = false;
+        btn.textContent = original;
+        btn.classList.remove("is-armed");
+        showError(
+          errorEl,
+          "Couldn't reach the server. Check your connection and try again."
+        );
+      });
+  }
+
+  function openConfirmModal(btn, row, errorEl) {
+    pending = { btn: btn, row: row, errorEl: errorEl };
+    if (confirmSummary) {
+      confirmSummary.textContent = bookingSummary(row, btn);
+    }
+    if (window.bootstrap && confirmModalEl) {
+      window.bootstrap.Modal.getOrCreateInstance(confirmModalEl).show();
+      return true;
+    }
+    return false;
+  }
+
+  if (confirmBtn && confirmModalEl) {
+    confirmBtn.addEventListener("click", function () {
+      if (!pending) return;
+      var current = pending;
+      pending = null;
+      if (window.bootstrap) {
+        window.bootstrap.Modal.getOrCreateInstance(confirmModalEl).hide();
+      }
+      clearBoxes();
+      if (current.errorEl) current.errorEl.hidden = true;
+      postCancel(current.btn, current.row, current.errorEl);
+    });
+
+    confirmModalEl.addEventListener("hidden.bs.modal", function () {
+      pending = null;
+    });
+  }
+
   Array.prototype.forEach.call(list.querySelectorAll(".js-cancel-booking"), function (btn) {
     var label = btn.textContent;
     var armed = false;
     var timer = null;
     var row = btn.closest(".student-booking");
     var errorEl = row ? row.querySelector(".booking-error") : null;
+    var useModal = !!(confirmModalEl && list.getAttribute("data-confirm-modal"));
 
     function reset() {
       armed = false;
@@ -62,6 +181,22 @@
       clearBoxes();
       if (errorEl) errorEl.hidden = true;
 
+      if (useModal) {
+        if (!openConfirmModal(btn, row, errorEl)) {
+          // Fallback if Bootstrap is unavailable.
+          if (!armed) {
+            armed = true;
+            btn.textContent = "Click again to cancel";
+            btn.classList.add("is-armed");
+            timer = window.setTimeout(reset, 4000);
+            return;
+          }
+          window.clearTimeout(timer);
+          postCancel(btn, row, errorEl).then(reset);
+        }
+        return;
+      }
+
       if (!armed) {
         armed = true;
         btn.textContent = "Click again to cancel";
@@ -71,63 +206,9 @@
       }
 
       window.clearTimeout(timer);
-      btn.disabled = true;
-      btn.textContent = "Cancelling…";
-
-      fetch(btn.getAttribute("data-url"), {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "X-CSRFToken": csrfToken(),
-          Accept: "application/json",
-          "X-Requested-With": "XMLHttpRequest"
-        }
-      })
-        .then(function (response) {
-          return response.json().catch(function () { return {}; }).then(function (data) {
-            return { ok: response.ok, status: response.status, data: data };
-          });
-        })
-        .then(function (result) {
-          if (result.ok) {
-            if (row) row.remove();
-            showBox(successBox, result.data.message || "Booking cancelled.");
-            if (!list.querySelector(".student-booking")) {
-              var empty = document.createElement("p");
-              empty.className = emptyClass;
-              empty.textContent = emptyMessage;
-              var body = list.querySelector(".card-body");
-              var oldList = list.querySelector(".student-booking-list");
-              if (oldList) oldList.remove();
-              if (body) body.appendChild(empty);
-            }
-            return;
-          }
-
-          btn.disabled = false;
-          reset();
-          var message = (result.data && result.data.error) || "Couldn't cancel this booking. Please try again.";
-          if (isDeadlineError(message) && showDeadlineModal(message)) {
-            return;
-          }
-          if (errorEl) {
-            errorEl.textContent = message;
-            errorEl.hidden = false;
-          } else {
-            showBox(alertBox, message);
-          }
-        })
-        .catch(function () {
-          btn.disabled = false;
-          reset();
-          var message = "Couldn't reach the server. Check your connection and try again.";
-          if (errorEl) {
-            errorEl.textContent = message;
-            errorEl.hidden = false;
-          } else {
-            showBox(alertBox, message);
-          }
-        });
+      postCancel(btn, row, errorEl).then(function () {
+        if (btn.isConnected) reset();
+      });
     });
   });
 })();
