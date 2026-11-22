@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Student requests · {{ site_name|default:"tUtoR" }}{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/requests.css' %}?v=3" />
+{% endblock %}
+
+{% block content %}
+<div class="home-page">
+  <div class="container home-page-inner req-page">
+    {% csrf_token %}
+    <header class="mb-4 d-flex flex-wrap align-items-end justify-content-between gap-3">
+      <div>
+        <a href="{% url 'tutor_home' %}" class="back-link">&larr; Back to tutor home</a>
+        <p class="kicker kicker-green mt-3 mb-2">Tutor</p>
+        <h1 class="h3 mb-1">Student requests</h1>
+        <p class="text-muted mb-0">
+          Students ask for courses nobody offers yet. Accept to offer help, or decline to withdraw.
+          Once you accept, add an open time so they can book you.
+        </p>
+      </div>
+      <a class="btn btn-green" href="{% url 'tutor_sessions' %}">Set up sessions</a>
+    </header>
+
+    <section id="requests-section" aria-labelledby="tutor-requests-heading">
+      <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-3">
+        <h2 class="h5 mb-0" id="tutor-requests-heading">Open requests</h2>
+        <p class="tutor-list-count mb-0" role="status">
+          {{ request_cards|length }} open
+        </p>
+      </div>
+
+      {% if request_cards %}
+      <div class="row g-3">
+        {% for r in request_cards %}
+        <div class="col-12 col-lg-6">
+          {% include "tutor/_request_card.html" with r=r join_label="Accept" leave_label="Decline" %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="card req-empty">
+        <div class="card-body">
+          <p class="tutor-empty-title mb-2">No open requests</p>
+          <p class="tutor-empty-copy mb-0">
+            When students ask for a course nobody offers, those requests will show up here.
+          </p>
+        </div>
+      </div>
+      {% endif %}
+    </section>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/tutor_requests.js' %}?v=2"></script>
+{% endblock %}

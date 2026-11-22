@@ -26,7 +26,11 @@ from .models import (
     TutoringRequest,
 )
 
-from .request_pages import build_request_cards, guess_course
+from .request_pages import (
+    build_request_cards,
+    build_tutor_request_cards,
+    guess_course,
+)
 
 from .search import (
     SORT_CHOICES,
@@ -898,6 +902,19 @@ def get_student_dashboard_view(request):
     return JsonResponse(
         serialize_student_dashboard(dashboard),
     )
+
+@login_required
+def tutor_requests_page(request):
+    """TUT-05.2: full list of open student requests for a tutor."""
+    if not request.user.has_role(User.Role.TUTOR):
+        return redirect('student_home')
+
+    cards = build_tutor_request_cards(request.user, limit=100)
+    return render(request, 'tutor/requests.html', {
+        'site_name': 'tUtoR',
+        'request_cards': cards,
+    })
+
 
 @login_required
 def tutor_sessions_page(request):

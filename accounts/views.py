@@ -691,7 +691,8 @@ def tutor_home(request):
     context.update(_tutor_home_overview(request.user))
 
     from bookings.request_pages import build_tutor_request_cards
-    context['request_cards'] = build_tutor_request_cards(request.user)
+    # Short preview on home; full list lives on /tutor/requests/.
+    context['request_cards'] = build_tutor_request_cards(request.user, limit=4)
 
     return render(request, 'tutor_home.html', context)
 

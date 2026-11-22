@@ -5304,6 +5304,80 @@ class TutorSessionsPageTests(TestCase):
         self.assertContains(self.client.get(reverse('tutor_home')), self.url)
 
 
+class TutorRequestsPageTests(TestCase):
+    def setUp(self):
+        self.url = reverse('tutor_requests')
+        self.tutor = User.objects.create_user(
+            email='tutor-req@example.com',
+            password='pw-12345-xyz',
+            role='tutor',
+            first_name='Tina',
+        )
+        self.student = User.objects.create_user(
+            email='student-req@example.com',
+            password='pw-12345-xyz',
+            role='student',
+            first_name='Sam',
+        )
+        self.course = Course.create_course('CS 210', 'Data Structures')
+        TutorProfile.objects.create(user=self.tutor).courses_passed.add(self.course)
+
+    def test_anonymous_user_is_sent_to_login(self):
+        response = self.client.get(self.url)
+        self.assertRedirects(
+            response,
+            f"{reverse('login')}?next={self.url}",
+            fetch_redirect_response=False,
+        )
+
+    def test_student_is_sent_to_student_home(self):
+        self.client.force_login(self.student)
+        self.assertRedirects(
+            self.client.get(self.url),
+            reverse('student_home'),
+            fetch_redirect_response=False,
+        )
+
+    def test_tutor_sees_empty_list(self):
+        self.client.force_login(self.tutor)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'tutor/requests.html')
+        self.assertContains(response, 'Student requests')
+        self.assertContains(response, 'No open requests')
+        self.assertContains(response, 'js/tutor_requests.js')
+
+    def test_tutor_sees_open_requests_with_accept_decline(self):
+        from bookings.services import create_tutoring_request
+
+        create_tutoring_request(
+            student=self.student,
+            course=self.course,
+            description='Need help with linked lists and trees for the midterm.',
+        )
+        self.client.force_login(self.tutor)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['request_cards']), 1)
+        self.assertContains(response, 'CS 210')
+        self.assertContains(response, 'Sam')
+        self.assertContains(response, 'Accept')
+        self.assertContains(response, 'js-interest')
+        self.assertContains(
+            response,
+            reverse('express_tutoring_request_interest', args=[
+                response.context['request_cards'][0]['id'],
+            ]),
+        )
+
+    def test_tutor_home_links_to_the_page(self):
+        self.client.force_login(self.tutor)
+        home = self.client.get(reverse('tutor_home'))
+        self.assertContains(home, self.url)
+        self.assertContains(home, 'See all requests')
+
+
 class TutorSaveCoursesTests(TestCase):
     def setUp(self):
         self.url = reverse('tutor_save_courses')

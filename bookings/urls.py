@@ -21,6 +21,7 @@ urlpatterns = [
     path('bookings/', views.get_bookings, name='my_bookings'),
     path('bookings/<int:booking_id>/cancel/', views.cancel_booking_view, name='cancel_booking'),
     path('tutor/sessions/', views.tutor_sessions_page, name='tutor_sessions'),
+    path('tutor/requests/', views.tutor_requests_page, name='tutor_requests'),
     path('tutor/sessions/courses/', views.tutor_save_courses, name='tutor_save_courses'),
     path('tutor/slots/', views.get_tutor_schedule_view, name='tutor_schedule',),
     path('tutor/slots/create/', views.create_slot_view, name='create_slot',),

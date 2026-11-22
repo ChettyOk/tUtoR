@@ -121,6 +121,9 @@
               </li>
               {% if user.role == 'tutor' %}
               <li>
+                <a class="dropdown-item" href="{% url 'tutor_requests' %}">Student requests</a>
+              </li>
+              <li>
                 <a class="dropdown-item" href="{% url 'tutor_sessions' %}">Sessions setup</a>
               </li>
               {% endif %}
