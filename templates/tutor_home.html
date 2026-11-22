@@ -9,31 +9,18 @@
 {% block content %}
 <div class="home-page">
   <div class="container home-page-inner">
-    <div class="d-flex flex-wrap align-items-end justify-content-between gap-3 mb-4">
-      <div>
-        <p class="kicker kicker-green mb-2">Tutor</p>
-        <h1 class="h3 mb-1">Welcome{% if user.first_name %}, {{ user.first_name }}{% endif %}</h1>
-        <p class="text-muted mb-0">Manage the courses you teach and your slot offer.</p>
-      </div>
-      <a href="{% url 'tutor_sessions' %}" class="btn btn-green rounded-pill">Set up tutoring sessions</a>
-    </div>
-
-    {% if success_message %}
-    <div class="alert alert-success" role="status">{{ success_message }}</div>
-    {% endif %}
-
-    <div class="card mb-4">
-      <div class="card-body">
-        <h2 class="h6">Your courses</h2>
-        {% if courses %}
-        <ul class="mb-0">
-          {% for course in courses %}
-          <li>{{ course.course_code }} &ndash; {{ course.course_name }}</li>
-          {% endfor %}
-        </ul>
-        {% else %}
-        <p class="mb-0">None yet. <a href="{% url 'personalise' %}">Pick the courses you have passed</a></p>
-        {% endif %}
+    <header class="tutor-home-hero mb-4">
+      <div class="d-flex flex-wrap align-items-end justify-content-between gap-3">
+        <div>
+          <p class="kicker kicker-green mb-2">Tutor overview</p>
+          <h1 class="h3 mb-1">Welcome{% if user.first_name %}, {{ user.first_name }}{% endif %}</h1>
+          <p class="text-muted mb-0">
+            Your tutoring snapshot. Set up courses and open times on the sessions page.
+          </p>
+        </div>
+        <a href="{% url 'tutor_sessions' %}" class="btn btn-green rounded-pill">
+          Set up tutoring sessions
+        </a>
       </div>
     </header>
 
@@ -56,31 +43,15 @@
       </div>
     </section>
 
-        <form method="post" action="{% url 'tutor_home' %}" class="row g-3" novalidate>
-          {% csrf_token %}
-          <div class="col-sm-6 col-md-4">
-            <label for="id_price_per_hour" class="form-label">Price per hour (CAD)</label>
-            <div class="input-group has-validation">
-              <span class="input-group-text">$</span>
-              <input
-                type="number"
-                step="0.01"
-                min="{{ min_price }}"
-                max="{{ max_price }}"
-                id="id_price_per_hour"
-                name="price_per_hour"
-                class="form-control{% if price_error %} is-invalid{% endif %}"
-                value="{{ price_value }}"
-                aria-invalid="{% if price_error %}true{% else %}false{% endif %}"
-                aria-describedby="id_price_per_hour_help{% if price_error %} id_price_per_hour_error{% endif %}"
-                required
-              />
-              <div id="id_price_per_hour_error" class="invalid-feedback">
-                {{ price_error|default:"Enter a valid price per hour." }}
-              </div>
-            </div>
-            <div id="id_price_per_hour_help" class="form-text">
-              Allowed range: ${{ min_price }} to ${{ max_price }} per hour.
+    <div class="row g-4">
+      <div class="col-lg-6">
+        <section class="card tutor-overview-card h-100" aria-labelledby="tutor-courses-heading">
+          <div class="card-body">
+            <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-3">
+              <h2 class="h6 mb-0" id="tutor-courses-heading">Courses you teach</h2>
+              <a class="student-inline-link" href="{% url 'tutor_sessions' %}#courses-section">
+                {% if courses %}Manage courses{% else %}Add courses{% endif %}
+              </a>
             </div>
             {% if courses %}
             <ul class="student-course-list mb-0">
@@ -102,23 +73,14 @@
         </section>
       </div>
 
-          <div class="col-sm-6 col-md-4">
-            <label for="id_location_type" class="form-label">Location</label>
-            <select
-              id="id_location_type"
-              name="location_type"
-              class="form-select{% if location_error %} is-invalid{% endif %}"
-              aria-invalid="{% if location_error %}true{% else %}false{% endif %}"
-              required
-            >
-              {% for value, label in location_choices %}
-              <option value="{{ value }}"{% if location_value == value %} selected{% endif %}>
-                {{ label }}
-              </option>
-              {% endfor %}
-            </select>
-            <div class="invalid-feedback">
-              {{ location_error|default:"Choose Online or In person." }}
+      <div class="col-lg-6">
+        <section class="card tutor-overview-card h-100" aria-labelledby="tutor-slots-heading">
+          <div class="card-body">
+            <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-3">
+              <h2 class="h6 mb-0" id="tutor-slots-heading">Upcoming open slots</h2>
+              <a class="student-inline-link" href="{% url 'tutor_sessions' %}#schedule-section">
+                View schedule
+              </a>
             </div>
             {% if upcoming_slots %}
             <ul class="tutor-overview-list mb-0">
@@ -170,7 +132,7 @@
                       <span class="treq-count">
                         <span class="js-count">{{ r.interest_count }}</span> <span class="js-noun">tutor{{ r.interest_count|pluralize }}</span> can help
                       </span>
-                      <button type="button" class="btn btn-sm js-interest {% if r.joined %}btn-find-clear{% else %}btn-green{% endif %}">
+                      <button type="button" class="btn btn-sm js-interest {% if r.joined %}btn-outline-secondary{% else %}btn-green{% endif %}">
                         {% if r.joined %}Withdraw offer{% else %}I can help{% endif %}
                       </button>
                     </div>
@@ -216,7 +178,7 @@
                 <span>
                   {% if booking.course %}{{ booking.course }} · {% endif %}
                   ${{ booking.session_price }}
-                  {% if booking.start_time %} · {{ booking.start_label }}{% endif %}
+                  {% if booking.start_label %} · {{ booking.start_label }}{% endif %}
                 </span>
               </li>
               {% endfor %}
@@ -235,18 +197,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
-  (function () {
-    var button = document.getElementById("use-suggested-price");
-    var input = document.getElementById("id_price_per_hour");
-    if (!button || !input) return;
-    button.addEventListener("click", function () {
-      input.value = button.getAttribute("data-suggested");
-      input.classList.remove("is-invalid");
-      input.setAttribute("aria-invalid", "false");
-      input.focus();
-    });
-  })();
-</script>
 <script src="{% static 'js/tutor_requests.js' %}?v=1"></script>
 {% endblock %}

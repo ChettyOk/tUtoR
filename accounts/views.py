@@ -22,6 +22,7 @@ from django.views.decorators.http import (
 )
 
 from bookings.services import (
+    get_student_dashboard,
     get_tutor_dashboard,
     serialize_tutor_dashboard,
 )
@@ -552,6 +553,51 @@ def _tutors_for_student(student_profile):
 
 
 #Home page/dashboard basic controllers set up for redirection from signup and login
+def _student_home_bookings(user):
+    """Confirmed bookings shown on the student home booking list."""
+    from django.utils import timezone
+    from django.utils.formats import date_format
+    from django.urls import reverse
+
+    from bookings.models import Available_Slots
+
+    dashboard = get_student_dashboard(user)
+    bookings = []
+    for booking in dashboard['booked_sessions']:
+        start = booking.start_time
+        end = booking.end_time
+        if booking.time_slot_id is not None:
+            if start is None:
+                start = booking.time_slot.start_time
+            if end is None:
+                end = booking.time_slot.end_time
+
+        start_label = ''
+        if start is not None:
+            start_label = date_format(
+                timezone.localtime(start),
+                'D M j, Y · g:i A',
+            )
+
+        location_label = ''
+        if booking.location_type:
+            location_label = dict(Available_Slots.LocationType.choices).get(
+                booking.location_type,
+                booking.location_type,
+            )
+
+        bookings.append({
+            'id': booking.id,
+            'tutor': booking.tutor,
+            'course': str(booking.course) if booking.course else '',
+            'session_price': str(booking.session_price),
+            'start_label': start_label,
+            'location_label': location_label,
+            'cancel_url': reverse('cancel_booking', args=[booking.id]),
+        })
+    return bookings
+
+
 @login_required
 def student_home(request):
     if request.user.has_role('tutor'):
@@ -564,6 +610,7 @@ def student_home(request):
         'campus': 'University of Regina',
         'courses': courses,
         'tutors': tutors,
+        'bookings': _student_home_bookings(request.user),
     })
 
 
@@ -631,28 +678,11 @@ def _tutor_home_overview(user):
     }
 
 
-        if not raw_price:
-            price_error = 'Enter a price per hour.'
-            saved_price = None
-        else:
-            try:
-                saved_price = custom_pricing(raw_price)
-            except ValueError as error:
-                price_error = str(error)
-                saved_price = None
-
-        if raw_location not in valid_locations:
-            location_error = 'Choose Online or In person.'
-
-        if saved_price is not None and not location_error:
-            price_value = str(saved_price)
-            location_value = raw_location
-            request.session['tutor_hourly_price'] = price_value
-            request.session['tutor_location_type'] = location_value
-            location_label = dict(location_choices)[location_value]
-            success_message = (
-                f'Slot details saved: ${saved_price}/hour, {location_label}.'
-            )
+@login_required
+def tutor_home(request):
+    """Tutor overview dashboard. Session setup lives on /tutor/sessions/."""
+    if not request.user.has_role('tutor'):
+        return redirect('student_home')
 
     context = {
         'site_name': 'tUtoR',
@@ -662,7 +692,7 @@ def _tutor_home_overview(user):
 
     from bookings.request_pages import build_tutor_request_cards
     context['request_cards'] = build_tutor_request_cards(request.user)
-    
+
     return render(request, 'tutor_home.html', context)
 
 @require_GET
