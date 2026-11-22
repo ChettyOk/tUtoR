@@ -22,6 +22,7 @@ from django.views.decorators.http import (
 )
 
 from bookings.services import (
+    get_student_dashboard,
     get_tutor_dashboard,
     serialize_tutor_dashboard,
 )
@@ -552,6 +553,51 @@ def _tutors_for_student(student_profile):
 
 
 #Home page/dashboard basic controllers set up for redirection from signup and login
+def _student_home_bookings(user):
+    """Confirmed bookings shown on the student home booking list."""
+    from django.utils import timezone
+    from django.utils.formats import date_format
+    from django.urls import reverse
+
+    from bookings.models import Available_Slots
+
+    dashboard = get_student_dashboard(user)
+    bookings = []
+    for booking in dashboard['booked_sessions']:
+        start = booking.start_time
+        end = booking.end_time
+        if booking.time_slot_id is not None:
+            if start is None:
+                start = booking.time_slot.start_time
+            if end is None:
+                end = booking.time_slot.end_time
+
+        start_label = ''
+        if start is not None:
+            start_label = date_format(
+                timezone.localtime(start),
+                'D M j, Y · g:i A',
+            )
+
+        location_label = ''
+        if booking.location_type:
+            location_label = dict(Available_Slots.LocationType.choices).get(
+                booking.location_type,
+                booking.location_type,
+            )
+
+        bookings.append({
+            'id': booking.id,
+            'tutor': booking.tutor,
+            'course': str(booking.course) if booking.course else '',
+            'session_price': str(booking.session_price),
+            'start_label': start_label,
+            'location_label': location_label,
+            'cancel_url': reverse('cancel_booking', args=[booking.id]),
+        })
+    return bookings
+
+
 @login_required
 def student_home(request):
     if request.user.has_role('tutor'):
@@ -564,6 +610,7 @@ def student_home(request):
         'campus': 'University of Regina',
         'courses': courses,
         'tutors': tutors,
+        'bookings': _student_home_bookings(request.user),
     })
 
 
@@ -643,7 +690,7 @@ def tutor_home(request):
 
     from bookings.request_pages import build_tutor_request_cards
     context['request_cards'] = build_tutor_request_cards(request.user)
-    
+
     return render(request, 'tutor_home.html', context)
 
 @require_GET
