@@ -32,6 +32,8 @@ from .request_pages import (
     guess_course,
 )
 
+from .rating_pages import MAX_COMMENT_LENGTH, build_past_sessions
+
 from .search import (
     SORT_CHOICES,
     clean_filters,
@@ -1229,4 +1231,18 @@ def request_form_page(request):
             'after': reverse('my_requests'),
             'find': reverse('find_tutors'),
         },
+    })
+
+@login_required
+def tutor_past_sessions_page(request):
+    """TUT-07.2: ended sessions where the tutor can rate the student."""
+    if not request.user.has_role(User.Role.TUTOR):
+        return redirect('student_home')
+
+    sessions = build_past_sessions(request.user)
+    return render(request, 'tutor/past_sessions.html', {
+        'site_name': 'tUtoR',
+        'to_rate': sessions['to_rate'],
+        'rated': sessions['rated'],
+        'max_comment_length': MAX_COMMENT_LENGTH,
     })
