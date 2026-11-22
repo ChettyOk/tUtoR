@@ -1,4 +1,4 @@
-/* Student home: cancel a confirmed booking from the booking list.
+/* Home pages: cancel a confirmed booking from the booking list.
    Uses the same two-click confirm pattern as my_requests.js. */
 (function () {
   "use strict";
@@ -9,6 +9,9 @@
   var tokenInput = document.querySelector("[name=csrfmiddlewaretoken]");
   var alertBox = document.getElementById("booking-alert");
   var successBox = document.getElementById("booking-success");
+  var emptyMessage = list.getAttribute("data-empty-message")
+    || "No confirmed bookings yet. Book an open time from a tutor below.";
+  var emptyClass = list.getAttribute("data-empty-class") || "student-empty mb-0";
 
   function csrfToken() {
     if (tokenInput && tokenInput.value) return tokenInput.value;
@@ -91,8 +94,8 @@
             showBox(successBox, result.data.message || "Booking cancelled.");
             if (!list.querySelector(".student-booking")) {
               var empty = document.createElement("p");
-              empty.className = "student-empty mb-0";
-              empty.textContent = "No confirmed bookings yet. Book an open time from a tutor below.";
+              empty.className = emptyClass;
+              empty.textContent = emptyMessage;
               var body = list.querySelector(".card-body");
               var oldList = list.querySelector(".student-booking-list");
               if (oldList) oldList.remove();

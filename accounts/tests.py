@@ -2761,6 +2761,52 @@ class HomePageTests(TestCase):
         self.assertContains(response, 'Online')
         self.assertContains(response, 'Set up tutoring sessions')
 
+    def test_tutor_home_shows_bookings_with_cancel_button(self):
+        from datetime import timedelta
+        from decimal import Decimal
+
+        from django.utils import timezone
+
+        from bookings.models import Available_Slots, Booking
+
+        TutorProfile.objects.create(user=self.tutor).courses_passed.add(self.course)
+        start = timezone.now() + timedelta(days=2)
+        slot = Available_Slots.create_slot(
+            tutor=self.tutor,
+            start_time=start,
+            end_time=start + timedelta(hours=1),
+            price_per_hour=Decimal('25.00'),
+        )
+        booking = Booking.objects.create(
+            student=self.student,
+            tutor=self.tutor,
+            course=self.course,
+            time_slot=slot,
+            start_time=start,
+            end_time=start + timedelta(hours=1),
+            session_price=Decimal('25.00'),
+            status=Booking.Status.CONFIRMED,
+        )
+
+        self.client.force_login(self.tutor)
+        response = self.client.get(reverse('tutor_home'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Confirmed bookings')
+        self.assertContains(response, 'Cancel')
+        self.assertContains(response, 'js-cancel-booking')
+        self.assertContains(
+            response,
+            reverse('cancel_booking', kwargs={'booking_id': booking.id}),
+        )
+        self.assertContains(response, 'js/bookings-home.js')
+        self.assertEqual(response.context['booked_count'], 1)
+        self.assertEqual(len(response.context['recent_bookings']), 1)
+        self.assertEqual(
+            response.context['recent_bookings'][0]['cancel_url'],
+            reverse('cancel_booking', kwargs={'booking_id': booking.id}),
+        )
+
     def test_student_home_shows_bookings_with_cancel_button(self):
         from datetime import timedelta
         from decimal import Decimal
