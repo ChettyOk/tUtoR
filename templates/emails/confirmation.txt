@@ -1,0 +1,9 @@
+Your tutoring session has been booked successfully.
+
+Booking: #{{ booking.id }}
+Student: {{ booking.student.email }}
+Tutor: {{ booking.tutor.email }}
+
+Contact details:
+Student phone: {{ booking.student.phone|default:"Not provided" }}
+Tutor phone: {{ booking.tutor.phone|default:"Not provided" }}

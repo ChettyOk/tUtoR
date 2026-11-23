@@ -609,12 +609,20 @@ def student_home(request):
     profile = StudentProfile.objects.filter(user=request.user).first()
     courses = profile.courses.order_by('course_code') if profile else []
     tutors = _tutors_for_student(profile)
+    from interactions.models import Notification
+
     my_rating = stats_for_user(request.user, Rating.RatedRole.STUDENT)
     return render(request, 'student_home.html', {
         'site_name': 'tUtoR',
+       
         'campus': 'University of Regina',
+       
         'courses': courses,
         'tutors': tutors,
+    
+        'notifications': Notification.objects.filter(
+            recipient=request.user,
+        ).exclude(type='reminder')[:10],
         'bookings': _student_home_bookings(request.user),
         'to_rate_count': count_tutors_to_rate(request.user),
         'my_rating_avg': my_rating['avg'],
@@ -714,7 +722,11 @@ def tutor_home(request):
     context = {
         'site_name': 'tUtoR',
         'campus': 'University of Regina',
+        'notifications': Notification.objects.filter(
+            recipient=request.user,
+        ).exclude(type='reminder')[:10],
     }
+
     context.update(_tutor_home_overview(request.user))
 
     from bookings.request_pages import build_tutor_request_cards

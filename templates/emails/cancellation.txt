@@ -1,0 +1,6 @@
+Your tutoring session has been cancelled.
+
+Booking: #{{ booking.id }}
+Student: {{ booking.student.email }}
+Tutor: {{ booking.tutor.email }}
+Reason: {{ booking.cancellation_reason|default:"Not provided" }}
