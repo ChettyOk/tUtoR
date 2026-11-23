@@ -5566,6 +5566,21 @@ class FindTutorsPageTests(FindTutorsBase):
         response = self.client.get(reverse('student_home'))
         self.assertContains(response, 'action="%s"' % self.url)
 
+    def test_page_links_back_to_student_home(self):
+        response = self.client.get(self.url)
+        self.assertContains(response, 'Back to student home')
+        self.assertContains(response, reverse('student_home'))
+
+        request_form = self.client.get(reverse('request_form'))
+        self.assertEqual(request_form.status_code, 200)
+        self.assertContains(request_form, 'Back to student home')
+        self.assertContains(request_form, reverse('student_home'))
+
+        my_requests = self.client.get(reverse('my_requests'))
+        self.assertEqual(my_requests.status_code, 200)
+        self.assertContains(my_requests, 'Back to student home')
+        self.assertContains(my_requests, reverse('request_form'))
+
 
 class FindTutorsFilterTests(FindTutorsBase):
     def test_search_by_tutor_name(self):
@@ -5713,7 +5728,7 @@ class CleanFiltersTests(TestCase):
 GOOD = 'I need help understanding recursion and trees.'
 
 
-def make_user(email, first, role):
+def make_user(email, first, role=User.Role.TUTOR):
     user = User.objects.create_user(
         email=email, password='pass12345!', first_name=first, last_name='Test',
     )
