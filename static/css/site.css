@@ -255,16 +255,18 @@ h1, h2, h3, .card-title {
   max-width: 18ch;
 }
 
-/* Tutor overview (distinct from /tutor/sessions/ setup) */
+/* Home overview stats (student + tutor) */
 .tutor-home-hero h1 {
   max-width: 20ch;
 }
+.student-overview-stats,
 .tutor-overview-stats {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
 }
 @media (min-width: 768px) {
+  .student-overview-stats,
   .tutor-overview-stats {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }

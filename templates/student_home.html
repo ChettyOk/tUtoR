@@ -8,11 +8,39 @@
   <div class="container home-page-inner">
     {% csrf_token %}
     <header class="student-home-hero mb-4">
-      <p class="kicker kicker-green mb-2">Student</p>
-      <h1 class="h3 mb-1">Welcome{% if user.first_name %}, {{ user.first_name }}{% endif %}</h1>
-      <p class="text-muted mb-0">Browse tutors for your courses and pick an open time.</p>
+      <div class="d-flex flex-wrap align-items-end justify-content-between gap-3">
+        <div>
+          <p class="kicker kicker-green mb-2">Student overview</p>
+          <h1 class="h3 mb-1">Welcome{% if user.first_name %}, {{ user.first_name }}{% endif %}</h1>
+          <p class="text-muted mb-0">
+            Your learning snapshot. Find tutors, manage bookings, and track course requests.
+          </p>
+        </div>
+        <a href="{% url 'my_requests' %}" class="btn btn-green rounded-pill">
+          My requests
+        </a>
+      </div>
     </header>
-    
+
+    <section class="student-overview-stats mb-4" aria-label="Student summary">
+      <div class="tutor-stat">
+        <span class="tutor-stat-value">{{ course_count }}</span>
+        <span class="tutor-stat-label">Your courses</span>
+      </div>
+      <div class="tutor-stat">
+        <span class="tutor-stat-value">{{ booked_count }}</span>
+        <span class="tutor-stat-label">Confirmed bookings</span>
+      </div>
+      <div class="tutor-stat">
+        <span class="tutor-stat-value">{{ open_request_count }}</span>
+        <span class="tutor-stat-label">Open requests</span>
+      </div>
+      <div class="tutor-stat">
+        <span class="tutor-stat-value">{{ favorite_count }}</span>
+        <span class="tutor-stat-label">Favourite tutors</span>
+      </div>
+    </section>
+
     <form class="student-search mb-4" method="get" action="{% url 'find_tutors' %}" role="search">
       <label class="visually-hidden" for="home-q">Search tutors or courses</label>
       <input id="home-q" class="form-control form-control-lg" type="search" name="q" placeholder="Search tutors or courses, e.g. CS 110" />
@@ -21,7 +49,7 @@
 
     <p class="student-requests-link mb-4">
       Can't find a tutor for a course?
-      <a href="{% url 'my_requests' %}">See your requests</a>
+      <a href="{% url 'my_requests' %}">Post or review a request</a>
     </p>
 
     <section class="student-courses card mb-4" aria-labelledby="student-courses-heading">

@@ -553,7 +553,7 @@ def _tutors_for_student(student_profile):
 
 
 #Home page/dashboard basic controllers set up for redirection from signup and login
-def _student_home_bookings(user):
+def _student_home_bookings(dashboard):
     """Confirmed bookings shown on the student home booking list."""
     from django.utils import timezone
     from django.utils.formats import date_format
@@ -561,7 +561,6 @@ def _student_home_bookings(user):
 
     from bookings.models import Available_Slots
 
-    dashboard = get_student_dashboard(user)
     bookings = []
     for booking in dashboard['booked_sessions']:
         start = booking.start_time
@@ -598,6 +597,25 @@ def _student_home_bookings(user):
     return bookings
 
 
+def _student_home_overview(user, profile, courses):
+    """Summary counts and booking list for the student overview home."""
+    dashboard = get_student_dashboard(user)
+    bookings = _student_home_bookings(dashboard)
+    course_list = list(courses) if courses is not None else []
+    favorite_count = 0
+    if profile is not None:
+        favorite_count = profile.favorite_tutors.count()
+
+    return {
+        'courses': course_list,
+        'course_count': len(course_list),
+        'bookings': bookings,
+        'booked_count': len(bookings),
+        'open_request_count': dashboard['open_requests'].count(),
+        'favorite_count': favorite_count,
+    }
+
+
 @login_required
 def student_home(request):
     if request.user.has_role('tutor'):
@@ -605,13 +623,13 @@ def student_home(request):
     profile = StudentProfile.objects.filter(user=request.user).first()
     courses = profile.courses.order_by('course_code') if profile else []
     tutors = _tutors_for_student(profile)
-    return render(request, 'student_home.html', {
+    context = {
         'site_name': 'tUtoR',
         'campus': 'University of Regina',
-        'courses': courses,
         'tutors': tutors,
-        'bookings': _student_home_bookings(request.user),
-    })
+    }
+    context.update(_student_home_overview(request.user, profile, courses))
+    return render(request, 'student_home.html', context)
 
 
 def _tutor_home_overview(user):
