@@ -254,6 +254,13 @@ h1, h2, h3, .card-title {
 .student-home-hero h1 {
   max-width: 18ch;
 }
+.student-discover {
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(0, 79, 46, 0.12);
+}
+.student-overview-grid .tutor-overview-card {
+  border: 1px solid var(--bs-border-color);
+}
 
 /* Home overview stats (student + tutor) */
 .tutor-home-hero h1 {
