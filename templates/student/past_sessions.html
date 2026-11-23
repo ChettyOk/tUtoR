@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Past sessions · {{ site_name|default:"tUtoR" }}{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/student_ratings.css' %}?v=1" />
+{% endblock %}
+
+{% block content %}
+<div class="home-page">
+  <div class="container home-page-inner rate-page">
+    {% csrf_token %}
+    <header class="mb-4">
+      <p class="kicker kicker-green mb-2">Student</p>
+      <h1 class="h3 mb-1">Past sessions</h1>
+      <p class="text-muted mb-0">
+        Once a session has finished, rate your tutor from 1 to 5 stars. Tutors see their average, so keep it fair.
+      </p>
+    </header>
+
+    <section aria-labelledby="to-rate-heading" class="mb-5">
+      <h2 class="h5 mb-3" id="to-rate-heading">
+        Waiting for your rating
+        <span class="rate-count" id="to-rate-count">{{ to_rate|length }}</span>
+      </h2>
+      <ul class="rate-list" id="to-rate-list">
+        {% for s in to_rate %}
+        <li class="rate-card" data-booking-id="{{ s.id }}" data-needs-complete="{{ s.needs_complete|yesno:'1,0' }}">
+          <div class="rate-card-main">
+            <strong class="rate-person">{{ s.tutor_name }}</strong>
+            <span class="rate-meta">
+              {% if s.course %}{{ s.course }} · {% endif %}${{ s.session_price }}{% if s.when_label %} · {{ s.when_label }}{% endif %}
+            </span>
+          </div>
+          <div class="rate-card-side">
+            <button type="button" class="btn btn-green btn-sm js-open-rate">Rate tutor</button>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      <p class="rate-empty" id="to-rate-empty" {% if to_rate %}hidden{% endif %}>
+        Nothing to rate right now. Finished sessions will appear here.
+      </p>
+    </section>
+
+    <section aria-labelledby="rated-heading">
+      <h2 class="h5 mb-3" id="rated-heading">
+        Rated
+        <span class="rate-count" id="rated-count">{{ rated|length }}</span>
+      </h2>
+      <ul class="rate-list" id="rated-list">
+        {% for s in rated %}
+        <li class="rate-card is-rated" data-booking-id="{{ s.id }}">
+          <div class="rate-card-main">
+            <strong class="rate-person">{{ s.tutor_name }}</strong>
+            <span class="rate-meta">
+              {% if s.course %}{{ s.course }} · {% endif %}${{ s.session_price }}{% if s.when_label %} · {{ s.when_label }}{% endif %}
+            </span>
+            {% if s.comment %}<p class="rate-comment">{{ s.comment }}</p>{% endif %}
+          </div>
+          <div class="rate-card-side">
+            <span class="rate-stars" role="img" aria-label="{{ s.stars }} out of 5 stars">{% for i in "12345" %}<span class="{% if forloop.counter <= s.stars %}on{% endif %}">★</span>{% endfor %}</span>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      <p class="rate-empty" id="rated-empty" {% if rated %}hidden{% endif %}>You haven't rated any tutors yet.</p>
+    </section>
+  </div>
+</div>
+
+<div class="modal fade" id="rate-modal" tabindex="-1" aria-labelledby="rate-modal-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" id="rate-form" novalidate>
+      <div class="modal-header">
+        <h2 class="modal-title h5" id="rate-modal-title">Rate <span id="rate-modal-person">tutor</span></h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <fieldset class="mb-3">
+          <legend class="form-label fw-semibold fs-6">How was the session?</legend>
+          <div class="star-input">
+            {% for n in "54321" %}
+            <input type="radio" name="stars" id="star-{{ n }}" value="{{ n }}" />
+            <label for="star-{{ n }}" title="{{ n }} star{{ n|pluralize }}"><span class="visually-hidden">{{ n }} star{{ n|pluralize }}</span>★</label>
+            {% endfor %}
+          </div>
+        </fieldset>
+        <div class="mb-2">
+          <label for="rate-comment" class="form-label fw-semibold">Comment <span class="text-muted fw-normal">(optional)</span></label>
+          <textarea id="rate-comment" name="comment" class="form-control" rows="3" maxlength="{{ max_comment_length }}"></textarea>
+          <div class="form-text"><span id="rate-comment-count">0</span> / {{ max_comment_length }}</div>
+        </div>
+        <p class="rate-error" id="rate-error" role="alert" hidden></p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-find-clear" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-green" id="rate-submit">Submit rating</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script
+  src="{% static 'js/rate_tutor.js' %}?v=1"
+  data-complete-url="{% url 'complete_booking' 0 %}"
+  data-rate-url="{% url 'submit_rating' 0 %}"
+></script>
+{% endblock %}
