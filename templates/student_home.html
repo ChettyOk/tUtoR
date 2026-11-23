@@ -28,6 +28,7 @@
       <a href="{% url 'student_past_sessions' %}">Past sessions{% if to_rate_count %} · {{ to_rate_count }} to rate{% endif %}</a>
       ·
       <a href="{% url 'my_ratings' %}">My ratings</a>
+      {% include "ratings/_badge.html" with avg=my_rating_avg count=my_rating_count %}
     </p>
 
     <section class="student-courses card mb-4" aria-labelledby="student-courses-heading">
@@ -189,7 +190,7 @@
                     </div>
                   </div>
                   <p class="tutor-meta mb-0">
-                    Rating: {{ tutor.average_rating }}
+                    {% include "ratings/_badge.html" with avg=tutor.rating_avg count=tutor.rating_count %}
                     · from ${{ tutor.suggested_price }}/hour
                   </p>
                 </div>

@@ -45,7 +45,7 @@
               <span class="tutor-avatar" aria-hidden="true">{{ tutor.first_name|slice:":1"|upper }}{{ tutor.last_name|slice:":1"|upper }}</span>
               <div>
                 <h2 class="h5 mb-0">{{ tutor.first_name }} {{ tutor.last_name }}</h2>
-                <p class="tutor-meta mb-0">Rating: {{ tutor.average_rating }}</p>
+                <p class="tutor-meta mb-0">{% include "ratings/_badge.html" with avg=tutor.rating_avg count=tutor.rating_count %}</p>
               </div>
             </div>
             <dl class="book-facts mb-0">

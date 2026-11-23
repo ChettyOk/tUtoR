@@ -74,7 +74,7 @@
                   <div class="min-w-0">
                     <h3 class="h6 mb-0">{{ t.first_name }} {{ t.last_name }}</h3>
                     <p class="tutor-meta mb-0">
-                      Rating: {{ t.average_rating }}{% if t.lowest_price %} · from ${{ t.lowest_price }}/hour{% endif %}
+                      {% include "ratings/_badge.html" with avg=t.rating_avg count=t.rating_count %}{% if t.lowest_price %} · from ${{ t.lowest_price }}/hour{% endif %}
                     </p>
                   </div>
                 </div>

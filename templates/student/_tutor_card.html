@@ -17,7 +17,7 @@
           <span class="tutor-slot-count">{{ tutor.available_slots|length }} open</span>
         </div>
         <p class="tutor-meta mb-0">
-          Rating: {{ tutor.average_rating }} · from ${{ tutor.lowest_price }}/hour
+          {% include "ratings/_badge.html" with avg=tutor.rating_avg count=tutor.rating_count %} · from ${{ tutor.lowest_price }}/hour
         </p>
       </div>
     </div>

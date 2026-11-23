@@ -126,6 +126,16 @@
               <li>
                 <a class="dropdown-item" href="{% url 'tutor_sessions' %}">Sessions setup</a>
               </li>
+               <li>
+                <a class="dropdown-item" href="{% url 'tutor_my_ratings' %}">My ratings</a>
+              </li>
+              {% else %}
+              <li>
+                <a class="dropdown-item" href="{% url 'my_requests' %}">My requests</a>
+              </li>
+              <li>
+                <a class="dropdown-item" href="{% url 'my_ratings' %}">My ratings</a>
+              </li>
               {% endif %}
               <li><hr class="dropdown-divider" /></li>
               <li>
