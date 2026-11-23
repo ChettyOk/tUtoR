@@ -12,6 +12,11 @@
   --bs-body-line-height: 1.55;
   --bs-primary: var(--green);
   --bs-border-color: rgba(0, 79, 46, 0.16);
+  /* Replace Bootstrap's default blue links with brand green. */
+  --bs-link-color: var(--green);
+  --bs-link-hover-color: var(--green-deep);
+  --bs-link-color-rgb: 0, 79, 46;
+  --bs-link-hover-color-rgb: 0, 56, 33;
 }
 
 html {
@@ -59,6 +64,29 @@ body {
   margin: 0;
 }
 .kicker-green { color: var(--green); }
+
+/* Soft back links stay muted gray (sessions hero keeps its own light style). */
+.back-link {
+  color: var(--muted);
+  font-size: 0.92rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+.back-link:hover,
+.back-link:focus {
+  color: var(--green-deep);
+  text-decoration: underline;
+}
+.btn-link {
+  --bs-btn-color: var(--muted);
+  --bs-btn-hover-color: var(--green-deep);
+  --bs-btn-active-color: var(--green-deep);
+  text-decoration: none;
+}
+.btn-link:hover,
+.btn-link:focus {
+  text-decoration: underline;
+}
 
 h1, h2, h3, .card-title {
   font-family: "Fraunces", Georgia, serif;
@@ -319,6 +347,53 @@ h1, h2, h3, .card-title {
 .student-course-name,
 .student-empty {
   color: var(--muted);
+}
+.student-booking-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+.student-booking {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.85rem;
+  background: rgba(0, 79, 46, 0.03);
+}
+.student-booking-info {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.student-booking-info strong {
+  color: var(--green-deep);
+}
+.student-booking-info span {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+.student-booking-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.js-cancel-booking.is-armed {
+  border-color: #9c1c1c;
+  color: #9c1c1c;
+}
+.booking-error {
+  color: #9c1c1c;
+  font-size: 0.9rem;
+}
+.booking-error[hidden] {
+  display: none;
 }
 
 .tutor-list-header {

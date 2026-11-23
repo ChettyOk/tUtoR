@@ -3,37 +3,24 @@
 {% block title %}Tutor home · {{ site_name|default:"tUtoR" }}{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/requests.css' %}?v=2" />
+<link rel="stylesheet" href="{% static 'css/requests.css' %}?v=4" />
 {% endblock %}
 
 {% block content %}
 <div class="home-page">
   <div class="container home-page-inner">
-    <div class="d-flex flex-wrap align-items-end justify-content-between gap-3 mb-4">
-      <div>
-        <p class="kicker kicker-green mb-2">Tutor</p>
-        <h1 class="h3 mb-1">Welcome{% if user.first_name %}, {{ user.first_name }}{% endif %}</h1>
-        <p class="text-muted mb-0">Manage the courses you teach and your slot offer.</p>
-      </div>
-      <a href="{% url 'tutor_sessions' %}" class="btn btn-green rounded-pill">Set up tutoring sessions</a>
-    </div>
-
-    {% if success_message %}
-    <div class="alert alert-success" role="status">{{ success_message }}</div>
-    {% endif %}
-
-    <div class="card mb-4">
-      <div class="card-body">
-        <h2 class="h6">Your courses</h2>
-        {% if courses %}
-        <ul class="mb-0">
-          {% for course in courses %}
-          <li>{{ course.course_code }} &ndash; {{ course.course_name }}</li>
-          {% endfor %}
-        </ul>
-        {% else %}
-        <p class="mb-0">None yet. <a href="{% url 'personalise' %}">Pick the courses you have passed</a></p>
-        {% endif %}
+    <header class="tutor-home-hero mb-4">
+      <div class="d-flex flex-wrap align-items-end justify-content-between gap-3">
+        <div>
+          <p class="kicker kicker-green mb-2">Tutor overview</p>
+          <h1 class="h3 mb-1">Welcome{% if user.first_name %}, {{ user.first_name }}{% endif %}</h1>
+          <p class="text-muted mb-0">
+            Your tutoring snapshot. Set up courses and open times on the sessions page.
+          </p>
+        </div>
+        <a href="{% url 'tutor_sessions' %}" class="btn btn-green rounded-pill">
+          Set up tutoring sessions
+        </a>
       </div>
     </header>
 
@@ -56,31 +43,15 @@
       </div>
     </section>
 
-        <form method="post" action="{% url 'tutor_home' %}" class="row g-3" novalidate>
-          {% csrf_token %}
-          <div class="col-sm-6 col-md-4">
-            <label for="id_price_per_hour" class="form-label">Price per hour (CAD)</label>
-            <div class="input-group has-validation">
-              <span class="input-group-text">$</span>
-              <input
-                type="number"
-                step="0.01"
-                min="{{ min_price }}"
-                max="{{ max_price }}"
-                id="id_price_per_hour"
-                name="price_per_hour"
-                class="form-control{% if price_error %} is-invalid{% endif %}"
-                value="{{ price_value }}"
-                aria-invalid="{% if price_error %}true{% else %}false{% endif %}"
-                aria-describedby="id_price_per_hour_help{% if price_error %} id_price_per_hour_error{% endif %}"
-                required
-              />
-              <div id="id_price_per_hour_error" class="invalid-feedback">
-                {{ price_error|default:"Enter a valid price per hour." }}
-              </div>
-            </div>
-            <div id="id_price_per_hour_help" class="form-text">
-              Allowed range: ${{ min_price }} to ${{ max_price }} per hour.
+    <div class="row g-4">
+      <div class="col-lg-6">
+        <section class="card tutor-overview-card h-100" aria-labelledby="tutor-courses-heading">
+          <div class="card-body">
+            <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-3">
+              <h2 class="h6 mb-0" id="tutor-courses-heading">Courses you teach</h2>
+              <a class="student-inline-link" href="{% url 'tutor_sessions' %}#courses-section">
+                {% if courses %}Manage courses{% else %}Add courses{% endif %}
+              </a>
             </div>
             {% if courses %}
             <ul class="student-course-list mb-0">
@@ -102,23 +73,14 @@
         </section>
       </div>
 
-          <div class="col-sm-6 col-md-4">
-            <label for="id_location_type" class="form-label">Location</label>
-            <select
-              id="id_location_type"
-              name="location_type"
-              class="form-select{% if location_error %} is-invalid{% endif %}"
-              aria-invalid="{% if location_error %}true{% else %}false{% endif %}"
-              required
-            >
-              {% for value, label in location_choices %}
-              <option value="{{ value }}"{% if location_value == value %} selected{% endif %}>
-                {{ label }}
-              </option>
-              {% endfor %}
-            </select>
-            <div class="invalid-feedback">
-              {{ location_error|default:"Choose Online or In person." }}
+      <div class="col-lg-6">
+        <section class="card tutor-overview-card h-100" aria-labelledby="tutor-slots-heading">
+          <div class="card-body">
+            <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-3">
+              <h2 class="h6 mb-0" id="tutor-slots-heading">Upcoming open slots</h2>
+              <a class="student-inline-link" href="{% url 'tutor_sessions' %}#schedule-section">
+                View schedule
+              </a>
             </div>
             {% if upcoming_slots %}
             <ul class="tutor-overview-list mb-0">
@@ -145,79 +107,78 @@
           <div class="card-body">
             <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-1">
               <h2 class="h6 mb-0" id="tutor-requests-heading">Student requests</h2>
-              <span class="tutor-list-count" role="status">{{ request_cards|length }} open</span>
+              <div class="d-flex flex-wrap align-items-center gap-3">
+                <span class="tutor-list-count" role="status">{{ request_cards|length }} open</span>
+                <a class="student-inline-link" href="{% url 'tutor_requests' %}">See all requests</a>
+              </div>
             </div>
             <p class="text-muted small mb-3">
-              Students ask for courses nobody offers yet. Say "I can help" and they can book you once you have an open time.
+              Students ask for courses nobody offers yet. Accept to offer help; they can book you once you have an open time.
             </p>
             {% if request_cards %}
             <div class="row g-3">
               {% for r in request_cards %}
               <div class="col-12 col-lg-6">
-                <article class="card treq-card h-100{% if r.joined %} is-joined{% endif %}" data-request-id="{{ r.id }}"
-                         data-join-url="{% url 'express_tutoring_request_interest' r.id %}"
-                         data-leave-url="{% url 'withdraw_tutoring_request_interest' r.id %}">
-                  <div class="card-body d-flex flex-column">
-                    <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-1">
-                      <h3 class="h6 mb-0">{{ r.course.course_code }} · {{ r.course.course_name }}</h3>
-                      {% if r.matches %}<span class="treq-badge">You teach this</span>{% endif %}
-                    </div>
-                    <p class="tutor-meta mb-2">
-                      {{ r.student_name }} · {{ r.location_label }} · {{ r.asked_ago }} ago
-                    </p>
-                    <p class="req-description mb-3">{{ r.description|truncatechars:240 }}</p>
-                    <div class="treq-footer mt-auto">
-                      <span class="treq-count">
-                        <span class="js-count">{{ r.interest_count }}</span> <span class="js-noun">tutor{{ r.interest_count|pluralize }}</span> can help
-                      </span>
-                      <button type="button" class="btn btn-sm js-interest {% if r.joined %}btn-find-clear{% else %}btn-green{% endif %}">
-                        {% if r.joined %}Withdraw offer{% else %}I can help{% endif %}
-                      </button>
-                    </div>
-                    <p class="req-error mt-2 mb-0" role="alert" hidden></p>
-                    {% if r.joined %}
-                    <p class="treq-hint mt-2 mb-0 js-hint">
-                      Add an open time on the <a href="{% url 'tutor_sessions' %}">sessions page</a> so the student can book you.
-                    </p>
-                    {% else %}
-                    <p class="treq-hint mt-2 mb-0 js-hint" hidden>
-                      Add an open time on the <a href="{% url 'tutor_sessions' %}">sessions page</a> so the student can book you.
-                    </p>
-                    {% endif %}
-                  </div>
-                </article>
+                {% include "tutor/_request_card.html" with r=r join_label="Accept" leave_label="Decline" %}
               </div>
               {% endfor %}
             </div>
             {% else %}
-            <p class="tutor-empty-note mb-0">No open requests right now. They will show up here.</p>
+            <p class="tutor-empty-note mb-0">
+              No open requests right now.
+              <a href="{% url 'tutor_requests' %}">Open the full request list</a>.
+            </p>
             {% endif %}
           </div>
         </section>
       </div>
 
       <div class="col-12">
-        <section class="card tutor-overview-card" aria-labelledby="tutor-bookings-heading">
+        <section
+          class="card tutor-overview-card"
+          aria-labelledby="tutor-bookings-heading"
+          data-booking-list
+          data-confirm-modal="cancel-confirm-modal"
+          data-empty-message="No confirmed bookings yet. Once students book your open times, they will show up here."
+          data-empty-class="tutor-empty-note mb-0"
+        >
           <div class="card-body">
             <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-3">
               <h2 class="h6 mb-0" id="tutor-bookings-heading">Confirmed bookings</h2>
+                <a href="{% url 'tutor_past_sessions' %}" class="btn btn-green btn-sm rounded-pill">
+                Past sessions{% if to_rate_count %} · {{ to_rate_count }} to rate{% endif %}
+              </a>
             </div>
+            <div id="booking-alert" class="alert alert-danger" role="alert" hidden></div>
+            <div id="booking-success" class="alert alert-success" role="status" hidden></div>
             {% if recent_bookings %}
-            <ul class="tutor-overview-list mb-0">
+            <ul class="student-booking-list mb-0">
               {% for booking in recent_bookings %}
-              <li>
-                <strong>
-                  {% if booking.student.first_name or booking.student.last_name %}
-                    {{ booking.student.first_name }} {{ booking.student.last_name }}
-                  {% else %}
-                    {{ booking.student.email }}
-                  {% endif %}
-                </strong>
-                <span>
-                  {% if booking.course %}{{ booking.course }} · {% endif %}
-                  ${{ booking.session_price }}
-                  {% if booking.start_time %} · {{ booking.start_label }}{% endif %}
-                </span>
+              <li class="student-booking" data-booking-id="{{ booking.id }}">
+                <div class="student-booking-info">
+                  <strong>
+                    {% if booking.student.first_name or booking.student.last_name %}
+                      {{ booking.student.first_name }} {{ booking.student.last_name }}
+                    {% else %}
+                      {{ booking.student.email }}
+                    {% endif %}
+                  </strong>
+                  <span>
+                    {% if booking.course %}{{ booking.course }} · {% endif %}
+                    ${{ booking.session_price }}
+                    {% if booking.start_label %} · {{ booking.start_label }}{% endif %}
+                  </span>
+                </div>
+                <div class="student-booking-actions">
+                  <button
+                    type="button"
+                    class="btn btn-outline-secondary btn-sm js-cancel-booking"
+                    data-url="{{ booking.cancel_url }}"
+                  >
+                    Cancel
+                  </button>
+                  <span class="booking-error" role="alert" hidden></span>
+                </div>
               </li>
               {% endfor %}
             </ul>
@@ -232,21 +193,33 @@
     </div>
   </div>
 </div>
+
+<div class="modal fade" id="cancel-confirm-modal" tabindex="-1"
+     aria-labelledby="cancel-confirm-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <h2 class="modal-title h5" id="cancel-confirm-title">Cancel this session?</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-2">The student will be notified that this booking is cancelled.</p>
+        <p class="text-muted small mb-0" id="cancel-confirm-summary"></p>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
+          Keep booking
+        </button>
+        <button type="button" class="btn btn-green" id="cancel-confirm-submit">
+          Confirm cancel
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
-<script>
-  (function () {
-    var button = document.getElementById("use-suggested-price");
-    var input = document.getElementById("id_price_per_hour");
-    if (!button || !input) return;
-    button.addEventListener("click", function () {
-      input.value = button.getAttribute("data-suggested");
-      input.classList.remove("is-invalid");
-      input.setAttribute("aria-invalid", "false");
-      input.focus();
-    });
-  })();
-</script>
-<script src="{% static 'js/tutor_requests.js' %}?v=1"></script>
+<script src="{% static 'js/tutor_requests.js' %}?v=3"></script>
+<script src="{% static 'js/bookings-home.js' %}?v=20261122d"></script>
 {% endblock %}
