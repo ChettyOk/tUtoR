@@ -600,6 +600,8 @@ def _student_home_bookings(user):
 
 @login_required
 def student_home(request):
+    from bookings.student_rating_pages import count_tutors_to_rate
+
     if request.user.has_role('tutor'):
         return redirect('tutor_home')
     profile = StudentProfile.objects.filter(user=request.user).first()
@@ -611,6 +613,7 @@ def student_home(request):
         'courses': courses,
         'tutors': tutors,
         'bookings': _student_home_bookings(request.user),
+        'to_rate_count': count_tutors_to_rate(request.user),
     })
 
 

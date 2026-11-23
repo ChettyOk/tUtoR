@@ -19,9 +19,15 @@
       <button class="btn btn-green btn-lg" type="submit">Find tutors</button>
     </form>
 
-    <p class="student-requests-link mb-4">
+    <p class="student-requests-link mb-2">
       Can't find a tutor for a course?
       <a href="{% url 'my_requests' %}">See your requests</a>
+    </p>
+
+    <p class="student-requests-link mb-4">
+      <a href="{% url 'student_past_sessions' %}">Past sessions{% if to_rate_count %} · {{ to_rate_count }} to rate{% endif %}</a>
+      ·
+      <a href="{% url 'my_ratings' %}">My ratings</a>
     </p>
 
     <section class="student-courses card mb-4" aria-labelledby="student-courses-heading">
