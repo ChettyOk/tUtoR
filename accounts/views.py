@@ -691,13 +691,11 @@ def _tutor_home_overview(user):
         'recent_bookings': recent_bookings,
     }
 
-
 @login_required
 def tutor_home(request):
     """Tutor overview dashboard. Session setup lives on /tutor/sessions/."""
     if not request.user.has_role('tutor'):
         return redirect('student_home')
-
     context = {
         'site_name': 'tUtoR',
         'campus': 'University of Regina',
