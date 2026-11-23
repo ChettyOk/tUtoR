@@ -1,9 +1,9 @@
-"""data for the student's "Rate your tutors" and "My ratings" pages."""
-from django.db.models import Avg
+"""STU-05.3: data for the student's "Rate your tutors" and "My ratings" pages."""
 from django.utils import timezone
 from django.utils.formats import date_format
 
 from .models import Booking, Rating
+from .rating_summary import build_received_ratings
 
 MAX_COMMENT_LENGTH = 500
 
@@ -88,43 +88,5 @@ def count_tutors_to_rate(student):
 
 
 def build_my_ratings(student):
-    """What tutors rated this student: average, 5-to-1 breakdown and reviews.
-
-    Tutor names are left out on purpose, so tutors can be honest.
-    """
-    received = (
-        Rating.objects
-        .filter(student=student, rated_role=Rating.RatedRole.STUDENT)
-        .select_related('booking', 'booking__course', 'booking__time_slot')
-        .order_by('-rating_created_time', '-pk')
-    )
-    total = received.count()
-    average = received.aggregate(avg=Avg('rating_stars'))['avg']
-
-    counts = {n: 0 for n in range(1, 6)}
-    reviews = []
-    for r in received:
-        counts[r.rating_stars] += 1
-        booking = r.booking
-        reviews.append({
-            'stars': r.rating_stars,
-            'comment': r.rating_comment,
-            'course': str(booking.course) if booking.course else '',
-            'when_label': _when_label(_session_start(booking)),
-        })
-
-    breakdown = [
-        {
-            'stars': n,
-            'count': counts[n],
-            'percent': round(100 * counts[n] / total) if total else 0,
-        }
-        for n in range(5, 0, -1)
-    ]
-    return {
-        'total': total,
-        'average': f"{average:.1f}" if average is not None else None,
-        'average_whole': int(round(average)) if average is not None else 0,
-        'breakdown': breakdown,
-        'reviews': reviews,
-    }
+    """What tutors rated this student (see rating_summary)."""
+    return build_received_ratings(student, Rating.RatedRole.STUDENT)
