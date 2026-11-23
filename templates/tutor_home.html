@@ -134,27 +134,48 @@
       </div>
 
       <div class="col-12">
-        <section class="card tutor-overview-card" aria-labelledby="tutor-bookings-heading">
+        <section
+          class="card tutor-overview-card"
+          aria-labelledby="tutor-bookings-heading"
+          data-booking-list
+          data-confirm-modal="cancel-confirm-modal"
+          data-empty-message="No confirmed bookings yet. Once students book your open times, they will show up here."
+          data-empty-class="tutor-empty-note mb-0"
+        >
           <div class="card-body">
             <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-3">
               <h2 class="h6 mb-0" id="tutor-bookings-heading">Confirmed bookings</h2>
             </div>
+            <div id="booking-alert" class="alert alert-danger" role="alert" hidden></div>
+            <div id="booking-success" class="alert alert-success" role="status" hidden></div>
             {% if recent_bookings %}
-            <ul class="tutor-overview-list mb-0">
+            <ul class="student-booking-list mb-0">
               {% for booking in recent_bookings %}
-              <li>
-                <strong>
-                  {% if booking.student.first_name or booking.student.last_name %}
-                    {{ booking.student.first_name }} {{ booking.student.last_name }}
-                  {% else %}
-                    {{ booking.student.email }}
-                  {% endif %}
-                </strong>
-                <span>
-                  {% if booking.course %}{{ booking.course }} · {% endif %}
-                  ${{ booking.session_price }}
-                  {% if booking.start_label %} · {{ booking.start_label }}{% endif %}
-                </span>
+              <li class="student-booking" data-booking-id="{{ booking.id }}">
+                <div class="student-booking-info">
+                  <strong>
+                    {% if booking.student.first_name or booking.student.last_name %}
+                      {{ booking.student.first_name }} {{ booking.student.last_name }}
+                    {% else %}
+                      {{ booking.student.email }}
+                    {% endif %}
+                  </strong>
+                  <span>
+                    {% if booking.course %}{{ booking.course }} · {% endif %}
+                    ${{ booking.session_price }}
+                    {% if booking.start_label %} · {{ booking.start_label }}{% endif %}
+                  </span>
+                </div>
+                <div class="student-booking-actions">
+                  <button
+                    type="button"
+                    class="btn btn-outline-secondary btn-sm js-cancel-booking"
+                    data-url="{{ booking.cancel_url }}"
+                  >
+                    Cancel
+                  </button>
+                  <span class="booking-error" role="alert" hidden></span>
+                </div>
               </li>
               {% endfor %}
             </ul>
@@ -169,8 +190,33 @@
     </div>
   </div>
 </div>
+
+<div class="modal fade" id="cancel-confirm-modal" tabindex="-1"
+     aria-labelledby="cancel-confirm-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <h2 class="modal-title h5" id="cancel-confirm-title">Cancel this session?</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-2">The student will be notified that this booking is cancelled.</p>
+        <p class="text-muted small mb-0" id="cancel-confirm-summary"></p>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
+          Keep booking
+        </button>
+        <button type="button" class="btn btn-green" id="cancel-confirm-submit">
+          Confirm cancel
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
 <script src="{% static 'js/tutor_requests.js' %}?v=3"></script>
+<script src="{% static 'js/bookings-home.js' %}?v=20261122d"></script>
 {% endblock %}

@@ -651,6 +651,8 @@ def _tutor_home_overview(user):
             'price_per_hour': str(slot.price_per_hour),
         })
 
+    from django.urls import reverse
+
     recent_bookings = []
     for booking in dashboard['booked_sessions'][:5]:
         start_label = ''
@@ -660,11 +662,13 @@ def _tutor_home_overview(user):
                 'D M j, Y · g:i A',
             )
         recent_bookings.append({
+            'id': booking.id,
             'student': booking.student,
             'course': str(booking.course) if booking.course else '',
             'session_price': str(booking.session_price),
             'start_time': booking.start_time,
             'start_label': start_label,
+            'cancel_url': reverse('cancel_booking', args=[booking.id]),
         })
 
     return {
