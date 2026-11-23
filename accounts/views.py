@@ -598,7 +598,9 @@ def _student_home_bookings(dashboard):
 
 
 def _student_home_overview(user, profile, courses):
-    """Summary counts and booking list for the student overview home."""
+    """Summary counts, booking list, and open-request preview for student home."""
+    from bookings.request_pages import build_request_cards
+
     dashboard = get_student_dashboard(user)
     bookings = _student_home_bookings(dashboard)
     course_list = list(courses) if courses is not None else []
@@ -606,12 +608,18 @@ def _student_home_overview(user, profile, courses):
     if profile is not None:
         favorite_count = profile.favorite_tutors.count()
 
+    # Short preview on home; full list lives on /my-requests/.
+    open_request_cards = [
+        card for card in build_request_cards(user) if card['is_open']
+    ][:3]
+
     return {
         'courses': course_list,
         'course_count': len(course_list),
         'bookings': bookings,
         'booked_count': len(bookings),
         'open_request_count': dashboard['open_requests'].count(),
+        'open_request_cards': open_request_cards,
         'favorite_count': favorite_count,
     }
 

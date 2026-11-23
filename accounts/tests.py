@@ -2654,9 +2654,11 @@ class HomePageTests(TestCase):
         self.assertContains(response, 'Welcome, Sam')
         self.assertContains(response, 'CS 110')
         self.assertContains(response, 'Student overview')
+        self.assertContains(response, 'Your open requests')
         self.assertEqual(response.context['course_count'], 1)
         self.assertEqual(response.context['booked_count'], 0)
         self.assertEqual(response.context['open_request_count'], 0)
+        self.assertEqual(response.context['open_request_cards'], [])
         self.assertEqual(response.context['favorite_count'], 0)
 
     def test_student_home_overview_counts_bookings_requests_and_favourites(self):
@@ -2705,10 +2707,15 @@ class HomePageTests(TestCase):
         self.assertEqual(response.context['booked_count'], 1)
         self.assertEqual(response.context['open_request_count'], 1)
         self.assertEqual(response.context['favorite_count'], 1)
+        self.assertEqual(len(response.context['open_request_cards']), 1)
         self.assertContains(response, 'Confirmed bookings')
         self.assertContains(response, 'Open requests')
+        self.assertContains(response, 'Your open requests')
+        self.assertContains(response, 'Need help with labs.')
+        self.assertContains(response, 'Waiting for tutors')
         self.assertContains(response, 'Favourite tutors')
         self.assertContains(response, reverse('my_requests'))
+        self.assertContains(response, reverse('request_form'))
 
     def test_student_home_includes_matching_tutors_and_slots(self):
         from datetime import timedelta

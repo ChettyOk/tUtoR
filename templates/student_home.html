@@ -3,6 +3,10 @@
 
 {% block title %}Home · {{ site_name|default:"tUtoR" }}{% endblock %}
 
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/requests.css' %}?v=5" />
+{% endblock %}
+
 {% block content %}
 <div class="home-page">
   <div class="container home-page-inner">
@@ -47,11 +51,6 @@
       <button class="btn btn-green btn-lg" type="submit">Find tutors</button>
     </form>
 
-    <p class="student-requests-link mb-4">
-      Can't find a tutor for a course?
-      <a href="{% url 'my_requests' %}">Post or review a request</a>
-    </p>
-
     <section class="student-courses card mb-4" aria-labelledby="student-courses-heading">
       <div class="card-body">
         <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-2">
@@ -72,6 +71,38 @@
         {% else %}
         <p class="student-empty mb-0">
           Add the courses you need help with so we can match you to tutors.
+        </p>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="card mb-4" aria-labelledby="student-requests-heading" id="requests-section">
+      <div class="card-body">
+        <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-1">
+          <h2 class="h6 mb-0" id="student-requests-heading">Your open requests</h2>
+          <div class="d-flex flex-wrap align-items-center gap-3">
+            <span class="tutor-list-count" role="status">{{ open_request_count }} open</span>
+            <a class="student-inline-link" href="{% url 'request_form' %}">New request</a>
+            <a class="student-inline-link" href="{% url 'my_requests' %}">See all requests</a>
+          </div>
+        </div>
+        <p class="text-muted small mb-3">
+          Ask for a course when nobody offers it yet. Tutors who can help show up on the full requests page.
+        </p>
+        {% if open_request_cards %}
+        <div class="row g-3">
+          {% for r in open_request_cards %}
+          <div class="col-12 col-lg-6">
+            {% include "student/_request_preview_card.html" with r=r %}
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="student-empty mb-0">
+          No open requests right now.
+          <a href="{% url 'request_form' %}">Post a request</a>
+          or
+          <a href="{% url 'my_requests' %}">open the full request list</a>.
         </p>
         {% endif %}
       </div>
