@@ -26,7 +26,13 @@ from .models import (
     TutoringRequest,
 )
 
-from .request_pages import build_request_cards, guess_course
+from .request_pages import (
+    build_request_cards,
+    build_tutor_request_cards,
+    guess_course,
+)
+
+from .rating_pages import MAX_COMMENT_LENGTH, build_past_sessions
 
 from .search import (
     SORT_CHOICES,
@@ -54,12 +60,13 @@ from .services import (
     get_visible_tutoring_requests,
     serialize_slot,
     DoubleBookingError,
-    create_booking_request,
     get_student_tutoring_requests,
+    cancel_booking,
     serialize_tutoring_request,
     withdraw_tutoring_request,
     express_tutoring_request_interest,
     withdraw_tutoring_request_interest,
+    create_booking_request,
     get_student_dashboard,
     serialize_student_dashboard,
     fulfill_tutoring_request,
@@ -653,6 +660,30 @@ def get_bookings(request):
         'tutor_bookings': [serialize_booking(booking) for booking in bookings['tutor_bookings']],
     })
 
+
+@require_POST
+def decline_session_request_view(request, booking_id):
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'Please log in.'}, status=401)
+
+    booking = get_object_or_404(Booking, id=booking_id)
+
+    if request.user != booking.tutor:
+        return JsonResponse({'error': 'Not your request, only the requested tutor can accept.'}, status=403)
+
+    reason = request.POST.get('reason', 'Tutor declined').strip()
+
+    try:
+        cancel_booking(booking, cancelled_by='tutor', reason=reason)
+    except ValueError as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+    return JsonResponse({
+        'message': 'Request declined.',
+        'status': booking.status,
+    })
+
+
 @require_POST
 def cancel_booking_view(request, booking_id):
     if not request.user.is_authenticated:
@@ -667,7 +698,7 @@ def cancel_booking_view(request, booking_id):
     reason = request.POST.get('reason', '').strip()
 
     try:
-        booking.cancel(cancelled_by=cancelled_by, reason=reason)
+        cancel_booking(booking, cancelled_by=cancelled_by, reason=reason)
     except CancellationDeadlinePassedError as e:
         return JsonResponse({'error': str(e)}, status=400)
     except ValueError as e:
@@ -898,6 +929,19 @@ def get_student_dashboard_view(request):
     return JsonResponse(
         serialize_student_dashboard(dashboard),
     )
+
+@login_required
+def tutor_requests_page(request):
+    """TUT-05.2: full list of open student requests for a tutor."""
+    if not request.user.has_role(User.Role.TUTOR):
+        return redirect('student_home')
+
+    cards = build_tutor_request_cards(request.user, limit=100)
+    return render(request, 'tutor/requests.html', {
+        'site_name': 'tUtoR',
+        'request_cards': cards,
+    })
+
 
 @login_required
 def tutor_sessions_page(request):
@@ -1212,4 +1256,18 @@ def request_form_page(request):
             'after': reverse('my_requests'),
             'find': reverse('find_tutors'),
         },
+    })
+
+@login_required
+def tutor_past_sessions_page(request):
+    """TUT-07.2: ended sessions where the tutor can rate the student."""
+    if not request.user.has_role(User.Role.TUTOR):
+        return redirect('student_home')
+
+    sessions = build_past_sessions(request.user)
+    return render(request, 'tutor/past_sessions.html', {
+        'site_name': 'tUtoR',
+        'to_rate': sessions['to_rate'],
+        'rated': sessions['rated'],
+        'max_comment_length': MAX_COMMENT_LENGTH,
     })

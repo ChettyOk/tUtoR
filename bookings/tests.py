@@ -2,6 +2,9 @@ import threading
 import time
 from datetime import datetime, timedelta
 from decimal import Decimal
+from unittest.mock import MagicMock
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
@@ -12,6 +15,10 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.middleware.csrf import get_token
 from django.core.exceptions import ValidationError
+from django.core import mail
+from django.core.management import call_command
+from django.test import SimpleTestCase, override_settings
+
 
 from accounts.models import Course, StudentProfile, TutorProfile, User
 from bookings.models import (
@@ -47,6 +54,14 @@ from bookings.services import (
     get_visible_tutoring_requests,
 )
 from tUtoR.views import custom_403, custom_500
+from bookings.interfaces import BookingEvent, TutoringRequestEvent
+from bookings.observers import (
+    CancellationMailObserver,
+    ConfirmationMailObserver,
+    ReminderMailObserver,
+)
+from bookings.subjects import BookingEventManager
+
 from bookings.search import clean_filters, search_tutors
 
 class Dummy_Slot: 
@@ -306,16 +321,21 @@ class test_create_booking(TestCase):
         Dummy_Slot.objects.select_for_update.return_value.get.return_value = self.mock_slot 
 
     def test_create_booking(self):
-        booking = create_booking_request(
-            student=self.student,
-            tutor=self.tutor,
-            slot=self.mock_slot,
-            course=self.course1,
-            student_note="Hilfeeeeeeeeeeeeeeeee wipfi kann nicht erklären")
+        with patch('bookings.services.booking_event_manager.notify') as notify:
+            with self.captureOnCommitCallbacks(execute=True):
+                booking = create_booking_request(
+                    student=self.student,
+                    tutor=self.tutor,
+                    slot=self.mock_slot,
+                    course=self.course1,
+                    student_note="Hilfeeeeeeeeeeeeeeeee wipfi kann nicht erklären",
+                )
+
         self.assertEqual(booking.status, Booking.Status.CONFIRMED)
         self.assertEqual(booking.session_price, Decimal('30.00'))
         self.assertEqual(self.mock_slot.status, 'booked')
         self.mock_slot.save.assert_called_once()
+        notify.assert_called_once_with(BookingEvent.BOOKED, booking)
 
     def test_double_booking_protection(self):
         self.mock_slot.status = 'booked'
@@ -564,13 +584,18 @@ class test_booking_views(TestCase):
         self.assertEqual(data['student_bookings'][0]['id'], self.booking.id)
 
     def test_cancel_booking_student(self):
-        self.client.force_login(self.student)
-        url = reverse('cancel_booking', kwargs={'booking_id': self.booking.id})
-        response = self.client.post(url, {'reason': 'Kein bock mehr auf leben'})
+        with patch('bookings.services.booking_event_manager.notify') as notify:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.client.force_login(self.student)
+                url = reverse('cancel_booking', kwargs={'booking_id': self.booking.id})
+                response = self.client.post(url, {'reason': 'Kein bock mehr auf leben'})
         self.assertEqual(response.status_code, 200)
         self.booking.refresh_from_db()
         self.assertEqual(self.booking.status, Booking.Status.CANCELLED_STUDENT)
         self.assertEqual(self.booking.cancellation_reason, 'Kein bock mehr auf leben')
+        notify.assert_called_once()
+        self.assertEqual(notify.call_args.args[0], BookingEvent.CANCELLED)
+        self.assertEqual(notify.call_args.args[1].pk, self.booking.pk)
 
 class test_available_slots_model(TestCase):
     def setUp(self):
@@ -3499,6 +3524,24 @@ class TutoringRequestInterestViewTests(TestCase):
         self.assertEqual(second_response.status_code, 200)
         self.assertEqual(TutoringRequestInterest.objects.count(), 1)
 
+    def test_new_interest_notification_runs_after_commit(self):
+        with patch(
+            'bookings.services.tutoring_request_event_manager.notify'
+        ) as notify:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(self.interest_url)
+
+        self.assertEqual(response.status_code, 201)
+        notify.assert_called_once()
+        self.assertEqual(
+            notify.call_args.args[0],
+            TutoringRequestEvent.INTEREST_EXPRESSED,
+        )
+        self.assertEqual(
+            notify.call_args.args[1].tutoring_request,
+            self.tutoring_request,
+        )
+
     def test_multiple_tutors_can_express_interest(self):
         first_response = self.client.post(self.interest_url)
 
@@ -5304,6 +5347,107 @@ class TutorSessionsPageTests(TestCase):
         self.assertContains(self.client.get(reverse('tutor_home')), self.url)
 
 
+class TutorRequestsPageTests(TestCase):
+    def setUp(self):
+        self.url = reverse('tutor_requests')
+        self.tutor = User.objects.create_user(
+            email='tutor-req@example.com',
+            password='pw-12345-xyz',
+            role='tutor',
+            first_name='Tina',
+        )
+        self.student = User.objects.create_user(
+            email='student-req@example.com',
+            password='pw-12345-xyz',
+            role='student',
+            first_name='Sam',
+        )
+        self.course = Course.create_course('CS 210', 'Data Structures')
+        TutorProfile.objects.create(user=self.tutor).courses_passed.add(self.course)
+
+    def test_anonymous_user_is_sent_to_login(self):
+        response = self.client.get(self.url)
+        self.assertRedirects(
+            response,
+            f"{reverse('login')}?next={self.url}",
+            fetch_redirect_response=False,
+        )
+
+    def test_student_is_sent_to_student_home(self):
+        self.client.force_login(self.student)
+        self.assertRedirects(
+            self.client.get(self.url),
+            reverse('student_home'),
+            fetch_redirect_response=False,
+        )
+
+    def test_tutor_sees_empty_list(self):
+        self.client.force_login(self.tutor)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'tutor/requests.html')
+        self.assertContains(response, 'Student requests')
+        self.assertContains(response, 'No open requests')
+        self.assertContains(response, 'js/tutor_requests.js')
+
+    def test_tutor_sees_open_requests_with_accept_decline(self):
+        from bookings.services import create_tutoring_request
+
+        tutoring_request = create_tutoring_request(
+            student=self.student,
+            course=self.course,
+            description='Need help with linked lists and trees for the midterm.',
+        )
+        self.client.force_login(self.tutor)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['request_cards']), 1)
+        self.assertContains(response, 'CS 210')
+        self.assertContains(response, 'Sam')
+        self.assertContains(response, 'Accept')
+        self.assertContains(response, 'js-interest')
+        self.assertContains(response, 'data-join-label="Accept"')
+        self.assertContains(response, 'data-leave-label="Decline"')
+        self.assertContains(
+            response,
+            reverse('express_tutoring_request_interest', args=[tutoring_request.id]),
+        )
+        self.assertContains(
+            response,
+            reverse('withdraw_tutoring_request_interest', args=[tutoring_request.id]),
+        )
+
+    def test_accept_then_page_shows_decline(self):
+        from bookings.services import (
+            create_tutoring_request,
+            express_tutoring_request_interest,
+        )
+
+        tutoring_request = create_tutoring_request(
+            student=self.student,
+            course=self.course,
+            description='Need help with recursion and big-O for the assignment.',
+        )
+        express_tutoring_request_interest(
+            request_id=tutoring_request.id,
+            tutor=self.tutor,
+        )
+        self.client.force_login(self.tutor)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['request_cards'][0]['joined'])
+        self.assertContains(response, 'Decline')
+        self.assertContains(response, 'is-joined')
+
+    def test_tutor_home_links_to_the_page(self):
+        self.client.force_login(self.tutor)
+        home = self.client.get(reverse('tutor_home'))
+        self.assertContains(home, self.url)
+        self.assertContains(home, 'See all requests')
+
+
 class TutorSaveCoursesTests(TestCase):
     def setUp(self):
         self.url = reverse('tutor_save_courses')
@@ -5358,6 +5502,7 @@ class TutorSaveCoursesTests(TestCase):
         self.client.force_login(self.tutor)
         self.client.post(self.url, {'courses': [c.pk for c in courses]})
         self.assertEqual(len(self.saved()), 25)
+
 
 def make_user(email, first, role=User.Role.TUTOR):
     user = User.objects.create_user(
@@ -5825,3 +5970,123 @@ class TutorsWithoutSessionsTests(RulesBase):
         taken = self.client.get(url, {'course_id': self.course.id}).json()
         self.assertFalse(taken['can_create_request'])
         self.assertEqual(taken['existing_tutors'][0]['first_name'], 'Tina')
+@override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+class BookingObserverTests(SimpleTestCase):
+    def setUp(self):
+        self.booking = SimpleNamespace(
+            id=42,
+            status='confirmed',
+            cancellation_reason='Tutor unavailable',
+            student=SimpleNamespace(email='student@example.com'),
+            tutor=SimpleNamespace(email='tutor@example.com'),
+        )
+
+    def test_attach_and_detach(self):
+        manager = BookingEventManager()
+        observer = Mock()
+
+        manager.attach(observer)
+        manager.attach(observer)
+        self.assertEqual(manager._observers, [observer])
+
+        manager.detach(observer)
+        manager.detach(observer)
+        self.assertEqual(manager._observers, [])
+
+    def test_observer_failure_does_not_stop_notifications(self):
+        manager = BookingEventManager()
+        failing_observer = Mock()
+        succeeding_observer = Mock()
+        failing_observer.update.side_effect = RuntimeError('mail backend failed')
+
+        manager.attach(failing_observer)
+        manager.attach(succeeding_observer)
+
+        with self.assertLogs('bookings.subjects', level='ERROR'):
+            manager.notify(BookingEvent.BOOKED, self.booking)
+
+        succeeding_observer.update.assert_called_once_with(
+            BookingEvent.BOOKED, self.booking
+        )
+
+    def test_confirmation_mail_event(self):
+        ConfirmationMailObserver().update(BookingEvent.BOOKED, self.booking)
+
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(
+            mail.outbox[0].to,
+            ['student@example.com', 'tutor@example.com'],
+        )
+        self.assertEqual(
+            mail.outbox[0].subject,
+            'Booking confirmation for booking #42',
+        )
+
+    def test_cancellation_mail_event(self):
+        CancellationMailObserver().update(BookingEvent.CANCELLED, self.booking)
+
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(
+            mail.outbox[0].to,
+            ['student@example.com', 'tutor@example.com'],
+        )
+        self.assertEqual(
+            mail.outbox[0].subject,
+            'Booking cancellation for booking #42',
+        )
+
+    def test_reminder_mail_event(self):
+        ReminderMailObserver().update(BookingEvent.REMINDER, self.booking)
+
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(
+            mail.outbox[0].to,
+            ['student@example.com', 'tutor@example.com'],
+        )
+        self.assertEqual(
+            mail.outbox[0].subject,
+            'Reminder: booking #42 starts in 2 hours',
+        )
+
+    @patch('bookings.observers.send_mail')
+    def test_observers_ignore_other_events(self, send_mail):
+        ConfirmationMailObserver().update(BookingEvent.CANCELLED, self.booking)
+        CancellationMailObserver().update(BookingEvent.BOOKED, self.booking)
+        ReminderMailObserver().update(BookingEvent.BOOKED, self.booking)
+
+        send_mail.assert_not_called()
+
+
+class SendReminderCommandTests(TestCase):
+    def setUp(self):
+        self.student = User.objects.create_user(
+            email='reminder-student@example.com',
+            password='test-password',
+        )
+        self.tutor = User.objects.create_user(
+            email='reminder-tutor@example.com',
+            password='test-password',
+        )
+
+    def test_uses_booking_start_time_instead_of_slot_start_time(self):
+        now = timezone.now()
+        slot = Available_Slots.objects.create(
+            tutor=self.tutor,
+            start_time=now + timedelta(hours=8),
+            end_time=now + timedelta(hours=9),
+            price_per_hour=Decimal('20.00'),
+        )
+        booking = Booking.objects.create(
+            student=self.student,
+            tutor=self.tutor,
+            time_slot=slot,
+            start_time=now + timedelta(hours=1),
+            end_time=now + timedelta(hours=2),
+            session_price=Decimal('20.00'),
+            status=Booking.Status.CONFIRMED,
+        )
+
+        call_command('send_reminders', stdout=Mock())
+
+        booking.refresh_from_db()
+        self.assertTrue(booking.reminder_sent)

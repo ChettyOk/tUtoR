@@ -45,7 +45,8 @@
   background: transparent;
 }
 .req-page .btn-find-clear:hover { background: rgba(0, 79, 46, 0.08); color: var(--green-deep); }
-.req-page .btn-find-clear.is-armed {
+.req-page .btn-find-clear.is-armed,
+.js-interest.is-armed {
   background: #9c1c1c;
   border-color: #9c1c1c;
   color: #fff;

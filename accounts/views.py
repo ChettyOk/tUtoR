@@ -605,11 +605,19 @@ def student_home(request):
     profile = StudentProfile.objects.filter(user=request.user).first()
     courses = profile.courses.order_by('course_code') if profile else []
     tutors = _tutors_for_student(profile)
+    from interactions.models import Notification
+
     return render(request, 'student_home.html', {
         'site_name': 'tUtoR',
+       
         'campus': 'University of Regina',
+       
         'courses': courses,
         'tutors': tutors,
+    
+        'notifications': Notification.objects.filter(
+            recipient=request.user,
+        ).exclude(type='reminder')[:10],
         'bookings': _student_home_bookings(request.user),
     })
 
@@ -620,6 +628,7 @@ def _tutor_home_overview(user):
     from django.utils.formats import date_format
 
     from bookings.models import Available_Slots
+    from bookings.rating_pages import count_sessions_to_rate
 
     profile = TutorProfile.objects.filter(user=user).first()
     courses = (
@@ -651,6 +660,8 @@ def _tutor_home_overview(user):
             'price_per_hour': str(slot.price_per_hour),
         })
 
+    from django.urls import reverse
+
     recent_bookings = []
     for booking in dashboard['booked_sessions'][:5]:
         start_label = ''
@@ -660,11 +671,13 @@ def _tutor_home_overview(user):
                 'D M j, Y · g:i A',
             )
         recent_bookings.append({
+            'id': booking.id,
             'student': booking.student,
             'course': str(booking.course) if booking.course else '',
             'session_price': str(booking.session_price),
             'start_time': booking.start_time,
             'start_label': start_label,
+            'cancel_url': reverse('cancel_booking', args=[booking.id]),
         })
 
     return {
@@ -673,6 +686,7 @@ def _tutor_home_overview(user):
         'open_slot_count': len(upcoming_slots),
         'booked_count': dashboard['booked_sessions'].count(),
         'interest_count': dashboard['open_requests'].count(),
+        'to_rate_count': count_sessions_to_rate(user),
         'upcoming_slots': upcoming_slots[:4],
         'recent_bookings': recent_bookings,
     }
@@ -685,11 +699,16 @@ def tutor_home(request):
     context = {
         'site_name': 'tUtoR',
         'campus': 'University of Regina',
+        'notifications': Notification.objects.filter(
+            recipient=request.user,
+        ).exclude(type='reminder')[:10],
     }
+
     context.update(_tutor_home_overview(request.user))
 
     from bookings.request_pages import build_tutor_request_cards
-    context['request_cards'] = build_tutor_request_cards(request.user)
+    # Short preview on home; full list lives on /tutor/requests/.
+    context['request_cards'] = build_tutor_request_cards(request.user, limit=4)
 
     return render(request, 'tutor_home.html', context)
 
