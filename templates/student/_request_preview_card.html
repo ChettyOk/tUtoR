@@ -1,0 +1,23 @@
+<article class="card req-card req-{{ r.status }} h-100" data-request-id="{{ r.id }}">
+  <div class="card-body">
+    <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-2">
+      <div>
+        <h3 class="h6 mb-1">{{ r.course.course_code }} · {{ r.course.course_name }}</h3>
+        <p class="tutor-meta mb-0">
+          {{ r.location_label }} · asked {{ r.created|date:"M j, Y" }}
+        </p>
+      </div>
+      <span class="req-status req-status-{{ r.status }}">{{ r.status_label }}</span>
+    </div>
+    {% if r.description %}
+    <p class="req-description mb-2">{{ r.description|truncatewords:24 }}</p>
+    {% endif %}
+    <p class="tutor-meta mb-0">
+      {% if r.tutors %}
+        {{ r.tutors|length }} tutor{{ r.tutors|length|pluralize }} can help
+      {% else %}
+        Waiting for tutors
+      {% endif %}
+    </p>
+  </div>
+</article>

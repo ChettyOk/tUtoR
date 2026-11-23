@@ -10,7 +10,9 @@
 {% block content %}
 <div class="home-page">
   <div class="container home-page-inner">
-    <header class="find-hero mb-4">
+    <a class="back-link" href="{% url 'student_home' %}">&larr; Back to student home</a>
+
+    <header class="find-hero mb-4 mt-2">
       <p class="kicker kicker-green mb-2">Student</p>
       <h1 class="h3 mb-1">Find a tutor</h1>
       <p class="text-muted mb-0">Search by name or course, then narrow it down to a day and time that works for you.</p>
