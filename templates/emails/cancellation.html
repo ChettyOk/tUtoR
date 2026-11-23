@@ -1,0 +1,13 @@
+<!doctype html>
+<html>
+  <body>
+    <h1>Booking cancellation</h1>
+    <p>Your tutoring session has been cancelled.</p>
+    <ul>
+      <li><strong>Booking:</strong> #{{ booking.id }}</li>
+      <li><strong>Student:</strong> {{ booking.student.email }}</li>
+      <li><strong>Tutor:</strong> {{ booking.tutor.email }}</li>
+      <li><strong>Reason:</strong> {{ booking.cancellation_reason|default:"Not provided" }}</li>
+    </ul>
+  </body>
+</html>

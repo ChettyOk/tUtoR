@@ -60,12 +60,13 @@ from .services import (
     get_visible_tutoring_requests,
     serialize_slot,
     DoubleBookingError,
-    create_booking_request,
     get_student_tutoring_requests,
+    cancel_booking,
     serialize_tutoring_request,
     withdraw_tutoring_request,
     express_tutoring_request_interest,
     withdraw_tutoring_request_interest,
+    create_booking_request,
     get_student_dashboard,
     serialize_student_dashboard,
     fulfill_tutoring_request,
@@ -659,6 +660,30 @@ def get_bookings(request):
         'tutor_bookings': [serialize_booking(booking) for booking in bookings['tutor_bookings']],
     })
 
+
+@require_POST
+def decline_session_request_view(request, booking_id):
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'Please log in.'}, status=401)
+
+    booking = get_object_or_404(Booking, id=booking_id)
+
+    if request.user != booking.tutor:
+        return JsonResponse({'error': 'Not your request, only the requested tutor can accept.'}, status=403)
+
+    reason = request.POST.get('reason', 'Tutor declined').strip()
+
+    try:
+        cancel_booking(booking, cancelled_by='tutor', reason=reason)
+    except ValueError as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+    return JsonResponse({
+        'message': 'Request declined.',
+        'status': booking.status,
+    })
+
+
 @require_POST
 def cancel_booking_view(request, booking_id):
     if not request.user.is_authenticated:
@@ -673,7 +698,7 @@ def cancel_booking_view(request, booking_id):
     reason = request.POST.get('reason', '').strip()
 
     try:
-        booking.cancel(cancelled_by=cancelled_by, reason=reason)
+        cancel_booking(booking, cancelled_by=cancelled_by, reason=reason)
     except CancellationDeadlinePassedError as e:
         return JsonResponse({'error': str(e)}, status=400)
     except ValueError as e:

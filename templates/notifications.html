@@ -1,0 +1,16 @@
+{% if notifications %}
+<section class="card mb-4" aria-labelledby="notifications-heading">
+  <div class="card-body">
+    <h2 id="notifications-heading" class="h6">Notifications</h2>
+    <ul class="list-group list-group-flush">
+      {% for notification in notifications %}
+      <li class="list-group-item px-0{% if not notification.status_in_web %} fw-semibold{% endif %}">
+        <strong>{{ notification.title }}</strong><br />
+        {{ notification.message }}
+        <small class="d-block text-muted fw-normal">{{ notification.created_at|date:"M j, Y, g:i a" }}</small>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</section>
+{% endif %}

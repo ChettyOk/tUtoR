@@ -1,0 +1,36 @@
+{% comment %}Notification bell for the header. Included for signed-in users only.{% endcomment %}
+<div
+  class="notif-bell dropdown order-lg-last ms-auto ms-lg-3"
+  id="notif-bell"
+  data-recent-url="{% url 'notifications_recent' %}"
+  data-read-url-template="{% url 'mark_notification_as_read' 0 %}"
+  data-read-all-url="{% url 'mark_all_notifications_as_read' %}"
+  data-csrf="{{ csrf_token }}"
+>
+  <button
+    class="notif-bell-btn"
+    type="button"
+    id="notif-bell-btn"
+    data-bs-toggle="dropdown"
+    data-bs-auto-close="outside"
+    data-bs-display="static"
+    aria-expanded="false"
+    aria-label="Notifications"
+  >
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M6 9a6 6 0 1 1 12 0c0 6 2.5 7.5 2.5 7.5h-17S6 15 6 9Z"/>
+      <path d="M10 20a2 2 0 0 0 4 0"/>
+    </svg>
+    <span class="notif-badge" id="notif-badge" hidden>0</span>
+  </button>
+  <div class="dropdown-menu dropdown-menu-end notif-panel" aria-labelledby="notif-bell-btn">
+    <div class="notif-panel-head">
+      <p class="notif-panel-title mb-0">Notifications</p>
+      <button type="button" class="notif-link-btn" id="notif-mark-all" disabled>Mark all as read</button>
+    </div>
+    <div class="notif-list" id="notif-list" aria-live="polite">
+      <p class="notif-empty mb-0">Loading…</p>
+    </div>
+    <a class="notif-panel-foot" href="{% url 'notifications' %}">See all notifications</a>
+  </div>
+</div>

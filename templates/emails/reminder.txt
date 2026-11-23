@@ -1,0 +1,5 @@
+Your tutoring session starts in 2 hours.
+
+Booking: #{{ booking.id }}
+Student: {{ booking.student.email }}
+Tutor: {{ booking.tutor.email }}
