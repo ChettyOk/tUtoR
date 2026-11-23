@@ -16,6 +16,11 @@ from bookings.models import (
     TutoringRequestInterest,
 )
 from bookings.pricing import calc_price_suggestion
+from bookings.interfaces import BookingEvent, TutoringRequestEvent
+from bookings.subjects import (
+    booking_event_manager,
+    tutoring_request_event_manager,
+)
 
 from django.utils import timezone
 
@@ -26,11 +31,35 @@ REQUEST_LIFETIME_DAYS = 120     # about 4 months, then an open request expires
 
 
 
+
 class DoubleBookingError(Exception):
     pass
 
 class RequestFulfillmentConflict(ValueError):
     pass
+
+
+def cancel_booking(booking, *, cancelled_by, reason=''):
+    with transaction.atomic():
+        locked_booking = (
+            Booking.objects
+            .select_for_update()
+            .get(pk=booking.pk)
+        )
+        locked_booking.cancel(
+            cancelled_by=cancelled_by,
+            reason=reason,
+        )
+        transaction.on_commit(
+            lambda booking=locked_booking: booking_event_manager.notify(
+                BookingEvent.CANCELLED,
+                booking,
+            )
+        )
+        booking.refresh_from_db()
+
+    return booking
+
 
 def create_booking_request(student, tutor, slot, course=None, student_note='', start_time=None, end_time=None):
     if (start_time is None) != (end_time is None):
@@ -98,6 +127,12 @@ def create_booking_request(student, tutor, slot, course=None, student_note='', s
             student_note=student_note,
             session_price=session_price,
             status=Booking.Status.CONFIRMED,
+        )
+        transaction.on_commit(
+            lambda booking=booking: booking_event_manager.notify(
+                BookingEvent.BOOKED,
+                booking,
+            )
         )
         return booking
 
@@ -404,6 +439,14 @@ def express_tutoring_request_interest(*, request_id, tutor):
                 tutor=tutor,
             )
         )
+
+        if created:
+            transaction.on_commit(
+                lambda interest=interest: tutoring_request_event_manager.notify(
+                    TutoringRequestEvent.INTEREST_EXPRESSED,
+                    interest,
+                )
+            )
 
     return interest, created
 
@@ -811,6 +854,7 @@ def _serialize_dashboard_booking(booking):
             if booking.price_per_hour is not None
             else None
         ),
+
         'session_price': str(booking.session_price),
         'location_type': booking.location_type,
     }
