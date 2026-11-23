@@ -596,6 +596,11 @@ def get_ratings(user, rated_role):
     else:
         raise ValueError("Error: no role (student/tutor) provided.")
 
+def _rating_stats(user, rated_role):
+    from .rating_summary import stats_for_user
+    return stats_for_user(user, rated_role)
+
+
 
 def get_user_details(user, role):
     if role == user.Role.TUTOR:
@@ -613,6 +618,8 @@ def get_user_details(user, role):
             for course in tutor_profile.courses_passed.all().order_by('course_code')
         ]
 
+        stats = _rating_stats(user, Rating.RatedRole.TUTOR)
+
         return {
             'id': user.id,
             'first_name': user.first_name,
@@ -620,6 +627,8 @@ def get_user_details(user, role):
             'email': user.email,
             'bio': tutor_profile.bio,
             'average_rating': tutor_profile.display_tutor_rating,
+            'rating_avg': stats['avg'],
+            'rating_count': stats['count'],
             'suggested_price': str(calc_price_suggestion(user)),
             'courses_passed': courses,
         }
@@ -639,6 +648,7 @@ def get_user_details(user, role):
             for course in student_profile.courses.all().order_by('course_code')
         ]
 
+        stats = _rating_stats(user, Rating.RatedRole.STUDENT)
         return {
             'id': user.id,
             'first_name': user.first_name,
@@ -647,6 +657,8 @@ def get_user_details(user, role):
             'major': student_profile.major,
             'semester': student_profile.semester,
             'average_rating': student_profile.display_student_rating,
+            'rating_avg': stats['avg'],
+            'rating_count': stats['count'],
             'courses': courses,
         }
     else:

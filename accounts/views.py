@@ -600,6 +600,8 @@ def _student_home_bookings(user):
 
 @login_required
 def student_home(request):
+    from bookings.models import Rating
+    from bookings.rating_summary import stats_for_user
     from bookings.student_rating_pages import count_tutors_to_rate
 
     if request.user.has_role('tutor'):
@@ -607,6 +609,7 @@ def student_home(request):
     profile = StudentProfile.objects.filter(user=request.user).first()
     courses = profile.courses.order_by('course_code') if profile else []
     tutors = _tutors_for_student(profile)
+    my_rating = stats_for_user(request.user, Rating.RatedRole.STUDENT)
     return render(request, 'student_home.html', {
         'site_name': 'tUtoR',
         'campus': 'University of Regina',
@@ -614,6 +617,8 @@ def student_home(request):
         'tutors': tutors,
         'bookings': _student_home_bookings(request.user),
         'to_rate_count': count_tutors_to_rate(request.user),
+        'my_rating_avg': my_rating['avg'],
+        'my_rating_count': my_rating['count'],
     })
 
 
@@ -624,6 +629,9 @@ def _tutor_home_overview(user):
 
     from bookings.models import Available_Slots
     from bookings.rating_pages import count_sessions_to_rate
+
+    from bookings.rating_summary import stats_for_user, stats_for_users
+    from bookings.models import Rating
 
     profile = TutorProfile.objects.filter(user=user).first()
     courses = (
@@ -657,8 +665,14 @@ def _tutor_home_overview(user):
 
     from django.urls import reverse
 
+    recent = list(dashboard['booked_sessions'][:5])
+    student_stats = stats_for_users({b.student_id for b in recent}, Rating.RatedRole.STUDENT)
+    my_stats = stats_for_user(user, Rating.RatedRole.TUTOR)
+
+
     recent_bookings = []
-    for booking in dashboard['booked_sessions'][:5]:
+    for booking in recent:
+        stats = student_stats.get(booking.student_id, {'avg': None, 'count': 0})
         start_label = ''
         if booking.start_time is not None:
             start_label = date_format(
@@ -668,6 +682,8 @@ def _tutor_home_overview(user):
         recent_bookings.append({
             'id': booking.id,
             'student': booking.student,
+            'student_rating_avg': stats['avg'],
+            'student_rating_count': stats['count'],
             'course': str(booking.course) if booking.course else '',
             'session_price': str(booking.session_price),
             'start_time': booking.start_time,
@@ -682,6 +698,8 @@ def _tutor_home_overview(user):
         'booked_count': dashboard['booked_sessions'].count(),
         'interest_count': dashboard['open_requests'].count(),
         'to_rate_count': count_sessions_to_rate(user),
+        'my_rating_avg': my_stats['avg'],
+        'my_rating_count': my_stats['count'],
         'upcoming_slots': upcoming_slots[:4],
         'recent_bookings': recent_bookings,
     }
