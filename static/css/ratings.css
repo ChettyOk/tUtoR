@@ -1,0 +1,65 @@
+.rate-page { max-width: 46rem; }
+.rate-count {
+  display: inline-block;
+  margin-left: 0.4rem;
+  min-width: 1.6rem;
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(0, 79, 46, 0.1);
+  color: var(--green-deep);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-align: center;
+}
+.rate-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.75rem; }
+.rate-list:empty { display: none; }
+.rate-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.15rem;
+  border: 1px solid var(--bs-border-color);
+  border-left: 4px solid var(--gold, #ffc82e);
+  border-radius: 0.9rem;
+  background: var(--paper, #fffdf8);
+}
+.rate-card.is-rated { border-left-color: var(--green); }
+.rate-card-main { min-width: 0; }
+.rate-student { display: block; color: var(--green-deep); }
+.rate-meta { display: block; color: var(--muted); font-size: 0.92rem; }
+.rate-comment { margin: 0.4rem 0 0; white-space: pre-line; overflow-wrap: anywhere; }
+.rate-card-side { flex: 0 0 auto; }
+.rate-stars { font-size: 1.25rem; letter-spacing: 0.1rem; white-space: nowrap; }
+.rate-stars span { color: rgba(0, 0, 0, 0.18); }
+.rate-stars span.on { color: #d49a00; }
+.rate-empty { color: var(--muted); margin: 0; }
+.rate-empty[hidden] { display: none; }
+.rate-error { color: #9c1c1c; font-size: 0.92rem; margin: 0.75rem 0 0; }
+.rate-error[hidden] { display: none; }
+.rate-page .btn-find-clear,
+#rate-modal .btn-find-clear {
+  border: 1px solid rgba(0, 79, 46, 0.35);
+  color: var(--green-deep);
+  background: transparent;
+}
+
+/* Star picker: DOM order is 5..1 so "checked ~ label" fills the lower stars. */
+.star-input { display: inline-flex; flex-direction: row-reverse; justify-content: flex-end; gap: 0.1rem; }
+.star-input input { position: absolute; opacity: 0; pointer-events: none; }
+.star-input label {
+  font-size: 2.2rem;
+  line-height: 1;
+  padding: 0 0.12rem;
+  color: rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+}
+.star-input label:hover,
+.star-input label:hover ~ label,
+.star-input input:checked ~ label { color: #d49a00; }
+.star-input input:focus-visible + label { outline: 3px solid rgba(255, 200, 46, 0.8); border-radius: 0.3rem; }
+
+@media (max-width: 575.98px) {
+  .rate-card { flex-direction: column; align-items: stretch; }
+  .rate-card-side { align-self: flex-start; }
+}

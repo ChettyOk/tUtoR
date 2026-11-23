@@ -620,6 +620,7 @@ def _tutor_home_overview(user):
     from django.utils.formats import date_format
 
     from bookings.models import Available_Slots
+    from bookings.rating_pages import count_sessions_to_rate
 
     profile = TutorProfile.objects.filter(user=user).first()
     courses = (
@@ -677,6 +678,7 @@ def _tutor_home_overview(user):
         'open_slot_count': len(upcoming_slots),
         'booked_count': dashboard['booked_sessions'].count(),
         'interest_count': dashboard['open_requests'].count(),
+        'to_rate_count': count_sessions_to_rate(user),
         'upcoming_slots': upcoming_slots[:4],
         'recent_bookings': recent_bookings,
     }
