@@ -2653,6 +2653,75 @@ class HomePageTests(TestCase):
         self.assertTemplateUsed(response, 'student_home.html')
         self.assertContains(response, 'Welcome, Sam')
         self.assertContains(response, 'CS 110')
+        self.assertContains(response, 'Student overview')
+        self.assertContains(response, 'Your open requests')
+        self.assertContains(response, 'Find help')
+        self.assertContains(response, 'Tutors for your courses')
+        self.assertContains(response, 'student-overview-grid')
+        self.assertContains(response, reverse('find_tutors'))
+        self.assertContains(response, reverse('request_form'))
+        self.assertContains(response, reverse('my_requests'))
+        self.assertEqual(response.context['course_count'], 1)
+        self.assertEqual(response.context['booked_count'], 0)
+        self.assertEqual(response.context['open_request_count'], 0)
+        self.assertEqual(response.context['open_request_cards'], [])
+        self.assertEqual(response.context['favorite_count'], 0)
+
+    def test_student_home_overview_counts_bookings_requests_and_favourites(self):
+        from datetime import timedelta
+        from decimal import Decimal
+
+        from django.utils import timezone
+
+        from bookings.models import Available_Slots, Booking, TutoringRequest
+
+        profile = StudentProfile.objects.create(user=self.student)
+        profile.courses.add(self.course)
+        TutorProfile.objects.create(user=self.tutor).courses_passed.add(self.course)
+        profile.add_favorite_tutor(self.tutor)
+
+        start = timezone.now() + timedelta(days=2)
+        slot = Available_Slots.create_slot(
+            tutor=self.tutor,
+            start_time=start,
+            end_time=start + timedelta(hours=1),
+            price_per_hour=Decimal('25.00'),
+        )
+        Booking.objects.create(
+            student=self.student,
+            tutor=self.tutor,
+            course=self.course,
+            time_slot=slot,
+            start_time=start,
+            end_time=start + timedelta(hours=1),
+            session_price=Decimal('25.00'),
+            status=Booking.Status.CONFIRMED,
+        )
+        TutoringRequest.objects.create(
+            student=self.student,
+            course=self.course,
+            description='Need help with labs.',
+            status=TutoringRequest.Status.OPEN,
+            visibility=TutoringRequest.Visibility.ALL_TUTORS,
+        )
+
+        self.client.force_login(self.student)
+        response = self.client.get(reverse('student_home'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['course_count'], 1)
+        self.assertEqual(response.context['booked_count'], 1)
+        self.assertEqual(response.context['open_request_count'], 1)
+        self.assertEqual(response.context['favorite_count'], 1)
+        self.assertEqual(len(response.context['open_request_cards']), 1)
+        self.assertContains(response, 'Confirmed bookings')
+        self.assertContains(response, 'Open requests')
+        self.assertContains(response, 'Your open requests')
+        self.assertContains(response, 'Need help with labs.')
+        self.assertContains(response, 'Waiting for tutors')
+        self.assertContains(response, 'Favourite tutors')
+        self.assertContains(response, reverse('my_requests'))
+        self.assertContains(response, reverse('request_form'))
 
     def test_student_home_includes_matching_tutors_and_slots(self):
         from datetime import timedelta

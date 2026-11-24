@@ -3,111 +3,181 @@
 
 {% block title %}Home · {{ site_name|default:"tUtoR" }}{% endblock %}
 
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/requests.css' %}?v=5" />
+{% endblock %}
+
 {% block content %}
 <div class="home-page">
   <div class="container home-page-inner">
     {% csrf_token %}
     <header class="student-home-hero mb-4">
-      <p class="kicker kicker-green mb-2">Student</p>
-      <h1 class="h3 mb-1">Welcome{% if user.first_name %}, {{ user.first_name }}{% endif %}</h1>
-      <p class="text-muted mb-0">Browse tutors for your courses and pick an open time.</p>
+      <div class="d-flex flex-wrap align-items-end justify-content-between gap-3">
+        <div>
+          <p class="kicker kicker-green mb-2">Student overview</p>
+          <h1 class="h3 mb-1">Welcome{% if user.first_name %}, {{ user.first_name }}{% endif %}</h1>
+          <p class="text-muted mb-0">
+            Your learning snapshot. Find tutors, manage bookings, and track course requests.
+          </p>
+        </div>
+        <a href="{% url 'my_requests' %}" class="btn btn-green rounded-pill">
+          My requests
+        </a>
+      </div>
     </header>
-    
+
+    <section class="student-overview-stats mb-4" aria-label="Student summary">
+      <div class="tutor-stat">
+        <span class="tutor-stat-value">{{ course_count }}</span>
+        <span class="tutor-stat-label">Your courses</span>
+      </div>
+      <div class="tutor-stat">
+        <span class="tutor-stat-value">{{ booked_count }}</span>
+        <span class="tutor-stat-label">Confirmed bookings</span>
+      </div>
+      <div class="tutor-stat">
+        <span class="tutor-stat-value">{{ open_request_count }}</span>
+        <span class="tutor-stat-label">Open requests</span>
+      </div>
+      <div class="tutor-stat">
+        <span class="tutor-stat-value">{{ favorite_count }}</span>
+        <span class="tutor-stat-label">Favourite tutors</span>
+      </div>
+    </section>
+
     <form class="student-search mb-4" method="get" action="{% url 'find_tutors' %}" role="search">
       <label class="visually-hidden" for="home-q">Search tutors or courses</label>
       <input id="home-q" class="form-control form-control-lg" type="search" name="q" placeholder="Search tutors or courses, e.g. CS 110" />
       <button class="btn btn-green btn-lg" type="submit">Find tutors</button>
     </form>
 
-    <p class="student-requests-link mb-2">
-      Can't find a tutor for a course?
-      <a href="{% url 'my_requests' %}">See your requests</a>
-    </p>
-
-    <p class="student-requests-link mb-4">
-      <a href="{% url 'student_past_sessions' %}">Past sessions{% if to_rate_count %} · {{ to_rate_count }} to rate{% endif %}</a>
-      ·
-      <a href="{% url 'my_ratings' %}">My ratings</a>
-      {% include "ratings/_badge.html" with avg=my_rating_avg count=my_rating_count %}
-    </p>
-
-    <section class="student-courses card mb-4" aria-labelledby="student-courses-heading">
-      <div class="card-body">
-        <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-2">
-          <h2 class="h6 mb-0" id="student-courses-heading">Your courses</h2>
-          <a class="student-inline-link" href="{% url 'personalise' %}">
-            {% if courses %}Edit courses{% else %}Pick courses{% endif %}
-          </a>
-        </div>
-        {% if courses %}
-        <ul class="student-course-list mb-0">
-          {% for course in courses %}
-          <li>
-            <span class="student-course-code">{{ course.course_code }}</span>
-            <span class="student-course-name">{{ course.course_name }}</span>
-          </li>
-          {% endfor %}
-        </ul>
-        {% else %}
-        <p class="student-empty mb-0">
-          Add the courses you need help with so we can match you to tutors.
-        </p>
-        {% endif %}
-      </div>
-    </section>
-
-    <section class="card mb-4" aria-labelledby="student-bookings-heading" data-booking-list>
-      <div class="card-body">
-        <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-3">
-          <h2 class="h6 mb-0" id="student-bookings-heading">Your bookings</h2>
-        </div>
-        <div id="booking-alert" class="alert alert-danger" role="alert" hidden></div>
-        <div id="booking-success" class="alert alert-success" role="status" hidden></div>
-        {% if bookings %}
-        <ul class="student-booking-list mb-0">
-          {% for booking in bookings %}
-          <li class="student-booking" data-booking-id="{{ booking.id }}">
-            <div class="student-booking-info">
-              <strong>
-                {% if booking.tutor.first_name or booking.tutor.last_name %}
-                  {{ booking.tutor.first_name }} {{ booking.tutor.last_name }}
-                {% else %}
-                  {{ booking.tutor.email }}
-                {% endif %}
-              </strong>
-              <span>
-                {% if booking.course %}{{ booking.course }} · {% endif %}
-                ${{ booking.session_price }}
-                {% if booking.start_label %} · {{ booking.start_label }}{% endif %}
-                {% if booking.location_label %} · {{ booking.location_label }}{% endif %}
-              </span>
+    <div class="row g-4 student-overview-grid mb-2">
+      <div class="col-lg-6">
+        <section class="card tutor-overview-card h-100" aria-labelledby="student-courses-heading">
+          <div class="card-body">
+            <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-3">
+              <h2 class="h6 mb-0" id="student-courses-heading">Your courses</h2>
+              <a class="student-inline-link" href="{% url 'personalise' %}">
+                {% if courses %}Edit courses{% else %}Pick courses{% endif %}
+              </a>
             </div>
-            <div class="student-booking-actions">
-              <button
-                type="button"
-                class="btn btn-outline-secondary btn-sm js-cancel-booking"
-                data-url="{{ booking.cancel_url }}"
-              >
-                Cancel
-              </button>
-              <span class="booking-error" role="alert" hidden></span>
-            </div>
-          </li>
-          {% endfor %}
-        </ul>
-        {% else %}
-        <p class="student-empty mb-0">
-          No confirmed bookings yet. Book an open time from a tutor below.
-        </p>
-        {% endif %}
+            {% if courses %}
+            <ul class="student-course-list mb-0">
+              {% for course in courses %}
+              <li>
+                <span class="student-course-code">{{ course.course_code }}</span>
+                <span class="student-course-name">{{ course.course_name }}</span>
+              </li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <p class="student-empty mb-0">
+              Add the courses you need help with so we can match you to tutors.
+            </p>
+            {% endif %}
+          </div>
+        </section>
       </div>
-    </section>
 
-    <section class="tutor-list" aria-labelledby="tutor-list-heading" data-tutor-list>
+      <div class="col-lg-6">
+        <section
+          class="card tutor-overview-card h-100"
+          aria-labelledby="student-bookings-heading"
+          data-booking-list
+          data-empty-message="No confirmed bookings yet. Book an open time from a tutor below."
+          data-empty-class="student-empty mb-0"
+        >
+          <div class="card-body">
+            <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-3">
+              <h2 class="h6 mb-0" id="student-bookings-heading">Your bookings</h2>
+              {% if booked_count %}
+              <span class="tutor-list-count" role="status">{{ booked_count }} upcoming</span>
+              {% endif %}
+            </div>
+            <div id="booking-alert" class="alert alert-danger" role="alert" hidden></div>
+            <div id="booking-success" class="alert alert-success" role="status" hidden></div>
+            {% if bookings %}
+            <ul class="student-booking-list mb-0">
+              {% for booking in bookings %}
+              <li class="student-booking" data-booking-id="{{ booking.id }}">
+                <div class="student-booking-info">
+                  <strong>
+                    {% if booking.tutor.first_name or booking.tutor.last_name %}
+                      {{ booking.tutor.first_name }} {{ booking.tutor.last_name }}
+                    {% else %}
+                      {{ booking.tutor.email }}
+                    {% endif %}
+                  </strong>
+                  <span>
+                    {% if booking.course %}{{ booking.course }} · {% endif %}
+                    ${{ booking.session_price }}
+                    {% if booking.start_label %} · {{ booking.start_label }}{% endif %}
+                    {% if booking.location_label %} · {{ booking.location_label }}{% endif %}
+                  </span>
+                </div>
+                <div class="student-booking-actions">
+                  <button
+                    type="button"
+                    class="btn btn-outline-secondary btn-sm js-cancel-booking"
+                    data-url="{{ booking.cancel_url }}"
+                  >
+                    Cancel
+                  </button>
+                  <span class="booking-error" role="alert" hidden></span>
+                </div>
+              </li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <p class="student-empty mb-0">
+              No confirmed bookings yet. Book an open time from a tutor below.
+            </p>
+            {% endif %}
+          </div>
+        </section>
+      </div>
+
+      <div class="col-12">
+        <section class="card tutor-overview-card" aria-labelledby="student-requests-heading" id="requests-section">
+          <div class="card-body">
+            <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-1">
+              <h2 class="h6 mb-0" id="student-requests-heading">Your open requests</h2>
+              <div class="d-flex flex-wrap align-items-center gap-3">
+                <span class="tutor-list-count" role="status">{{ open_request_count }} open</span>
+                <a class="student-inline-link" href="{% url 'request_form' %}">New request</a>
+                <a class="student-inline-link" href="{% url 'my_requests' %}">See all requests</a>
+              </div>
+            </div>
+            <p class="text-muted small mb-3">
+              Ask for a course when nobody offers it yet. Tutors who can help show up on the full requests page.
+            </p>
+            {% if open_request_cards %}
+            <div class="row g-3">
+              {% for r in open_request_cards %}
+              <div class="col-12 col-lg-6">
+                {% include "student/_request_preview_card.html" with r=r %}
+              </div>
+              {% endfor %}
+            </div>
+            {% else %}
+            <p class="student-empty mb-0">
+              No open requests right now.
+              <a href="{% url 'request_form' %}">Post a request</a>
+              or
+              <a href="{% url 'my_requests' %}">open the full request list</a>.
+            </p>
+            {% endif %}
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <section class="student-discover tutor-list mt-4" aria-labelledby="tutor-list-heading" data-tutor-list>
       <div class="tutor-list-header mb-3">
         <div class="d-flex flex-wrap align-items-end justify-content-between gap-3">
           <div>
-            <h2 class="h5 mb-1" id="tutor-list-heading">Tutors</h2>
+            <p class="kicker kicker-green mb-2">Find help</p>
+            <h2 class="h5 mb-1" id="tutor-list-heading">Tutors for your courses</h2>
             <p class="text-muted mb-0">
               {% if courses %}
               Tutors who have passed courses you are taking.

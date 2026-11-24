@@ -11,7 +11,9 @@
 <div class="home-page">
   <div class="container home-page-inner req-page">
     {% csrf_token %}
-    <header class="mb-4 d-flex flex-wrap align-items-end justify-content-between gap-3">
+    <a class="back-link" href="{% url 'student_home' %}">&larr; Back to student home</a>
+
+    <header class="mb-4 mt-2 d-flex flex-wrap align-items-end justify-content-between gap-3">
       <div>
         <p class="kicker kicker-green mb-2">Student</p>
         <h1 class="h3 mb-1">My requests</h1>

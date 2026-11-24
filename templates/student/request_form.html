@@ -10,7 +10,7 @@
 {% block content %}
 <div class="home-page">
   <div class="container home-page-inner req-page">
-    <a class="book-back" href="{% url 'my_requests' %}">&larr; My requests</a>
+    <a class="back-link" href="{% url 'student_home' %}">&larr; Back to student home</a>
 
     <header class="mb-4 mt-2">
       <p class="kicker kicker-green mb-2">Student</p>
@@ -62,7 +62,7 @@
 
         <div class="d-flex flex-wrap gap-2">
           <button class="btn btn-green btn-lg" type="submit" id="rf-submit">Post request</button>
-          <a class="btn btn-find-clear btn-lg" href="{% url 'my_requests' %}">Cancel</a>
+          <a class="btn btn-find-clear btn-lg" href="{% url 'student_home' %}">Cancel</a>
         </div>
       </div>
     </form>

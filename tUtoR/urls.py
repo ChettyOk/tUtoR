@@ -31,6 +31,7 @@ from accounts import views as account_views
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include('bookings.urls')),
+    path('', include('interactions.ui_urls')),
     path('', include('interactions.urls')),
     path('', views.landing, name='landing'),
     path('login/', account_views.login_page, name='login'),
