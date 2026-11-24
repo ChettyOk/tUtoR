@@ -880,3 +880,43 @@ h1, h2, h3, .card-title {
     inset-inline: 1rem;
   }
 }
+
+/* QLT-10.1: accessibility and small-screen fixes ------------------------- */
+
+/* Bootstrap's default outline-secondary grey (#6c757d) is 4.1-4.4:1 on our
+   cream backgrounds; WCAG AA needs 4.5:1 for normal text. */
+.btn-outline-secondary {
+  --bs-btn-color: #4a525a;
+  --bs-btn-border-color: #6c757d;
+  --bs-btn-hover-bg: #4a525a;
+  --bs-btn-hover-border-color: #4a525a;
+  --bs-btn-active-bg: #3d444a;
+  --bs-btn-active-border-color: #3d444a;
+  --bs-btn-disabled-color: #5f6870;
+  --bs-btn-disabled-border-color: #adb5bd;
+}
+
+/* Comfortable tap targets on phones and tablets (Apple/Google suggest 44px;
+   WCAG 2.2 AA requires at least 24px). */
+@media (max-width: 991.98px) {
+  .back-link,
+  .book-back,
+  .student-inline-link,
+  .picker-jump,
+  .notif-link-btn,
+  .notif-title,
+  .btn.btn-sm,
+  .btn-book,
+  .student-booking-list .btn,
+  .req-card .btn,
+  .rate-card .btn {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.5rem;
+  }
+  .btn.btn-sm,
+  .btn-book {
+    padding-inline: 0.9rem;
+  }
+  .notif-link-btn { padding-inline: 0.4rem; }
+}

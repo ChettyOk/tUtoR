@@ -29,7 +29,7 @@
         </div>
 
         <div class="row g-3 align-items-end">
-          <div class="col-6 col-md-3">
+          <div class="col-12 col-sm-6 col-md-3">
             <label class="form-label find-label" for="f-faculty">Faculty</label>
             <select id="f-faculty" class="form-select" name="faculty">
               <option value="">Any faculty</option>
@@ -38,7 +38,7 @@
               {% endfor %}
             </select>
           </div>
-          <div class="col-6 col-md-3">
+          <div class="col-12 col-sm-6 col-md-3">
             <label class="form-label find-label" for="f-location">Where</label>
             <select id="f-location" class="form-select" name="location">
               <option value="">Online or in person</option>
@@ -46,7 +46,7 @@
               <option value="in_person"{% if filters.location == 'in_person' %} selected{% endif %}>In person</option>
             </select>
           </div>
-          <div class="col-6 col-md-3">
+          <div class="col-12 col-sm-6 col-md-3">
             <label class="form-label find-label" for="f-price">Max price / hour</label>
             <div class="input-group has-validation">
               <span class="input-group-text">$</span>
@@ -62,7 +62,7 @@
               </div>
             </div>
           </div>
-          <div class="col-6 col-md-3">
+          <div class="col-12 col-sm-6 col-md-3">
             <label class="form-label find-label" for="f-sort">Sort by</label>
             <select id="f-sort" class="form-select" name="sort">
               {% for value, label in sort_choices %}
@@ -70,7 +70,7 @@
               {% endfor %}
             </select>
           </div>
-          <div class="col-6 col-md-3">
+          <div class="col-12 col-sm-6 col-md-3">
             <label class="form-label find-label" for="f-date">Day</label>
             <input id="f-date"
                    class="form-control{% if field_errors.date %} is-invalid{% endif %}"
@@ -82,7 +82,7 @@
               {{ field_errors.date|default:"Pick a valid date." }}
             </div>
           </div>
-          <div class="col-6 col-md-3">
+          <div class="col-12 col-sm-6 col-md-3">
             <label class="form-label find-label" for="f-part">Time of day</label>
             <select id="f-part" class="form-select" name="part">
               <option value="">Any time</option>
