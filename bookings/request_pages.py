@@ -7,7 +7,8 @@ from django.utils.timesince import timesince
 from django.utils.formats import date_format
 
 from accounts.models import Course, User
-from .models import TutoringRequest, TutoringRequestInterest
+from .models import Rating, TutoringRequest, TutoringRequestInterest
+from .rating_summary import stats_for_users
 from .search import _format_window
 from .services import (
     get_interested_tutors,
@@ -140,9 +141,16 @@ def build_tutor_request_cards(tutor, limit=30):
     ):
         counts[row] = counts.get(row, 0) + 1
 
+    student_stats = stats_for_users(
+        {r.student_id for r in requests}, Rating.RatedRole.STUDENT,
+    )
+    
     cards = []
     for r in requests:
+        stats = student_stats.get(r.student_id, {'avg': None, 'count': 0})
         cards.append({
+            'student_rating_avg': stats['avg'],
+            'student_rating_count': stats['count'],
             'id': r.pk,
             'course': r.course,
             'student_name': (r.student.first_name or 'A student').strip(),
