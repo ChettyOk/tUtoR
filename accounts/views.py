@@ -628,29 +628,21 @@ def _student_home_overview(user, profile, courses):
 def student_home(request):
     if request.user.has_role('tutor'):
         return redirect('tutor_home')
+    from interactions.models import Notification
+
     profile = StudentProfile.objects.filter(user=request.user).first()
     courses = profile.courses.order_by('course_code') if profile else []
     tutors = _tutors_for_student(profile)
     context = {
-    from interactions.models import Notification
-
-    return render(request, 'student_home.html', {
         'site_name': 'tUtoR',
-       
         'campus': 'University of Regina',
         'tutors': tutors,
-    }
-    context.update(_student_home_overview(request.user, profile, courses))
-    return render(request, 'student_home.html', context)
-       
-        'courses': courses,
-        'tutors': tutors,
-    
         'notifications': Notification.objects.filter(
             recipient=request.user,
         ).exclude(type='reminder')[:10],
-        'bookings': _student_home_bookings(request.user),
-    })
+    }
+    context.update(_student_home_overview(request.user, profile, courses))
+    return render(request, 'student_home.html', context)
 
 
 def _tutor_home_overview(user):
@@ -727,6 +719,8 @@ def tutor_home(request):
     """Tutor overview dashboard. Session setup lives on /tutor/sessions/."""
     if not request.user.has_role('tutor'):
         return redirect('student_home')
+    from interactions.models import Notification
+
     context = {
         'site_name': 'tUtoR',
         'campus': 'University of Regina',
