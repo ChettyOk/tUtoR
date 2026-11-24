@@ -11,7 +11,9 @@
       {% if r.matches %}<span class="treq-badge">You teach this</span>{% endif %}
     </div>
     <p class="tutor-meta mb-2">
-      {{ r.student_name }} · {{ r.location_label }} · {{ r.asked_ago }} ago
+      {{ r.student_name }}
+      {% include "ratings/_badge.html" with avg=r.student_rating_avg count=r.student_rating_count %}
+      · {{ r.location_label }} · {{ r.asked_ago }} ago
     </p>
     <p class="req-description mb-3">{{ r.description|truncatechars:240 }}</p>
     <div class="treq-footer mt-auto">

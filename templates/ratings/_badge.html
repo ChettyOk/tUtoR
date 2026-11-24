@@ -1,0 +1,2 @@
+{# Star badge. Usage: {% include "ratings/_badge.html" with avg=x.rating_avg count=x.rating_count %} #}
+{% if count %}<span class="rating-badge" title="{{ avg }} out of 5 from {{ count }} rating{{ count|pluralize }}"><span class="rating-badge-star" aria-hidden="true">★</span><span class="visually-hidden">Rated </span>{{ avg }}<span class="visually-hidden"> out of 5,</span> <span class="rating-badge-count">({{ count }})</span></span>{% else %}<span class="rating-badge is-empty">No ratings yet</span>{% endif %}

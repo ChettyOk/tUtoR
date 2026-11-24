@@ -261,7 +261,7 @@
                     </div>
                   </div>
                   <p class="tutor-meta mb-0">
-                    Rating: {{ tutor.average_rating }}
+                    {% include "ratings/_badge.html" with avg=tutor.rating_avg count=tutor.rating_count %}
                     · from ${{ tutor.suggested_price }}/hour
                   </p>
                 </div>
