@@ -632,6 +632,8 @@ def student_home(request):
 
     if request.user.has_role('tutor'):
         return redirect('tutor_home')
+    from interactions.models import Notification
+
     profile = StudentProfile.objects.filter(user=request.user).first()
     courses = profile.courses.order_by('course_code') if profile else []
     tutors = _tutors_for_student(profile)
@@ -732,6 +734,8 @@ def tutor_home(request):
     """Tutor overview dashboard. Session setup lives on /tutor/sessions/."""
     if not request.user.has_role('tutor'):
         return redirect('student_home')
+    from interactions.models import Notification
+
     context = {
         'site_name': 'tUtoR',
         'campus': 'University of Regina',
