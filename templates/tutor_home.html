@@ -4,10 +4,11 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/requests.css' %}?v=4" />
+<link rel="stylesheet" href="{% static 'css/home.css' %}?v=2" />
 {% endblock %}
 
 {% block content %}
-<div class="home-page">
+<div class="home-page role-home">
   <div class="container home-page-inner">
     <header class="tutor-home-hero mb-4">
       <div class="d-flex flex-wrap align-items-end justify-content-between gap-3">
@@ -145,9 +146,13 @@
           <div class="card-body">
             <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-3">
               <h2 class="h6 mb-0" id="tutor-bookings-heading">Confirmed bookings</h2>
+              <div class="d-flex flex-wrap align-items-center gap-3">
                 <a href="{% url 'tutor_past_sessions' %}" class="btn btn-green btn-sm rounded-pill">
                 Past sessions{% if to_rate_count %} · {{ to_rate_count }} to rate{% endif %}
-              </a>
+                </a>
+                <a href="{% url 'tutor_my_ratings' %}" class="student-inline-link">My ratings</a>
+                {% include "ratings/_badge.html" with avg=my_rating_avg count=my_rating_count %}
+              </div>
             </div>
             <div id="booking-alert" class="alert alert-danger" role="alert" hidden></div>
             <div id="booking-success" class="alert alert-success" role="status" hidden></div>
@@ -164,6 +169,7 @@
                     {% endif %}
                   </strong>
                   <span>
+                    {% include "ratings/_badge.html" with avg=booking.student_rating_avg count=booking.student_rating_count %} ·
                     {% if booking.course %}{{ booking.course }} · {% endif %}
                     ${{ booking.session_price }}
                     {% if booking.start_label %} · {{ booking.start_label }}{% endif %}

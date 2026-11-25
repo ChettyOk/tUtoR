@@ -1,4 +1,5 @@
 from decimal import Decimal, ROUND_HALF_UP
+import logging
 
 from django.utils import timezone
 from datetime import timedelta
@@ -591,6 +592,23 @@ def update_rating(user, rated_role):
         profile.average_rating = mean_rating.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         profile.save()
 
+def _notify_rating_received(rating, rated_user, rater, booking):
+    """Tell the rated person they have a new rating. Never blocks the rating itself."""
+    from interactions.models import Notification
+
+    stars = rating.rating_stars
+    name = rater.first_name or 'Someone'
+    try:
+        Notification.rating_notification(
+            recipient=rated_user,
+            message=f"{name} rated your session {stars} out of 5.",
+            related_booking=booking,
+            sender=rater,
+        )
+    except Exception:
+        logging.getLogger(__name__).exception('Could not create rating notification')
+
+
 
 def create_rating(user, booking, rating_stars, rating_comment=''):
     if user == booking.student:
@@ -627,6 +645,7 @@ def create_rating(user, booking, rating_stars, rating_comment=''):
         )
 
     update_rating(rated_user, rated_role)
+    _notify_rating_received(rating, rated_user, user, booking)
 
     return rating
 
@@ -638,6 +657,11 @@ def get_ratings(user, rated_role):
         return Rating.objects.filter(tutor=user, rated_role=Rating.RatedRole.TUTOR).order_by('-rating_created_time')
     else:
         raise ValueError("Error: no role (student/tutor) provided.")
+
+def _rating_stats(user, rated_role):
+    from .rating_summary import stats_for_user
+    return stats_for_user(user, rated_role)
+
 
 
 def get_user_details(user, role):
@@ -656,6 +680,8 @@ def get_user_details(user, role):
             for course in tutor_profile.courses_passed.all().order_by('course_code')
         ]
 
+        stats = _rating_stats(user, Rating.RatedRole.TUTOR)
+
         return {
             'id': user.id,
             'first_name': user.first_name,
@@ -663,6 +689,8 @@ def get_user_details(user, role):
             'email': user.email,
             'bio': tutor_profile.bio,
             'average_rating': tutor_profile.display_tutor_rating,
+            'rating_avg': stats['avg'],
+            'rating_count': stats['count'],
             'suggested_price': str(calc_price_suggestion(user)),
             'courses_passed': courses,
         }
@@ -682,6 +710,7 @@ def get_user_details(user, role):
             for course in student_profile.courses.all().order_by('course_code')
         ]
 
+        stats = _rating_stats(user, Rating.RatedRole.STUDENT)
         return {
             'id': user.id,
             'first_name': user.first_name,
@@ -690,6 +719,8 @@ def get_user_details(user, role):
             'major': student_profile.major,
             'semester': student_profile.semester,
             'average_rating': student_profile.display_student_rating,
+            'rating_avg': stats['avg'],
+            'rating_count': stats['count'],
             'courses': courses,
         }
     else:
@@ -931,3 +962,4 @@ def serialize_student_dashboard(dashboard):
             for tutoring_request in dashboard['open_requests']
         ],
     }
+

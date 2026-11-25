@@ -5,10 +5,11 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/requests.css' %}?v=5" />
+<link rel="stylesheet" href="{% static 'css/home.css' %}?v=2" />
 {% endblock %}
 
 {% block content %}
-<div class="home-page">
+<div class="home-page role-home">
   <div class="container home-page-inner">
     {% csrf_token %}
     <header class="student-home-hero mb-4">
@@ -260,7 +261,7 @@
                     </div>
                   </div>
                   <p class="tutor-meta mb-0">
-                    Rating: {{ tutor.average_rating }}
+                    {% include "ratings/_badge.html" with avg=tutor.rating_avg count=tutor.rating_count %}
                     · from ${{ tutor.suggested_price }}/hour
                   </p>
                 </div>

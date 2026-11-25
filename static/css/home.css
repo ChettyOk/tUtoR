@@ -1,0 +1,190 @@
+
+.home-page.role-home {
+  --home-mint: #e3f1e6;
+  --home-sage: #f1f6f1;
+  --home-line: rgba(0, 79, 46, 0.14);
+  padding-top: 0;
+  padding-bottom: 3.5rem;
+  background: var(--home-sage);
+}
+body:has(.role-home),
+body:has(.role-home) .site-shell { background: var(--home-sage); }
+
+/* ---- Hero band (full-bleed, built from the existing header) ---- */
+.role-home .student-home-hero,
+.role-home .tutor-home-hero {
+  position: relative;
+  margin: 0 0 -2.75rem !important;
+  padding: 2.5rem 0 5.25rem;
+  color: var(--paper);
+  background: var(--green);
+  box-shadow: 0 0 0 100vmax var(--green);
+  clip-path: inset(0 -100vmax);
+}
+.role-home .student-home-hero h1,
+.role-home .tutor-home-hero h1 {
+  color: var(--paper);
+  font-size: clamp(1.9rem, 4.5vw, 2.6rem);
+  max-width: none;
+}
+.role-home .student-home-hero .text-muted,
+.role-home .tutor-home-hero .text-muted {
+  color: rgba(255, 253, 248, 0.88) !important;
+  max-width: 38rem;
+}
+.role-home .student-home-hero .kicker,
+.role-home .tutor-home-hero .kicker {
+  color: #bfe3c9;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-size: 0.95rem;
+}
+.role-home .student-home-hero .btn-green,
+.role-home .tutor-home-hero .btn-green {
+  --bs-btn-bg: var(--gold);
+  --bs-btn-border-color: var(--gold);
+  --bs-btn-color: var(--green-deep);
+  --bs-btn-hover-bg: #ffd75e;
+  --bs-btn-hover-border-color: #ffd75e;
+  --bs-btn-hover-color: var(--green-deep);
+  --bs-btn-active-bg: #f2bb1f;
+  --bs-btn-active-border-color: #f2bb1f;
+  --bs-btn-active-color: var(--green-deep);
+  --bs-btn-focus-shadow-rgb: 255, 255, 255;
+  background: var(--gold);
+  border-color: var(--gold);
+  color: var(--green-deep);
+  font-weight: 700;
+}
+.role-home .student-home-hero .btn-green:hover,
+.role-home .tutor-home-hero .btn-green:hover { background: #ffd75e; border-color: #ffd75e; color: var(--green-deep); }
+.role-home .btn:focus-visible,
+.role-home a:focus-visible,
+.role-home input:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+.role-home .student-home-hero a:focus-visible,
+.role-home .tutor-home-hero a:focus-visible { outline-color: var(--paper); }
+
+/* ---- Stats overlap the band ---- */
+.role-home .student-overview-stats,
+.role-home .tutor-overview-stats {
+  position: relative;
+  z-index: 1;
+  gap: 0;
+  background: var(--paper);
+  border-radius: 1.25rem;
+  box-shadow: 0 14px 34px rgba(0, 40, 24, 0.14);
+  overflow: hidden;
+}
+.role-home .tutor-stat {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 1.15rem 1.35rem;
+  border-left: 1px solid var(--home-line);
+}
+.role-home .tutor-stat:nth-child(odd) { border-left: 0; }
+.role-home .tutor-stat:nth-child(n+3) { border-top: 1px solid var(--home-line); }
+@media (min-width: 768px) {
+  .role-home .tutor-stat:nth-child(odd) { border-left: 1px solid var(--home-line); }
+  .role-home .tutor-stat:first-child { border-left: 0; }
+  .role-home .tutor-stat:nth-child(n+3) { border-top: 0; }
+}
+.role-home .tutor-stat-value {
+  font-size: 2.2rem;
+  color: var(--green);
+}
+.role-home .tutor-stat-label {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* ---- Cards: white, borderless, green top edge ---- */
+.role-home .card,
+.role-home .student-overview-grid .tutor-overview-card,
+.role-home .tutor-overview-card,
+.role-home .tutor-card {
+  background: #fff;
+  border: 0;
+  border-top: 4px solid var(--green);
+  border-radius: 1rem;
+  box-shadow: 0 2px 14px rgba(0, 40, 24, 0.07);
+}
+.role-home .tutor-card:hover {
+  border-top-color: var(--green);
+  box-shadow: 0 10px 26px rgba(0, 40, 24, 0.13);
+}
+.role-home .tutor-card.is-favorite {
+  border-top-color: var(--gold);
+  box-shadow: 0 2px 14px rgba(0, 40, 24, 0.07), 0 0 0 2px rgba(255, 200, 46, 0.55);
+}
+.role-home .card .card-body { padding: 1.35rem 1.5rem; }
+.role-home .card h2.h6 {
+  font-size: 1.2rem;
+  color: var(--green-deep);
+}
+
+/* cards nested inside cards stay flat */
+.role-home .card .card { border-top: 0; box-shadow: none; background: var(--home-sage); }
+
+/* inner rows: mint tint instead of outlines */
+.role-home .student-booking,
+.role-home .tutor-slot,
+.role-home .tutor-overview-list li {
+  border: 0;
+  background: var(--home-mint);
+  border-radius: 0.8rem;
+}
+.role-home .student-course-list li { border-color: var(--home-line); }
+.role-home .student-course-code { color: var(--green); }
+
+/* links and counts as quiet green pills */
+.role-home .tutor-list-count {
+  display: inline-block;
+  padding: 0.15rem 0.7rem;
+  border-radius: 999px;
+  background: var(--home-mint);
+  color: var(--green-deep);
+  font-size: 0.85rem;
+}
+.role-home .tutor-list-header .tutor-list-count { padding: 0; background: none; }
+
+/* ---- Search ---- */
+.role-home .student-search {
+  padding: 0.5rem;
+  background: #fff;
+  border-radius: 999px;
+  box-shadow: 0 2px 14px rgba(0, 40, 24, 0.07);
+}
+.role-home .student-search .form-control {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 999px;
+  padding-left: 1.1rem;
+}
+.role-home .student-search .btn { border-radius: 999px; padding-inline: 1.6rem; }
+@media (max-width: 575.98px) {
+  .role-home .student-search { border-radius: 1.25rem; }
+}
+
+/* ---- Tutor section header, no divider rule ---- */
+.role-home .student-discover { border-top: 0; padding-top: 1rem; }
+.role-home .student-discover .kicker { text-transform: none; letter-spacing: 0; font-size: 0.95rem; }
+.role-home .tutor-filter-toggle { background: #fff; border-color: var(--home-line); }
+
+/* Open-request item keeps its gold edge; soften the box */
+.role-home .req-card { border: 0; background: var(--home-sage); box-shadow: none; }
+
+/* Footer: lighter, shorter */
+body:has(.role-home) .site-footer { padding: 1.25rem 0; }
+
+@media (max-width: 575.98px) {
+  .role-home .student-home-hero,
+  .role-home .tutor-home-hero { padding: 1.75rem 0 4.75rem; }
+  .role-home .tutor-stat { padding: 0.95rem 1rem; }
+  .role-home .tutor-stat-value { font-size: 1.8rem; }
+  .role-home .card .card-body { padding: 1.1rem 1.1rem; }
+}

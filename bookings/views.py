@@ -32,7 +32,14 @@ from .request_pages import (
     guess_course,
 )
 
+from .student_rating_pages import (
+    MAX_COMMENT_LENGTH,
+    build_my_ratings,
+    build_student_past_sessions,
+)
+
 from .rating_pages import MAX_COMMENT_LENGTH, build_past_sessions
+from .rating_summary import build_received_ratings
 
 from .search import (
     SORT_CHOICES,
@@ -1271,3 +1278,50 @@ def tutor_past_sessions_page(request):
         'rated': sessions['rated'],
         'max_comment_length': MAX_COMMENT_LENGTH,
     })
+
+@login_required
+def student_past_sessions_page(request):
+    """STU-05.3: ended sessions where the student can rate the tutor."""
+    if request.user.has_role(User.Role.TUTOR):
+        return redirect('tutor_home')
+
+    sessions = build_student_past_sessions(request.user)
+    return render(request, 'student/past_sessions.html', {
+        'site_name': 'tUtoR',
+        'to_rate': sessions['to_rate'],
+        'rated': sessions['rated'],
+        'max_comment_length': MAX_COMMENT_LENGTH,
+    })
+
+
+@login_required
+def my_ratings_page(request):
+    """STU-05.3: ratings and comments tutors gave this student."""
+    if request.user.has_role(User.Role.TUTOR):
+        return redirect('tutor_home')
+
+    return render(request, 'ratings/my_ratings.html', {
+        'site_name': 'tUtoR',
+        'summary': build_my_ratings(request.user),
+        'kicker': 'Student',
+        'intro': 'What tutors thought of working with you after your sessions.',
+        'comments_heading': 'Comments from tutors',
+        'empty_copy': 'After a session finishes, your tutor can rate it. Your average and their comments will show up here.',
+        'home_url': reverse('student_home'),
+    })
+
+@login_required
+def tutor_my_ratings_page(request):
+    """TUT-07.2: ratings and comments students gave this tutor."""
+    if not request.user.has_role(User.Role.TUTOR):
+        return redirect('student_home')
+
+    return render(request, 'ratings/my_ratings.html', {
+        'site_name': 'tUtoR',
+        'summary': build_received_ratings(request.user, Rating.RatedRole.TUTOR),
+        'kicker': 'Tutor',
+        'intro': 'What students thought of their sessions with you.',
+        'comments_heading': 'Comments from students',
+        'empty_copy': 'After a session finishes, your student can rate it. Your average and their comments will show up here.',
+        'home_url': reverse('tutor_home'),
+     })
