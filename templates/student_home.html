@@ -98,11 +98,10 @@
                 <a href="{% url 'my_ratings' %}" class="student-inline-link">My ratings</a>
                 {% include "ratings/_badge.html" with avg=my_rating_avg count=my_rating_count %}
               </div>
-             </div>
+            </div>
             {% if booked_count %}
             <p class="tutor-list-count mb-3" role="status">{{ booked_count }} upcoming</p>
             {% endif %}
-            </div>
             <div id="booking-alert" class="alert alert-danger" role="alert" hidden></div>
             <div id="booking-success" class="alert alert-success" role="status" hidden></div>
             {% if bookings %}
