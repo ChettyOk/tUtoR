@@ -632,15 +632,19 @@ def student_home(request):
 
     if request.user.has_role('tutor'):
         return redirect('tutor_home')
-    from interactions.models import Notification
+    
 
     profile = StudentProfile.objects.filter(user=request.user).first()
     courses = profile.courses.order_by('course_code') if profile else []
     tutors = _tutors_for_student(profile)
+    my_rating = stats_for_user(request.user, Rating.RatedRole.STUDENT)
     context = {
         'site_name': 'tUtoR',
         'campus': 'University of Regina',
         'tutors': tutors,
+        'to_rate_count': count_tutors_to_rate(request.user),
+        'my_rating_avg': my_rating['avg'],
+        'my_rating_count': my_rating['count'],
     }
     context.update(_student_home_overview(request.user, profile, courses))
     return render(request, 'student_home.html', context)

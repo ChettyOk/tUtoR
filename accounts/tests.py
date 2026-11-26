@@ -3482,6 +3482,20 @@ class TutorDashboardViewTests(TestCase):
 #------------------------------------------------ TESTS FOR LOAD COURSES -----------------------------------------------------------------------
 #************************************************************************************************************************************************
 
+
+class StudentHomePastSessionsLinkTests(TestCase):
+    def test_student_home_links_to_past_sessions_and_ratings(self):
+        from django.contrib.auth import get_user_model
+        from django.urls import reverse
+        User = get_user_model()
+        User.objects.create_user(email='ps_s@example.com', password='pw12345!', role='student')
+        self.client.login(username='ps_s@example.com', password='pw12345!')
+        resp = self.client.get(reverse('student_home'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, reverse('student_past_sessions'))
+        self.assertContains(resp, reverse('my_ratings'))
+
+
 class ParseCatalogueTests(SimpleTestCase):
     def parse(self, text):
         return dict(parse_catalogue_lines(text.split('\n')))
